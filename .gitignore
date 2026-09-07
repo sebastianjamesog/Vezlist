@@ -1,0 +1,27 @@
+# Local secrets and environment overrides
+**/.env
+**/.env.local
+**/.dev.vars
+!**/.env.example
+!**/.env.local.example
+
+# Java build output
+**/target/
+*.class
+
+# Node / Next.js / Cloudflare build output
+**/node_modules/
+**/.next/
+**/.open-next/
+**/.wrangler/
+**/dist/
+**/coverage/
+
+# Logs and local tooling
+*.log
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+.codex/
+.agents/

@@ -1,0 +1,21 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "vezlist",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-08-22",
+  // OpenNext runs the Next server inside the worker, so it needs Node built-ins.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  // Prerendered HTML and ISR payloads live here rather than in the bundle, so a
+  // revalidate is a write to the bucket instead of a redeploy. Create it once:
+  //   npx wrangler r2 bucket create vezlist-next-cache
+  "r2_buckets": [
+    {
+      "binding": "NEXT_INC_CACHE_R2_BUCKET",
+      "bucket_name": "vezlist-next-cache"
+    }
+  ]
+}
