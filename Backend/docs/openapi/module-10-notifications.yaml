@@ -1,0 +1,111 @@
+openapi: 3.1.0
+info:
+  title: Vezlist notifications API
+  version: 1.0.0
+  description: Persistent, current-account inbox. Site scope is mandatory. In-app delivery is always enabled; email/push preferences use the existing me/preferences API. POST requests require CSRF.
+security:
+  - cookieSession: []
+paths:
+  /api/v1/me/notifications:
+    get:
+      summary: List current user's notifications newest first
+      parameters:
+        - $ref: '#/components/parameters/Site'
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 24 }
+        - name: cursor
+          in: query
+          description: Pass the previous nextCursor unchanged; positive decimal sequence bounded by signed 64-bit range.
+          schema: { type: string, pattern: '^[1-9][0-9]{0,18}$' }
+      responses:
+        '200':
+          description: Bounded page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, maxItems: 50, items: { $ref: '#/components/schemas/Notification' } }
+                  nextCursor: { type: [string, 'null'] }
+        '400': { description: Missing or invalid scope, limit, or cursor }
+        '401': { description: Authentication required }
+        '403': { description: Account disabled }
+  /api/v1/me/notifications/unread-count:
+    get:
+      summary: Count current user's unread notifications in one site
+      parameters:
+        - $ref: '#/components/parameters/Site'
+      responses:
+        '200': { $ref: '#/components/responses/Count' }
+        '400': { description: Missing or invalid scope }
+        '401': { description: Authentication required }
+        '403': { description: Account disabled }
+  /api/v1/me/notifications/{id}/read:
+    post:
+      summary: Mark an owned notification read; repeated calls preserve the original read timestamp
+      parameters:
+        - $ref: '#/components/parameters/Site'
+        - $ref: '#/components/parameters/Csrf'
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/Count' }
+        '400': { description: Invalid ID or scope }
+        '401': { description: Authentication required }
+        '403': { description: Missing/invalid CSRF or disabled account }
+        '404': { description: Unknown notification, another owner, or another site }
+  /api/v1/me/notifications/read-all:
+    post:
+      summary: Mark current user's existing unread notifications read in one site
+      description: Idempotent. Later arrivals remain unread. Does not modify another site's inbox.
+      parameters:
+        - $ref: '#/components/parameters/Site'
+        - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200': { $ref: '#/components/responses/Count' }
+        '400': { description: Missing or invalid scope }
+        '401': { description: Authentication required }
+        '403': { description: Missing/invalid CSRF or disabled account }
+components:
+  securitySchemes:
+    cookieSession: { type: apiKey, in: cookie, name: SESSION }
+  parameters:
+    Site:
+      name: site
+      in: query
+      required: true
+      schema: { type: string, enum: [MARKETPLACE, PERSONALS] }
+    Csrf:
+      name: X-XSRF-TOKEN
+      in: header
+      required: true
+      description: Token returned by the existing auth/csrf endpoint (use its headerName).
+      schema: { type: string }
+  schemas:
+    Notification:
+      type: object
+      required: [id, type, title, message, href, createdAt, readAt]
+      properties:
+        id: { type: string, format: uuid }
+        type:
+          type: string
+          enum: [LISTING_APPROVED, LISTING_REJECTED, LISTING_REMOVED, LISTING_EXPIRING, LISTING_SAVED_AGGREGATE, SUPPORT_REPLY, PAYMENT_EVENT, SECURITY_EVENT]
+        title: { type: string, maxLength: 120 }
+        message: { type: string, maxLength: 500 }
+        href: { type: string, maxLength: 200, description: Fixed same-site relative application route }
+        createdAt: { type: string, format: date-time }
+        readAt: { type: [string, 'null'], format: date-time }
+  responses:
+    Count:
+      description: Current unread count for this account and site
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [count]
+            properties:
+              count: { type: integer, format: int64, minimum: 0 }

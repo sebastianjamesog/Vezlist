@@ -2,6 +2,9 @@ package cc.vezlist.users.application;
 
 import java.util.Locale;
 import java.util.UUID;
+import cc.vezlist.notifications.application.NotificationPublisher;
+import cc.vezlist.notifications.domain.NotificationType;
+import cc.vezlist.shared.domain.SiteScope;
 
 import cc.vezlist.identity.application.EmailAlreadyRegisteredException;
 import cc.vezlist.identity.domain.User;
@@ -30,6 +33,7 @@ public class UserProfileService {
     private final UserPrivacySettingsRepository privacySettings;
     private final AccountDeletionRequestRepository deletionRequests;
     private final PasswordEncoder passwordEncoder;
+    private final NotificationPublisher notifications;
 
     public UserProfileService(
             UserRepository users,
@@ -37,13 +41,15 @@ public class UserProfileService {
             UserPreferencesRepository preferences,
             UserPrivacySettingsRepository privacySettings,
             AccountDeletionRequestRepository deletionRequests,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            NotificationPublisher notifications) {
         this.users = users;
         this.profiles = profiles;
         this.preferences = preferences;
         this.privacySettings = privacySettings;
         this.deletionRequests = deletionRequests;
         this.passwordEncoder = passwordEncoder;
+        this.notifications = notifications;
     }
 
     @Transactional
@@ -117,6 +123,10 @@ public class UserProfileService {
         }
         user.changePassword(passwordEncoder.encode(newPassword));
         users.save(user);
+        UUID eventId = UUID.randomUUID();
+        for (SiteScope site : SiteScope.values()) {
+            notifications.publish(eventId, userId, site, NotificationType.SECURITY_EVENT, userId);
+        }
     }
 
     @Transactional

@@ -603,7 +603,46 @@ The server half of the app is `app/` and nothing else.
 
 ## Notes
 
-- Data is static mock data in `packages/shared/src/data/mock.js`; swap it for API calls at the page level.
+### Module 10 notifications
+
+Both sites use the authenticated `/me/notifications` API for the inbox, keyset
+pagination, unread count, and read-one/read-all actions. Top-bar and profile badges
+share a session-scoped query cache; no notification fixtures are used in production.
+The cache is discarded on account/session replacement and ignores stale requests.
+Unread counts refresh every 30 seconds while visible and on window focus; an inbox
+already loaded is refreshed alongside the count. Refresh and retry controls are
+available, and failed writes never falsely mark an alert as read.
+
+In-app notifications are always available. The existing Account Settings email/push
+preferences control optional delivery channels on the backend; push provider/device
+registration and email deployment configuration are separate operational concerns.
+
+Run `npm test`, `npm run build:all`, and `npm run test:browser` to verify. Notification
+browser scenarios run real Next/React UI on both sites with **mocked HTTP APIs**;
+they cover authentication, badges, CSRF/site scope, read durability across browser
+reloads, failed reads/writes, empty state, and pagination. They are not live
+frontend-to-backend acceptance tests. Backend persistence and isolation require the
+backend integration suite.
+
+An additional **opt-in live smoke** closes that API integration gap for the Module
+10 inbox: from `Backend`, run `mvn -Pintegration -Dtest=NotificationBrowserIT test`.
+It requires Docker/Testcontainers, installed frontend npm dependencies, and local
+Chrome (or a Playwright Chromium install / `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`).
+The harness starts isolated Postgres and Spring Boot, provisions an ephemeral user
+with two alerts per site, and supplies `VEZLIST_LIVE_API_BASE_URL`,
+`VEZLIST_LIVE_EMAIL`, and `VEZLIST_LIVE_PASSWORD` to `npm run test:browser:live`.
+Do not point it at a shared/production account: it marks the seeded notifications
+read. The frontend configuration only accepts a `127.0.0.1` HTTP backend.
+
+This separate suite starts Next on ports 3200/3201 with `.next-live` build output
+and real login/session/CSRF calls, validates site-scoped responses, and verifies
+read-one/read-all persistence after reload. It has **no HTTP interception**. Only
+the Personals age-gate acknowledgement is set locally for the adult test account.
+Live tests are excluded from the regular mocked browser suite; credentials are
+never logged and trace/video/screenshot/AI page-snapshot recording is disabled for
+this suite. See [live browser prerequisites](e2e-live/README.md).
+
+- Some unfinished screens still use `packages/shared/src/data/mock.js`; implemented account, listing, seller, moderation, and notification flows use backend APIs.
 - Icons referenced from data go through `Icon`'s explicit registry — an unregistered
   name silently renders a blank circle, so add new ones there when you add data.
   Filtering runs client-side over that array — move it into the query when there's an API.

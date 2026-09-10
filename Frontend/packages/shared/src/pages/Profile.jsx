@@ -11,6 +11,7 @@ import ConfirmDialog from "../components/ui/ConfirmDialog";
 import { useSaved } from "../context/SavedStore";
 import { useToast } from "../context/ToastContext";
 import { useAuth } from "../context/AuthContext";
+import { useNotifications } from "../context/NotificationsContext";
 import { api } from "../lib/api";
 import { profile as mockProfile, profileMenu } from "../data/mock";
 
@@ -34,6 +35,7 @@ function Stat({ value, label }) {
 }
 
 export default function Profile() {
+  const { count: unreadCount, countError: unreadError } = useNotifications();
   const {
     count: savedCount,
     countKnown: savedCountKnown,
@@ -133,16 +135,24 @@ export default function Profile() {
                       className="size-[22px]"
                       strokeWidth={2.2}
                     />
-                    {item.dot && (
-                      <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-red-500 ring-2 ring-surface" />
-                    )}
+                    {item.id === "notifications" &&
+                      unreadCount > 0 &&
+                      !unreadError && (
+                        <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-red-500 ring-2 ring-surface" />
+                      )}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-[16px] font-bold leading-tight text-ink">
                       {item.label}
                     </span>
                     <span className="mt-0.5 block truncate text-[13px] text-muted">
-                      {item.id === "saved" ? savedSubtitle : item.sub}
+                      {item.id === "saved"
+                        ? savedSubtitle
+                        : item.id === "notifications" &&
+                            unreadCount != null &&
+                            !unreadError
+                          ? `${unreadCount} unread notifications`
+                          : item.sub}
                     </span>
                   </span>
                   <ChevronRight className="size-5 shrink-0 text-muted" />

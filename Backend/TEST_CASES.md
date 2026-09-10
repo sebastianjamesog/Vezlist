@@ -289,6 +289,20 @@ Frontend moderation tests cover submission failures, validation, and owner-query
 state. Browser smoke tests exercise both apps with intercepted API responses;
 they are separate from the database-backed controller tests.
 
+### Module 10 automated coverage
+
+`NotificationIntegrationTest` covers event capture and safe messages, scoped
+inbox/read counts, read persistence/idempotency, CSRF, invalid inputs, pagination,
+concurrent duplicate publishing/workers, originating-transaction rollback,
+partial-delivery rollback/retry, provider retry exhaustion and stable idempotency
+keys, preference changes, disabled accounts, save aggregation, expiry renewal,
+and password-change security events. Test providers never contact external services.
+
+Frontend tests cover runtime response validation, session-isolated query state,
+request errors, stale responses, and confirmed read mutations. The default browser
+suite uses mocked HTTP. The opt-in `NotificationBrowserIT` launches real frontend
+browsers against Spring and an isolated PostgreSQL database for inbox/read flows.
+
 ### Release checks
 
 1. Run `mvn --batch-mode verify`.
