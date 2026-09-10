@@ -23,6 +23,7 @@ import cc.vezlist.listings.persistence.ListingIdempotencyKeyRepository;
 import cc.vezlist.listings.persistence.ListingRepository;
 import cc.vezlist.listings.web.ListingResponse;
 import cc.vezlist.listings.web.ListingWriteRequest;
+import cc.vezlist.media.application.ListingMediaService;
 import cc.vezlist.shared.domain.SiteScope;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +40,7 @@ public class ListingService {
     private final LocationRepository locations;
     private final CatalogService catalog;
     private final ObjectMapper objectMapper;
+    private final ListingMediaService media;
 
     public ListingService(
             ListingRepository listings,
@@ -47,7 +49,8 @@ public class ListingService {
             CategoryRepository categories,
             LocationRepository locations,
             CatalogService catalog,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            ListingMediaService media) {
         this.listings = listings;
         this.idempotencyKeys = idempotencyKeys;
         this.events = events;
@@ -55,6 +58,7 @@ public class ListingService {
         this.locations = locations;
         this.catalog = catalog;
         this.objectMapper = objectMapper;
+        this.media = media;
     }
 
     @Transactional
@@ -65,7 +69,7 @@ public class ListingService {
                 .orElse(null);
         if (previous != null) {
             requireSameFingerprint(previous, fingerprint);
-            return ListingResponse.from(requireListing(previous.getListingId()));
+            return response(requireListing(previous.getListingId()), true);
         }
 
         References references = validateReferences(request);
@@ -77,7 +81,7 @@ public class ListingService {
         events.save(new ListingEvent(listing.getId(), "LISTING_CREATED"));
         idempotencyKeys.save(new ListingIdempotencyKey(
                 ownerId, CREATE, idempotencyKey, fingerprint, listing.getId()));
-        return ListingResponse.from(listing);
+        return response(listing, true);
     }
 
     @Transactional
@@ -94,7 +98,7 @@ public class ListingService {
             throw new ListingStateException(exception.getMessage());
         }
         events.save(new ListingEvent(listingId, "LISTING_UPDATED"));
-        return ListingResponse.from(listing);
+        return response(listing, true);
     }
 
     @Transactional
@@ -105,10 +109,11 @@ public class ListingService {
                 .orElse(null);
         if (previous != null) {
             requireSameFingerprint(previous, fingerprint);
-            return ListingResponse.from(requireOwned(ownerId, previous.getListingId()));
+            return response(requireOwned(ownerId, previous.getListingId()), true);
         }
 
         Listing listing = requireOwned(ownerId, listingId);
+        media.requireReadyImage(listingId);
         try {
             listing.submit();
         } catch (IllegalStateException exception) {
@@ -117,12 +122,13 @@ public class ListingService {
         events.save(new ListingEvent(listingId, "LISTING_SUBMITTED"));
         idempotencyKeys.save(new ListingIdempotencyKey(
                 ownerId, SUBMIT, idempotencyKey, fingerprint, listingId));
-        return ListingResponse.from(listing);
+        return response(listing, true);
     }
 
     @Transactional
     public void delete(UUID ownerId, UUID listingId) {
         Listing listing = requireOwned(ownerId, listingId);
+        media.deleteAll(listingId);
         listing.delete();
         events.save(new ListingEvent(listingId, "LISTING_DELETED"));
     }
@@ -133,13 +139,13 @@ public class ListingService {
         if (listing.getSiteScope() != site) throw new ListingNotFoundException();
         boolean owner = requesterId != null && requesterId.equals(listing.getOwnerId());
         if (listing.getStatus() != ListingStatus.ACTIVE && !owner) throw new ListingNotFoundException();
-        return ListingResponse.from(listing);
+        return response(listing, owner);
     }
 
     @Transactional(readOnly = true)
     public List<ListingResponse> owned(UUID ownerId, SiteScope site) {
         return listings.findOwned(ownerId, site, ListingStatus.DELETED).stream()
-                .map(ListingResponse::from)
+                .map(listing -> response(listing, true))
                 .toList();
     }
 
@@ -174,6 +180,12 @@ public class ListingService {
         } catch (JsonProcessingException | NoSuchAlgorithmException exception) {
             throw new IllegalStateException("Could not fingerprint listing request.", exception);
         }
+    }
+
+    private ListingResponse response(Listing listing, boolean includePrivateMedia) {
+        return ListingResponse.from(
+                listing,
+                media.responses(listing.getId(), includePrivateMedia));
     }
 
     private record References(Category category, Location location) {

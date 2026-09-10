@@ -1,13 +1,17 @@
 package cc.vezlist.listings.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.BDDMockito.given;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -18,13 +22,17 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+
+import cc.vezlist.media.storage.ObjectStorage;
 
 @Testcontainers
 @Tag("integration")
@@ -46,8 +54,20 @@ class ListingControllerIntegrationTest {
     @Autowired
     private TestRestTemplate rest;
 
+    @Autowired
+    private JdbcTemplate jdbc;
+
+    @MockitoBean
+    private ObjectStorage storage;
+
     @LocalServerPort
     private int port;
+
+    @BeforeEach
+    void configureStorage() {
+        given(storage.authorizeDownload(anyString()))
+                .willAnswer(invocation -> URI.create("https://media.test/" + invocation.getArgument(0)));
+    }
 
     @Test
     void draftLifecycleIsOwnedScopedAndIdempotent() {
@@ -91,6 +111,13 @@ class ListingControllerIntegrationTest {
                 "/api/v1/listings/" + listingId + "?site=MARKETPLACE", HttpMethod.GET,
                 null, other, null, Map.class);
         assertThat(hiddenFromOther.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        ResponseEntity<Map> incompleteSubmit = exchange(
+                "/api/v1/listings/" + listingId + "/submit", HttpMethod.POST, null,
+                owner, "submit-without-media", Map.class);
+        assertThat(incompleteSubmit.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        addReadyImage(listingId);
 
         ResponseEntity<Map> submitted = exchange(
                 "/api/v1/listings/" + listingId + "/submit", HttpMethod.POST, null,
@@ -205,6 +232,23 @@ class ListingControllerIntegrationTest {
                 Map.entry("contactEmail", "seller@example.test"),
                 Map.entry("contactPhone", "+1 250 555 0100"),
                 Map.entry("attributes", Map.of("condition", "Used")));
+    }
+
+    private void addReadyImage(String listingId) {
+        UUID mediaId = UUID.randomUUID();
+        jdbc.update("""
+                insert into listing_media (
+                    id, listing_id, object_key, original_filename, content_type,
+                    size_bytes, checksum_sha256, status, position, upload_expires_at, ready_at
+                ) values (?, ?::uuid, ?, ?, ?, ?, ?, 'READY', 0, now() + interval '10 minutes', now())
+                """,
+                mediaId,
+                listingId,
+                "marketplace/listings/" + listingId + "/" + mediaId + ".jpg",
+                "test.jpg",
+                "image/jpeg",
+                3,
+                "a".repeat(64));
     }
 
     private Session register(String email) {

@@ -59,7 +59,7 @@ PATCH  /api/v1/me/password
 DELETE /api/v1/me
 ```
 
-Account deletion returns HTTP 202 and records a pending request; it does not immediately hard-delete user data. Profile-photo upload is intentionally deferred to Module 5 because media validation and storage must be implemented together.
+Account deletion returns HTTP 202 and records a pending request; it does not immediately hard-delete user data. Profile-photo upload is separate from the Module 5 listing-media endpoints and remains future work.
 
 ## Category and location endpoints (Module 3)
 
@@ -86,7 +86,20 @@ GET    /api/v1/me/listings?site=MARKETPLACE
 DELETE /api/v1/listings/{listingId}
 ```
 
-The Create Ad, My Ads, edit/delete, and listing-detail frontend flows now use these endpoints. Listing media is returned as an empty list until Module 5 adds signed uploads and persistent galleries.
+The Create Ad, My Ads, edit/delete, and listing-detail frontend flows use these endpoints.
+
+## Media endpoints (Module 5)
+
+Media writes require an authenticated session and an editable `DRAFT` or `REJECTED` listing. The browser uploads directly to the returned short-lived MinIO/S3 URL and must send every `requiredHeaders` entry unchanged.
+
+```text
+POST   /api/v1/listings/{listingId}/media/upload-url
+POST   /api/v1/listings/{listingId}/media/{mediaId}/complete
+PATCH  /api/v1/listings/{listingId}/media/order
+DELETE /api/v1/listings/{listingId}/media/{mediaId}
+```
+
+JPEG, PNG, and WebP images up to 10 MB are accepted, with a maximum of six per listing. The API verifies the actual file signature, size, SHA-256 checksum, and stored metadata asynchronously. Only `READY` media receives a short-lived delivery URL. Local MinIO allows the two frontend development origins configured by `VEZLIST_CORS_ALLOWED_ORIGINS`.
 
 ## Verify
 
@@ -99,4 +112,4 @@ Docker is not required for the fast tests. The integration command uses Testcont
 
 ## Next module
 
-Module 5 — Media: signed image uploads, validation, ordering, cover images, and persistent galleries.
+Module 6 — Discovery: public active-listing search, filters, sorting, and cursor pagination.

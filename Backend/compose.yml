@@ -33,6 +33,7 @@ services:
     environment:
       MINIO_ROOT_USER: ${VEZLIST_MINIO_ROOT_USER:?Set VEZLIST_MINIO_ROOT_USER in .env}
       MINIO_ROOT_PASSWORD: ${VEZLIST_MINIO_ROOT_PASSWORD:?Set VEZLIST_MINIO_ROOT_PASSWORD in .env}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${VEZLIST_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001}
     ports:
       - "9000:9000"
       - "9001:9001"

@@ -83,6 +83,7 @@ export default function CreateAdSheet({
   const [errors, setErrors] = useState({});
   const [submitError, setSubmitError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState("");
   const requestKey = useRef(
     globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`,
   );
@@ -92,11 +93,21 @@ export default function CreateAdSheet({
 
   useEffect(() => {
     if (!initialListing) return;
-    setStep(1);
+    setStep(0);
     setDraft({
       ...EMPTY_DRAFT,
       listingId: initialListing.id,
       listingStatus: initialListing.status,
+      images: (initialListing.media ?? [])
+        .filter((media) => media.status === "READY" && media.url)
+        .sort((left, right) => left.position - right.position)
+        .map((media) => ({
+          id: media.id,
+          mediaId: media.id,
+          name: media.fileName,
+          url: media.url,
+          persisted: true,
+        })),
       title: initialListing.title,
       business: initialListing.businessName,
       category: initialListing.categoryLabel,
@@ -111,6 +122,7 @@ export default function CreateAdSheet({
     });
     setErrors({});
     setSubmitError("");
+    setUploadProgress("");
   }, [initialListing]);
 
   const current = STEPS[step];
@@ -126,6 +138,7 @@ export default function CreateAdSheet({
           "categoryId",
           "listingId",
           "listingStatus",
+          "removedMediaIds",
         ].includes(k) && v !== "",
     );
 
@@ -144,6 +157,7 @@ export default function CreateAdSheet({
     });
     setErrors({});
     setSubmitError("");
+    setUploadProgress("");
     requestKey.current = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`;
   }
 
@@ -194,19 +208,32 @@ export default function CreateAdSheet({
   };
 
   function addImages(files) {
+    const acceptedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+    const valid = files.filter(
+      (file) => acceptedTypes.has(file.type) && file.size <= 10 * 1024 * 1024,
+    );
     const room = MAX_IMAGES - draft.images.length;
-    const picked = files.slice(0, Math.max(room, 0));
+    const picked = valid.slice(0, Math.max(room, 0));
     const added = picked.map((file) => {
       const url = URL.createObjectURL(file);
       previews.current.push(url);
       return {
-        id: `${file.name}-${previews.current.length}`,
+        id:
+          globalThis.crypto?.randomUUID?.() ??
+          `${file.name}-${previews.current.length}`,
         name: file.name,
         url,
+        file,
+        persisted: false,
       };
     });
     patch({ images: [...draft.images, ...added] });
-    if (files.length > room) {
+    if (valid.length !== files.length) {
+      setErrors((e) => ({
+        ...e,
+        images: "Use JPEG, PNG, or WebP files no larger than 10 MB.",
+      }));
+    } else if (files.length > room) {
       setErrors((e) => ({
         ...e,
         images: `Only ${MAX_IMAGES} photos per ad — extras were skipped.`,
@@ -216,9 +243,33 @@ export default function CreateAdSheet({
 
   function removeImage(id) {
     const gone = draft.images.find((i) => i.id === id);
-    if (gone) URL.revokeObjectURL(gone.url);
-    previews.current = previews.current.filter((u) => u !== gone?.url);
-    patch({ images: draft.images.filter((i) => i.id !== id) });
+    if (gone && !gone.persisted) URL.revokeObjectURL(gone.url);
+    previews.current = previews.current.filter((url) => url !== gone?.url);
+    patch({
+      images: draft.images.filter((image) => image.id !== id),
+      removedMediaIds: gone?.mediaId
+        ? [...new Set([...draft.removedMediaIds, gone.mediaId])]
+        : draft.removedMediaIds,
+    });
+  }
+
+  function moveImage(id, offset) {
+    const from = draft.images.findIndex((image) => image.id === id);
+    const to = from + offset;
+    if (from < 0 || to < 0 || to >= draft.images.length) return;
+    const images = [...draft.images];
+    const [moved] = images.splice(from, 1);
+    images.splice(to, 0, moved);
+    patch({ images });
+  }
+
+  function makeCover(id) {
+    const from = draft.images.findIndex((image) => image.id === id);
+    if (from <= 0) return;
+    const images = [...draft.images];
+    const [cover] = images.splice(from, 1);
+    images.unshift(cover);
+    patch({ images });
   }
 
   async function next() {
@@ -227,8 +278,9 @@ export default function CreateAdSheet({
     if (step < STEPS.length - 1) return setStep(step + 1);
     setSubmitting(true);
     setSubmitError("");
+    setUploadProgress("Starting...");
     try {
-      await onPublish(draft, requestKey.current);
+      await onPublish(draft, requestKey.current, setUploadProgress);
       reset();
     } catch (error) {
       setSubmitError(
@@ -236,6 +288,7 @@ export default function CreateAdSheet({
       );
     } finally {
       setSubmitting(false);
+      setUploadProgress("");
     }
   }
 
@@ -319,6 +372,8 @@ export default function CreateAdSheet({
               error={errors.images}
               onAdd={addImages}
               onRemove={removeImage}
+              onMove={moveImage}
+              onMakeCover={makeCover}
             />
           )}
           {current.id === "details" && (
@@ -347,7 +402,7 @@ export default function CreateAdSheet({
             className="brand-gradient flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-[16px] font-bold text-on-brand shadow-pop transition-transform duration-150 hover:brightness-110 active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
           >
             {last && <Sparkles className="size-5" />}
-            {submitting ? "Submitting…" : current.cta}
+            {submitting ? uploadProgress || "Submitting…" : current.cta}
             {!last && <ArrowRight className="size-5" strokeWidth={2.5} />}
           </button>
         </footer>

@@ -9,6 +9,7 @@ import java.util.UUID;
 import cc.vezlist.catalog.domain.Location;
 import cc.vezlist.listings.domain.Listing;
 import cc.vezlist.listings.domain.ListingStatus;
+import cc.vezlist.media.web.ListingMediaResponse;
 import cc.vezlist.shared.domain.SiteScope;
 
 public record ListingResponse(
@@ -34,14 +35,14 @@ public record ListingResponse(
         long version,
         long viewCount,
         long saveCount,
-        List<String> media,
+        List<ListingMediaResponse> media,
         Instant createdAt,
         Instant updatedAt,
         Instant submittedAt,
         Instant publishedAt,
         Instant expiresAt) {
 
-    public static ListingResponse from(Listing listing) {
+    public static ListingResponse from(Listing listing, List<ListingMediaResponse> media) {
         Location location = listing.getLocation();
         Location province = location.getParent();
         return new ListingResponse(
@@ -50,7 +51,7 @@ public record ListingResponse(
                 listing.getCategory().getId(), listing.getCategory().getLabel(),
                 listing.getProvinceId(), province.getLabel(), location.getId(), location.getLabel(),
                 listing.getContactEmail(), listing.getContactPhone(), listing.getLatitude(), listing.getLongitude(),
-                listing.getAttributes(), listing.getVersion(), 0, 0, List.of(),
+                listing.getAttributes(), listing.getVersion(), 0, 0, media,
                 listing.getCreatedAt(), listing.getUpdatedAt(), listing.getSubmittedAt(),
                 listing.getPublishedAt(), listing.getExpiresAt());
     }

@@ -142,7 +142,9 @@ export default function MyAds() {
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {rows.map((listing) => {
               const status = listingStatus(listing.status);
-              const cover = listing.media?.[0];
+              const cover = listing.media?.find(
+                (image) => image.status === "READY" && image.url,
+              )?.url;
               const editable = ["DRAFT", "REJECTED"].includes(listing.status);
               return (
                 <article
