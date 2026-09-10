@@ -21,7 +21,8 @@
     "deploy:personals": "npm run deploy -w @vezlist/personals",
     "deploy:all": "npm run deploy && npm run deploy:personals",
     "test": "node --test",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "test:browser:live": "playwright test --config playwright.live.config.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

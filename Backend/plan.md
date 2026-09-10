@@ -565,6 +565,15 @@ APIs. See `docs/moderation.md` for the policy and verification details.
 
 **Done when:** notification state is durable, events do not create duplicates, and read status persists.
 
+**Implementation status (September 11, 2026): implemented.** V12 adds transactional
+notification events, a site/account-scoped inbox, and delivery history. APIs
+provide bounded keyset pages, unread count, read-one, and read-all. Workers use
+database locks, deduplication, and capped retry; listing decisions, daily save
+aggregates, expiry reminders, and password changes have producers. Both apps use
+API-backed notifications and badges. Email/push remain unconfigured behind an
+idempotent provider interface and respect existing preferences; support/payment
+event types are reserved for their future modules. See `docs/notifications.md`.
+
 #### Module 11 â€” Support
 
 **Depends on:** Modules 1 and 10.

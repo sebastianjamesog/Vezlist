@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Bell, ChevronLeft, Coins } from "lucide-react";
 import Wordmark from "./Wordmark";
+import { useNotifications } from "../../context/NotificationsContext";
 
 /**
  * Glass app bar. Mobile carries the wordmark and two actions; on desktop the
@@ -18,6 +19,7 @@ export default function TopBar({
   exitHref,
   exitLabel = "Home",
 }) {
+  const { count, countError } = useNotifications();
   // The personals site is a separate origin, so its way out is a real
   // navigation; onExit stays for same-origin callers.
   const exitClass =
@@ -76,11 +78,22 @@ export default function TopBar({
         <div className="ml-auto flex items-center gap-2">
           <Link
             href="/profile/notifications"
-            aria-label="Notifications"
+            aria-label={
+              count > 0 && !countError
+                ? `Notifications, ${count} unread`
+                : "Notifications"
+            }
             className="relative grid size-10 place-items-center rounded-full bg-surface text-ink shadow-card transition-transform hover:scale-105 active:scale-95"
           >
             <Bell className="size-[19px]" strokeWidth={2.1} />
-            <span className="absolute right-2.5 top-2.5 size-2 rounded-full bg-red-500 ring-2 ring-surface" />
+            {count > 0 && !countError && (
+              <span
+                aria-hidden="true"
+                className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1 text-center text-[11px] font-bold text-white ring-2 ring-surface"
+              >
+                {count > 99 ? "99+" : count}
+              </span>
+            )}
           </Link>
 
           <Link

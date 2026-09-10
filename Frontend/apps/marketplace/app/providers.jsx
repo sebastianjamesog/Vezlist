@@ -1,6 +1,7 @@
 "use client";
 
 import { AuthProvider } from "@vezlist/shared/context/AuthContext.jsx";
+import { NotificationsProvider } from "@vezlist/shared/context/NotificationsContext.jsx";
 import { SavedProvider } from "@vezlist/shared/context/SavedContext.jsx";
 import { StatusProvider } from "@vezlist/shared/context/StatusContext.jsx";
 import { FeedProvider } from "@vezlist/shared/context/FeedContext.jsx";
@@ -15,11 +16,13 @@ export default function Providers({ children }) {
   return (
     <CatalogProvider>
       <AuthProvider>
-        <SavedProvider>
-          <StatusProvider>
-            <FeedProvider>{children}</FeedProvider>
-          </StatusProvider>
-        </SavedProvider>
+        <NotificationsProvider>
+          <SavedProvider>
+            <StatusProvider>
+              <FeedProvider>{children}</FeedProvider>
+            </StatusProvider>
+          </SavedProvider>
+        </NotificationsProvider>
       </AuthProvider>
     </CatalogProvider>
   );

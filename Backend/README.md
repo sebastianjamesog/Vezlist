@@ -138,6 +138,19 @@ See [the moderation workflow](docs/moderation.md) for staff endpoints, privacy,
 quotas, manual media/eligibility requirements, and rollout limitations, and
 [the API contract](docs/openapi/module-9-moderation.yaml) for request shapes.
 
+## Notifications (Module 10)
+
+Flyway V12 adds the persistent site-scoped inbox, transactional event queue, and
+per-channel delivery records. Both frontends use real unread counts and durable
+read-one/read-all actions. Background workers process listing moderation, daily
+save aggregates, expiry reminders, and password-change security events with
+deduplication and bounded retry. In-app delivery is enabled; email/push providers
+are not configured. Existing preferences govern those optional channels.
+
+See [the notification workflow](docs/notifications.md) and
+[the API contract](docs/openapi/module-10-notifications.yaml) for endpoints,
+privacy, worker operation, and verification instructions.
+
 ## Verification commands
 
 ```powershell
@@ -149,4 +162,4 @@ Docker is not required for the fast tests. The integration command uses Testcont
 
 ## Next module
 
-Module 10 - Notifications: durable in-app notifications and delivery processing.
+Module 11 - Support: persistent tickets, customer replies, and support-agent APIs.

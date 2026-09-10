@@ -66,6 +66,7 @@ export default function Login() {
 
   async function submit(e) {
     e.preventDefault();
+    if (!ready || submitting) return;
     const found = validateAuth(values, mode);
     setErrors(found);
     if (Object.keys(found).length) return;
@@ -188,6 +189,7 @@ export default function Login() {
               <Field label="Full name" error={errors.name}>
                 <input
                   value={values.name}
+                  disabled={!ready || submitting}
                   onChange={(e) => patch({ name: e.target.value })}
                   autoComplete="name"
                   className={`${FIELD} ${border(errors.name)}`}
@@ -198,6 +200,7 @@ export default function Login() {
             <Field label="Email" error={errors.email}>
               <input
                 type="email"
+                disabled={!ready || submitting}
                 value={values.email}
                 onChange={(e) => patch({ email: e.target.value })}
                 placeholder="you@example.com"
@@ -223,6 +226,7 @@ export default function Login() {
               <span className="relative block">
                 <input
                   type={shown ? "text" : "password"}
+                  disabled={!ready || submitting}
                   value={values.password}
                   onChange={(e) => patch({ password: e.target.value })}
                   autoComplete={signup ? "new-password" : "current-password"}
@@ -248,6 +252,7 @@ export default function Login() {
               <label className="flex items-start gap-3">
                 <input
                   type="checkbox"
+                  disabled={!ready || submitting}
                   checked={values.accepted}
                   onChange={(e) => patch({ accepted: e.target.checked })}
                   className="mt-0.5 size-5 shrink-0 accent-[var(--brand)]"
@@ -266,7 +271,7 @@ export default function Login() {
               </label>
             )}
 
-            <Button type="submit" size="lg" className="w-full" disabled={submitting}>
+            <Button type="submit" size="lg" className="w-full" disabled={!ready || submitting}>
               {submitting ? "Please wait…" : signup ? "Create account" : "Sign in"}
               <ArrowRight className="size-5" strokeWidth={2.5} />
             </Button>
