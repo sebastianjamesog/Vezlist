@@ -160,7 +160,7 @@ export default function AdDetail() {
                   <span>
                     <ImageIcon className="mx-auto size-12" strokeWidth={1.5} />
                     <span className="mt-2 block text-[13px] font-semibold">
-                      Photos will be available after media upload is added
+                      This listing does not have a ready photo yet
                     </span>
                   </span>
                 </div>

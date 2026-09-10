@@ -1,7 +1,15 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Camera, ImagePlus, Plus, Star, X } from "lucide-react";
+import {
+  Camera,
+  ChevronLeft,
+  ChevronRight,
+  ImagePlus,
+  Plus,
+  Star,
+  X,
+} from "lucide-react";
 import { MAX_IMAGES } from "../../lib/adDraft";
 
 const TIPS = [
@@ -10,7 +18,14 @@ const TIPS = [
   "Be honest about flaws",
 ];
 
-export default function StepPhotos({ images, error, onAdd, onRemove }) {
+export default function StepPhotos({
+  images,
+  error,
+  onAdd,
+  onRemove,
+  onMove,
+  onMakeCover,
+}) {
   const input = useRef(null);
   const [dragging, setDragging] = useState(false);
   const full = images.length >= MAX_IMAGES;
@@ -37,7 +52,7 @@ export default function StepPhotos({ images, error, onAdd, onRemove }) {
       <input
         ref={input}
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/webp"
         multiple
         className="sr-only"
         onChange={(e) => {
@@ -128,6 +143,34 @@ export default function StepPhotos({ images, error, onAdd, onRemove }) {
                 >
                   <X className="size-3.5" strokeWidth={3} />
                 </button>
+                <span className="absolute bottom-1.5 right-1.5 flex gap-1">
+                  {i > 0 && (
+                    <button
+                      onClick={() => onMove(img.id, -1)}
+                      aria-label={`Move ${img.name} left`}
+                      className="grid size-6 place-items-center rounded-full bg-black/60 text-white backdrop-blur-sm hover:bg-brand"
+                    >
+                      <ChevronLeft className="size-3.5" strokeWidth={3} />
+                    </button>
+                  )}
+                  {i < images.length - 1 && (
+                    <button
+                      onClick={() => onMove(img.id, 1)}
+                      aria-label={`Move ${img.name} right`}
+                      className="grid size-6 place-items-center rounded-full bg-black/60 text-white backdrop-blur-sm hover:bg-brand"
+                    >
+                      <ChevronRight className="size-3.5" strokeWidth={3} />
+                    </button>
+                  )}
+                </span>
+                {i > 0 && (
+                  <button
+                    onClick={() => onMakeCover(img.id)}
+                    className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-white backdrop-blur-sm hover:bg-brand"
+                  >
+                    Make cover
+                  </button>
+                )}
               </div>
             ))}
 

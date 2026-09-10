@@ -37,6 +37,7 @@ export const STEPS = [
 
 export const EMPTY_DRAFT = {
   images: [],
+  removedMediaIds: [],
   title: "",
   business: "",
   category: "",

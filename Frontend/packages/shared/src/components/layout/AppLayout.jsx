@@ -11,6 +11,7 @@ import { api } from "../../lib/api";
 import { SITE } from "../../lib/sites";
 import { useNavigate } from "../../lib/nav";
 import { listingPayload } from "../../lib/listings";
+import { syncListingMedia } from "../../lib/media";
 
 /** The one thing screens need from the shell: a way to open the create sheet. */
 const ShellContext = createContext({ openPost: () => {}, editPost: () => {} });
@@ -45,7 +46,8 @@ function Shell({ children }) {
   };
   const togglePost = () => (postOpen ? setPostOpen(false) : openPost());
 
-  async function handlePublish(values, requestKey) {
+  async function handlePublish(values, requestKey, onProgress) {
+    onProgress("Saving listing...");
     const payload = listingPayload(values, SITE);
     const listing = values.listingId
       ? await api(`/listings/${values.listingId}`, {
@@ -57,6 +59,13 @@ function Shell({ children }) {
           headers: { "Idempotency-Key": `${requestKey}:create` },
           body: payload,
         });
+    await syncListingMedia(
+      listing.id,
+      values.images,
+      values.removedMediaIds,
+      onProgress,
+    );
+    onProgress("Submitting for review...");
     await api(`/listings/${listing.id}/submit`, {
       method: "POST",
       headers: { "Idempotency-Key": `${requestKey}:submit` },

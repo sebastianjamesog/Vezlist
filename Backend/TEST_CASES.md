@@ -164,6 +164,22 @@ npm test
 | TC-MEDIA-004 | Attach more than six images. | Seventh image is rejected. |
 | TC-MEDIA-005 | Upload an unsupported file type/oversized image. | Upload is rejected before public visibility. |
 | TC-MEDIA-006 | Reorder images and select a cover. | Positions persist and cover is correct in listing response. |
+| TC-MEDIA-007 | Complete an upload after its signed authorization expires. | HTTP 409; the stale media reservation and object are removed. |
+| TC-MEDIA-008 | Delete a listing that has uploaded images. | Database records and stored objects are removed. |
+| TC-MEDIA-009 | Upload bytes whose signature or checksum differs from the request. | Media becomes `REJECTED`, receives no delivery URL, and the object is removed. |
+| TC-MEDIA-010 | Refresh and reopen a draft containing ready media. | The gallery, order, and cover reload from persisted API data. |
+
+### Automated media suite
+
+`ImageInspectorTest` verifies byte limits, signatures, and SHA-256 inspection. `ListingMediaControllerIntegrationTest` covers authorization, ownership, validation, the six-image limit, asynchronous processing, ordering/cover selection, expiry, deletion, and listing cleanup. Frontend tests cover checksum generation and ready-only response mapping.
+
+```powershell
+mvn --batch-mode test
+mvn --batch-mode -Pintegration verify
+cd ../Frontend
+npm test
+npm run build:all
+```
 
 ## Phase 2 — Planned test cases
 

@@ -9,6 +9,9 @@ import cc.vezlist.identity.web.InvalidCredentialsException;
 import cc.vezlist.listings.application.IdempotencyConflictException;
 import cc.vezlist.listings.application.ListingNotFoundException;
 import cc.vezlist.listings.application.ListingStateException;
+import cc.vezlist.media.application.MediaNotFoundException;
+import cc.vezlist.media.application.MediaStateException;
+import cc.vezlist.media.application.MediaValidationException;
 import cc.vezlist.users.application.CurrentPasswordInvalidException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
@@ -84,14 +87,26 @@ public class ApiExceptionHandler {
                 request);
     }
 
-    @ExceptionHandler(ListingNotFoundException.class)
+    @ExceptionHandler({ListingNotFoundException.class, MediaNotFoundException.class})
     ResponseEntity<ApiError> handleListingNotFound(
-            ListingNotFoundException exception,
+            RuntimeException exception,
             HttpServletRequest request) {
         return error(HttpStatus.NOT_FOUND, "LISTING_NOT_FOUND", exception.getMessage(), List.of(), request);
     }
 
-    @ExceptionHandler({ListingStateException.class, IdempotencyConflictException.class,
+    @ExceptionHandler(MediaValidationException.class)
+    ResponseEntity<ApiError> handleMediaValidation(
+            MediaValidationException exception,
+            HttpServletRequest request) {
+        return error(
+                HttpStatus.BAD_REQUEST,
+                "MEDIA_VALIDATION_ERROR",
+                exception.getMessage(),
+                List.of(),
+                request);
+    }
+
+    @ExceptionHandler({ListingStateException.class, MediaStateException.class, IdempotencyConflictException.class,
             ObjectOptimisticLockingFailureException.class})
     ResponseEntity<ApiError> handleListingConflict(
             Exception exception,

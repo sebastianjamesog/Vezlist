@@ -68,6 +68,18 @@ test("listingToAd creates a safe detail view when media is pending Module 5", ()
   assert.equal(ad.statusLabel, "In review");
 });
 
+test("listingToAd exposes only ready media URLs in persisted order", () => {
+  const ad = listingToAd({
+    ...listing,
+    media: [
+      { id: "ready", status: "READY", url: "https://cdn.test/ready.jpg" },
+      { id: "processing", status: "PROCESSING", url: null },
+    ],
+  });
+  assert.deepEqual(ad.photos, ["https://cdn.test/ready.jpg"]);
+  assert.equal(ad.photoCount, 1);
+});
+
 test("status and relative time labels cover known and unknown values", () => {
   assert.equal(listingStatus("ACTIVE").label, "Active");
   assert.equal(listingStatus("SUSPENDED").label, "SUSPENDED");

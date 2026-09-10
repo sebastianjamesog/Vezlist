@@ -9,14 +9,23 @@ import cc.vezlist.listings.domain.ListingStatus;
 import cc.vezlist.shared.domain.SiteScope;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import jakarta.persistence.LockModeType;
 
 public interface ListingRepository extends JpaRepository<Listing, UUID> {
 
     @EntityGraph(attributePaths = {"category", "location", "location.parent", "attributes"})
     @Query("select listing from Listing listing where listing.id = :id and listing.status <> :deleted")
     Optional<Listing> findDetailedById(
+            @Param("id") UUID id,
+            @Param("deleted") ListingStatus deleted);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"category", "location", "location.parent", "attributes"})
+    @Query("select listing from Listing listing where listing.id = :id and listing.status <> :deleted")
+    Optional<Listing> findDetailedByIdForUpdate(
             @Param("id") UUID id,
             @Param("deleted") ListingStatus deleted);
 

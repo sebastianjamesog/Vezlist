@@ -229,7 +229,7 @@ DELETE /api/v1/listings/{listingId}
 GET    /api/v1/me/listings
 
 POST   /api/v1/listings/{listingId}/media/upload-url
-POST   /api/v1/listings/{listingId}/media/complete
+POST   /api/v1/listings/{listingId}/media/{mediaId}/complete
 DELETE /api/v1/listings/{listingId}/media/{mediaId}
 PATCH  /api/v1/listings/{listingId}/media/order
 
@@ -396,7 +396,7 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 
 **Depends on:** Module 1.
 
-**Implementation status (September 7, 2026): complete for the Module 2 scope.** Flyway V4 creates separate profile, notification-preference, privacy-setting, and auditable deletion-request tables. Authenticated profile/preference read and update APIs, password change with other-session revocation, validation, duplicate-email handling, redacted password logging, and idempotent deletion requests are implemented. The Marketplace and Personals shared frontend now uses these APIs for the profile header, personal details, settings toggles, password change, and account deletion. Avatar storage is represented by `avatar_url`; upload and processing intentionally begins in Module 5 (Media).
+**Implementation status (September 7, 2026): complete for the Module 2 scope.** Flyway V4 creates separate profile, notification-preference, privacy-setting, and auditable deletion-request tables. Authenticated profile/preference read and update APIs, password change with other-session revocation, validation, duplicate-email handling, redacted password logging, and idempotent deletion requests are implemented. The Marketplace and Personals shared frontend now uses these APIs for the profile header, personal details, settings toggles, password change, and account deletion. Avatar storage is represented by `avatar_url`; a dedicated profile-photo upload flow remains a future enhancement outside the Module 5 listing-media scope.
 
 1. Create `user_profiles`, `user_preferences`, and `user_privacy_settings` migrations.
 2. Define profile DTOs: name, avatar, phone, location, bio, verification state, and public seller fields.
@@ -447,6 +447,8 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 #### Module 5 — Media
 
 **Depends on:** Modules 1 and 4.
+
+**Implementation status (September 10, 2026): complete for the Module 5 scope.** Flyway V7 adds ordered listing media. The backend now provides owner-scoped signed uploads through a MinIO/S3-compatible storage abstraction, validates size/type/signature/checksum, processes uploads asynchronously, issues short-lived ready-only delivery URLs, manages order/cover/deletion, and cleans media when a listing is deleted. Both frontends upload real files, show progress, restore persisted galleries, reorder/select covers, and track removals. Automated tests cover the core media rules and HTTP flow.
 
 1. Create `listing_media` migration and a storage abstraction that works with MinIO locally and R2/S3 in production.
 2. Implement a short-lived signed upload URL endpoint, scoped to the authenticated owner and listing.

@@ -66,7 +66,9 @@ export function relativeListingTime(value, now = Date.now()) {
 }
 
 export function listingToAd(listing) {
-  const media = Array.isArray(listing.media) ? listing.media : [];
+  const media = Array.isArray(listing.media)
+    ? listing.media.filter((image) => image.status === "READY" && image.url)
+    : [];
   const description = String(listing.description ?? "")
     .split(/\n\s*\n/)
     .map((part) => part.trim())
@@ -87,7 +89,7 @@ export function listingToAd(listing) {
       listing.publishedAt ?? listing.submittedAt ?? listing.createdAt,
     ),
     photoCount: media.length,
-    photos: media,
+    photos: media.map((image) => image.url),
     overviewTitle: "Listing overview",
     specs: [
       {
