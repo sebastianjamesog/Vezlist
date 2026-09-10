@@ -17,6 +17,7 @@ import { useShell } from "../components/layout/AppLayout";
 import PageBody from "../components/layout/PageBody";
 import Icon from "../components/ui/Icon";
 import Button from "../components/ui/Button";
+import ReportListing from "../components/moderation/ReportListing";
 import { useAuth } from "../context/AuthContext";
 import { useSaved } from "../context/SavedStore";
 import { useToast } from "../context/ToastContext";
@@ -26,6 +27,7 @@ import { maskContact } from "../lib/format";
 import { listingToAd } from "../lib/listings";
 import { useNavigate } from "../lib/nav";
 import { isRemoteListingId } from "../lib/saved";
+import { publicSeller, sellerProfilePath } from "../lib/seller";
 import { FEED_PATH, SITE } from "../lib/sites";
 import { tones } from "../lib/tones";
 
@@ -84,10 +86,12 @@ export default function AdDetail() {
   const toast = useToast();
   const mockAd = ads[id];
   const [remoteAd, setRemoteAd] = useState(null);
+  const [sellerProfile, setSellerProfile] = useState(null);
   const [loading, setLoading] = useState(!mockAd);
   const [error, setError] = useState("");
   const [active, setActive] = useState(0);
   const ad = mockAd ?? remoteAd;
+  const seller = sellerProfile ?? ad?.seller;
   const saveStatus = status(id);
   const saved = saveStatus.saved;
   const ownListing =
@@ -119,6 +123,7 @@ export default function AdDetail() {
 
   useEffect(() => {
     setActive(0);
+    setSellerProfile(null);
     if (!id || ads[id]) {
       setLoading(false);
       setRemoteAd(null);
@@ -146,6 +151,15 @@ export default function AdDetail() {
       current = false;
     };
   }, [id]);
+
+  useEffect(() => {
+    let current = true;
+    if (!ad?.remote || !ad.sellerId) return () => { current = false; };
+    api(sellerProfilePath(ad.sellerId, SITE, 1))
+      .then((page) => { if (current) setSellerProfile(publicSeller(page)); })
+      .catch(() => { if (current) setSellerProfile(null); });
+    return () => { current = false; };
+  }, [ad?.remote, ad?.sellerId]);
 
   useEffect(() => {
     if (!authReady || !signedIn || !canSave) return;
@@ -373,31 +387,39 @@ export default function AdDetail() {
             <section className={"mt-4 lg:mt-0 " + CARD}>
               <h2 className="text-[18px] font-extrabold text-ink">Seller</h2>
               <div className="mt-3 flex items-center gap-3 rounded-2xl bg-canvas p-3">
-                {ad.seller.avatar ? (
+                {seller.avatar ? (
                   <img
-                    src={ad.seller.avatar}
-                    alt={ad.seller.name}
+                    src={seller.avatar}
+                    alt={seller.name}
                     className="size-12 shrink-0 rounded-2xl object-cover"
                   />
                 ) : (
                   <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-brand-soft text-[18px] font-extrabold text-brand">
-                    {ad.seller.name?.charAt(0)?.toUpperCase() ?? "V"}
+                    {seller.name?.charAt(0)?.toUpperCase() ?? "V"}
                   </span>
                 )}
                 <span className="min-w-0 flex-1">
                   <span className="block text-[16px] font-bold text-ink">
-                    {ad.seller.name}
+                    {seller.name}
                   </span>
                   <span className="block text-[12px] text-muted">
                     Contact this seller about the listing
                   </span>
                 </span>
-                <span className="flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-700">
-                  <ShieldCheck className="size-3.5" />
-                  {ad.seller.badge}
-                </span>
+                {seller.verified || seller.badge ? (
+                  <span className="flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-700">
+                    <ShieldCheck className="size-3.5" />
+                    {seller.verified ? "Verified seller" : seller.badge}
+                  </span>
+                ) : null}
               </div>
+              {sellerProfile && (
+                <button onClick={() => navigate("/seller/" + sellerProfile.id)} className="mt-3 text-[13px] font-bold text-brand hover:underline">View seller profile</button>
+              )}
             </section>
+            {!loading && ad.id === id && ad.remote && ad.status === "ACTIVE" && !ownListing && (
+              <ReportListing key={`${ad.id}:${user?.id ?? "guest"}`} listingId={ad.id} ready={authReady} signedIn={signedIn} />
+            )}
           </div>
         </div>
       </PageBody>

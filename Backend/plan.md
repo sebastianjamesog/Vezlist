@@ -40,11 +40,11 @@ Do not begin with microservices. Individual modules can be extracted later only 
 ## 3. Deployment and boundaries
 
 ```text
-marketplace Next.js  ─┐
-                       ├── Spring Boot API ── PostgreSQL + PostGIS
-personals Next.js    ─┘          │
-                                 ├── Redis
-                                 └── R2/S3 media storage
+marketplace Next.js  â”€â”
+                       â”œâ”€â”€ Spring Boot API â”€â”€ PostgreSQL + PostGIS
+personals Next.js    â”€â”˜          â”‚
+                                 â”œâ”€â”€ Redis
+                                 â””â”€â”€ R2/S3 media storage
 ```
 
 Deploy the Java API at `api.vezlist.cc`, or proxy it as `/api` through each Next.js frontend. The proxy approach is preferred because requests appear same-origin to the browser and simplify cookie security.
@@ -64,9 +64,9 @@ The initial API is shared, so an outage of the Spring Boot application, PostgreS
 
 ```text
 Spring Boot API
-├── shared modules: identity, users, catalog, media, notifications
-├── marketplace module: marketplace discovery and rules
-└── personals module: eligibility, stories, strict moderation, personals rules
+â”œâ”€â”€ shared modules: identity, users, catalog, media, notifications
+â”œâ”€â”€ marketplace module: marketplace discovery and rules
+â””â”€â”€ personals module: eligibility, stories, strict moderation, personals rules
 ```
 
 Apply these protections from the start:
@@ -101,7 +101,7 @@ The initial backend is a **13-module modular monolith**. Each module owns its do
 | 12 | Billing and Credits | Payment-provider integration, payment methods, credit ledger, promotions, invoices/refunds | 4 |
 | 13 | Status / Stories | Personals status media, 24-hour expiry, visibility and view tracking | 5 |
 
-Direct buyer-to-seller chat is **not** included in the first 13 modules. The current frontend only has a mock “Message seller” action, not a real inbox. Add messaging after moderation, blocking/reporting, retention, and abuse controls are agreed.
+Direct buyer-to-seller chat is **not** included in the first 13 modules. The current frontend only has a mock â€œMessage sellerâ€ action, not a real inbox. Add messaging after moderation, blocking/reporting, retention, and abuse controls are agreed.
 
 ## 5. Suggested project structure
 
@@ -271,7 +271,7 @@ These are launch requirements, not later polish.
 
 ## 9. Phase overview
 
-### Phase 0 — Foundation
+### Phase 0 â€” Foundation
 
 **Goal:** a reliable backend base that every feature can build on.
 
@@ -283,7 +283,7 @@ These are launch requirements, not later polish.
 
 **Exit criteria:** a clean checkout starts locally, migrations run automatically, `/actuator/health` is healthy, and integration tests run against containers.
 
-### Phase 1 — Accounts, catalog, listings, and media
+### Phase 1 â€” Accounts, catalog, listings, and media
 
 **Goal:** a signed-in user can create and manage a real listing.
 
@@ -298,7 +298,7 @@ These are launch requirements, not later polish.
 
 **Exit criteria:** create account, sign in, upload photos, submit a listing, reopen it after refresh, edit/delete it, and sign out.
 
-### Phase 2 — Discovery, saved ads, seller pages, and My Ads
+### Phase 2 â€” Discovery, saved ads, seller pages, and My Ads
 
 **Goal:** the main marketplace becomes useful with real search and browsing.
 
@@ -313,7 +313,7 @@ These are launch requirements, not later polish.
 
 **Exit criteria:** filters and search are database-backed, results paginate, save state persists between devices, and nearby sort is correct.
 
-### Phase 3 — Moderation, notifications, and support
+### Phase 3 â€” Moderation, notifications, and support
 
 **Goal:** support safe operations and a real post-publication lifecycle.
 
@@ -327,7 +327,7 @@ These are launch requirements, not later polish.
 
 **Exit criteria:** moderated publishing works end-to-end, users receive persistent notifications, and tickets retain replies.
 
-### Phase 4 — Payments, credits, and promotions
+### Phase 4 â€” Payments, credits, and promotions
 
 **Goal:** monetize listings safely.
 
@@ -339,7 +339,7 @@ These are launch requirements, not later polish.
 
 **Exit criteria:** payment retries/webhooks cannot double-credit an account, and all balance changes reconcile to transactions.
 
-### Phase 5 — Personals status/stories
+### Phase 5 â€” Personals status/stories
 
 **Goal:** move personals-specific behavior to a safely isolated backend domain.
 
@@ -354,7 +354,7 @@ These are launch requirements, not later polish.
 
 This is the implementation order for the 13 modules. Finish the acceptance criteria for a module before beginning dependent user-facing work. Small technical spikes are allowed earlier, but do not expose incomplete endpoints to the frontend as production features.
 
-### Phase 0 — Platform foundation (before domain modules)
+### Phase 0 â€” Platform foundation (before domain modules)
 
 **Start with:** project bootstrap; no business module begins before this baseline exists.
 
@@ -370,11 +370,11 @@ This is the implementation order for the 13 modules. Finish the acceptance crite
 
 **Phase exit:** the API has `/actuator/health`, versioned `/api/v1` routing, OpenAPI output, structured logs, and a repeatable local environment.
 
-### Phase 1 — Foundation of the product: modules 1–5
+### Phase 1 â€” Foundation of the product: modules 1â€“5
 
 This phase creates the minimum secure vertical slice: a user can authenticate, maintain a profile, create a listing, upload photos, and manage their own listing.
 
-#### Module 1 — Identity and Access
+#### Module 1 â€” Identity and Access
 
 **Depends on:** Phase 0.
 
@@ -392,7 +392,7 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 
 **Done when:** a browser refresh preserves a secure session, logout revokes it, account-only routes are protected, and the frontend never stores credentials or tokens in localStorage.
 
-#### Module 2 — Users and Profiles
+#### Module 2 â€” Users and Profiles
 
 **Depends on:** Module 1.
 
@@ -409,9 +409,9 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 
 **Done when:** profile and preference changes persist across devices, privacy choices affect API responses, and private fields cannot be retrieved through a public seller endpoint.
 
-#### Module 3 — Categories and Locations
+#### Module 3 â€” Categories and Locations
 
-**Depends on:** Phase 0; it may be developed in parallel with Modules 1–2, but must finish before listing publishing.
+**Depends on:** Phase 0; it may be developed in parallel with Modules 1â€“2, but must finish before listing publishing.
 
 **Implementation status (September 7, 2026): complete for the Module 3 scope.** Flyway V5 creates site-scoped categories and hierarchical province/area locations, seeded from the frontend reference data. Public cached APIs return Marketplace or Personals categories and all enabled Canadian locations. Reusable server-side validators reject disabled, cross-site, unknown, and mismatched category/location references; Module 4 listing writes now use these validators. Both frontends load this catalog for category launchers, browsing/filtering, and the Create Ad flow, with a small read-only fallback if the API is temporarily unavailable.
 
@@ -426,9 +426,9 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 
 **Done when:** both sites receive only categories permitted for their scope, and invalid category/location combinations are rejected at the API.
 
-#### Module 4 — Listings
+#### Module 4 â€” Listings
 
-**Depends on:** Modules 1–3.
+**Depends on:** Modules 1â€“3.
 
 **Implementation status (September 10, 2026): complete for the Module 4 scope.** Flyway V6 adds site-scoped listings, attributes, view storage, idempotency records, durable listing events, indexes, optimistic locking, and PostGIS coordinates. Authenticated APIs create, update, submit, list, retrieve, and soft-delete owner listings with server-side validation, ownership checks, site isolation, and retry-safe create/submit operations. The shared Marketplace and Personals frontend now submits the Create Ad wizard to the API and uses persisted data for My Ads, editing, deletion, and UUID detail routes. The public `ACTIVE` transition remains owned by Module 9 moderation, and persisted photos intentionally begin in Module 5.
 
@@ -444,7 +444,7 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 
 **Done when:** a user can create, reopen, edit, submit, and delete only their own listing; refreshed screens show database data and a Personals listing never appears in Marketplace queries.
 
-#### Module 5 — Media
+#### Module 5 â€” Media
 
 **Depends on:** Modules 1 and 4.
 
@@ -464,11 +464,11 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 
 **Phase 1 exit:** registration through real listing creation works end-to-end in a staging environment.
 
-### Phase 2 — Marketplace usefulness: modules 6–8
+### Phase 2 â€” Marketplace usefulness: modules 6â€“8
 
-#### Module 6 — Discovery
+#### Module 6 â€” Discovery
 
-**Depends on:** Modules 3–5. It requires active listings and indexed locations.
+**Depends on:** Modules 3â€“5. It requires active listings and indexed locations.
 
 **Implementation status (September 10, 2026): complete for the Module 6 scope.** The public discovery API now provides site-isolated, `ACTIVE`-only card pages with opaque filter-bound cursors, combined text/category/location/price/verification/time filters, newest and price sorting, and bounded PostGIS nearest search. Flyway V8 adds purpose-built partial, trigram, price, location, verification, and spatial indexes plus a seller-verification flag reserved for the moderation/reputation workflow. A separate capped map-pin projection, database statement timeout, and tagged Micrometer query timer are included. Marketplace Browse, Personals, Home entry links, and Nearby now use persisted discovery data, preserve search and filters in URL parameters, render API loading/error/empty states, and load additional cursor pages.
 
@@ -485,7 +485,7 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 
 **Done when:** browsing remains fast with large datasets, pagination has no duplicates/missing rows, and a Personals query cannot return Marketplace listings or vice versa.
 
-#### Module 7 — Saved Listings
+#### Module 7 â€” Saved Listings
 
 **Depends on:** Modules 1, 4, 5, and 6.
 
@@ -501,7 +501,10 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 
 **Done when:** saved state persists across devices, duplicate saves are impossible, and unavailable listings have a clear response/empty state.
 
-#### Module 8 — Seller and Reputation
+#### Module 8 â€” Seller and Reputation
+
+**Implementation status (September 11, 2026): complete for the Module 8 scope.** Public, site-scoped seller pages return a deliberately minimal projection (display name, optional avatar, membership date, moderation-owned verification, and a response-time placeholder) plus only active, non-expired listings. Contact data, bios, locations, roles, account state, and reputation/reviews are excluded. Flyway V10 adds the active seller-listing index; both frontends now load the seller page from the API.
+
 
 **Depends on:** Modules 1, 2, 4, and 6.
 
@@ -517,9 +520,9 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 
 **Phase 2 exit:** the Marketplace feed, Nearby, saved ads, My Ads, seller page, search, and filters are entirely API-backed.
 
-### Phase 3 — Safe operations: modules 9–11
+### Phase 3 â€” Safe operations: modules 9â€“11
 
-#### Module 9 — Moderation and Safety
+#### Module 9 â€” Moderation and Safety
 
 **Depends on:** Modules 1, 4, 5, and 8.
 
@@ -535,7 +538,19 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 
 **Done when:** no listing can self-approve, every moderator decision is audited, and a rejected listing includes a safe user-visible reason.
 
-#### Module 10 — Notifications
+**Implementation status (September 11, 2026): implemented.** Flyway V11 adds reports,
+review cases, append-only moderation actions/audit records, and checksum-bound
+human media reviews. Submissions queue transactionally; staff-only APIs support
+claims, administrator reassignment, notes, approve/reject/remove/dismiss, and
+owner appeals. All categories require review; Personals requires two distinct
+reviewers with eligibility/consent attestations. Public reasons use fixed safe
+messages. Report quotas are serialized in PostgreSQL. Decisions and durable
+listing events commit together. Both frontends have report forms and My Ads
+review/appeal controls. External automated scanning/age-verification providers
+and a dedicated staff dashboard are not configured; staff use the documented
+APIs. See `docs/moderation.md` for the policy and verification details.
+
+#### Module 10 â€” Notifications
 
 **Depends on:** Modules 1, 4, 7, 9, and an event mechanism.
 
@@ -550,7 +565,7 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 
 **Done when:** notification state is durable, events do not create duplicates, and read status persists.
 
-#### Module 11 — Support
+#### Module 11 â€” Support
 
 **Depends on:** Modules 1 and 10.
 
@@ -568,9 +583,9 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 
 **Phase 3 exit:** listings can be moderated, users receive real notifications, and support operations are persistent and auditable.
 
-### Phase 4 — Monetization: module 12
+### Phase 4 â€” Monetization: module 12
 
-#### Module 12 — Billing and Credits
+#### Module 12 â€” Billing and Credits
 
 **Depends on:** Modules 1, 4, 9, and 10.
 
@@ -590,9 +605,9 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 
 **Phase 4 exit:** customers can safely buy credits and promote eligible listings.
 
-### Phase 5 — Personals-specific capabilities: module 13
+### Phase 5 â€” Personals-specific capabilities: module 13
 
-#### Module 13 — Status / Stories
+#### Module 13 â€” Status / Stories
 
 **Depends on:** Modules 1, 2, 5, 9, and 10.
 
@@ -611,7 +626,7 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 
 **Phase 5 exit:** the Personals experience has API-backed stories and retains its independent operational safeguards.
 
-### Post-launch — Separate service decision checkpoint
+### Post-launch â€” Separate service decision checkpoint
 
 Review Personals extraction quarterly or after a significant incident. Split it from the monolith only when measurable evidence supports one of these reasons:
 
@@ -645,7 +660,7 @@ Do not replace every mock in one large change. Integrate feature by feature behi
 
 ## 13. Initial delivery order
 
-The recommended first production slice is modules **1–7**:
+The recommended first production slice is modules **1â€“7**:
 
 1. Identity and Access
 2. Users and Profiles

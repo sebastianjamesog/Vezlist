@@ -29,4 +29,7 @@ dist-ssr
 
 # Next / OpenNext
 .next
+.next-e2e
+playwright-report
+test-results
 .open-next

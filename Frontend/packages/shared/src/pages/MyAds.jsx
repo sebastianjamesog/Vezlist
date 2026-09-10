@@ -8,6 +8,7 @@ import PageBody from "../components/layout/PageBody";
 import EmptyState from "../components/ui/EmptyState";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import Button from "../components/ui/Button";
+import OwnerModeration from "../components/moderation/OwnerModeration";
 import { useShell } from "../components/layout/AppLayout";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -24,7 +25,7 @@ export default function MyAds() {
   const toast = useToast();
   const navigate = useNavigate();
   const { editPost } = useShell();
-  const { ready, signedIn } = useAuth();
+  const { ready, signedIn, user } = useAuth();
   const [tab, setTab] = useState("ALL");
   const [ads, setAds] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -203,6 +204,9 @@ export default function MyAds() {
                     </div>
                   </div>
 
+                  {signedIn && ["PENDING_REVIEW", "REJECTED", "REMOVED"].includes(listing.status) && (
+                    <OwnerModeration key={`${user?.id}:${listing.id}:${listing.status}:${listing.updatedAt}`} listingId={listing.id} />
+                  )}
                   <div className="mt-3 flex gap-2 border-t border-line pt-3">
                     {editable && (
                       <button

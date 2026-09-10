@@ -127,7 +127,18 @@ GET    /api/v1/me/saved-listings?site=MARKETPLACE&limit=24
 
 Saving and removing are idempotent. Only another user's active, unexpired listing from the requested site can be saved. Removing remains safe after a listing becomes unavailable. The saved feed returns only accessible card data, signs only READY cover media, and uses an opaque cursor bound to the account and site. See `docs/openapi/module-7-saved-listings.yaml` for the standalone contract.
 
-## Verify
+## Moderation and safety (Module 9)
+
+Flyway V11 queues pending listings for staff review and adds reporting, owner
+appeals, media verdicts, and append-only audit history. Marketplace needs one
+reviewer; Personals needs two independent reviewers. New reporting and appeal
+forms are shared by both frontends.
+
+See [the moderation workflow](docs/moderation.md) for staff endpoints, privacy,
+quotas, manual media/eligibility requirements, and rollout limitations, and
+[the API contract](docs/openapi/module-9-moderation.yaml) for request shapes.
+
+## Verification commands
 
 ```powershell
 mvn verify
@@ -138,4 +149,4 @@ Docker is not required for the fast tests. The integration command uses Testcont
 
 ## Next module
 
-Module 8 - Seller and Reputation: privacy-safe public seller profiles, active seller listings, verification, and reputation summaries.
+Module 10 - Notifications: durable in-app notifications and delivery processing.

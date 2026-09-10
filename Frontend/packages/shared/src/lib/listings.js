@@ -19,6 +19,10 @@ const STATUS = {
     label: "Expired",
     tone: "bg-slate-100 text-muted",
   },
+  REMOVED: {
+    label: "Removed",
+    tone: "bg-red-100 text-red-700",
+  },
 };
 
 export const LISTING_STATUS_OPTIONS = Object.entries(STATUS).map(

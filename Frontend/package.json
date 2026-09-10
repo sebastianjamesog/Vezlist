@@ -20,9 +20,11 @@
     "deploy": "npm run deploy -w @vezlist/marketplace",
     "deploy:personals": "npm run deploy -w @vezlist/personals",
     "deploy:all": "npm run deploy && npm run deploy:personals",
-    "test": "node --test"
+    "test": "node --test",
+    "test:browser": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
