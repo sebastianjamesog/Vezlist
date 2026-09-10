@@ -6,6 +6,8 @@ const fallback = {
   categories: [{ id: "fallback", label: "Fallback" }],
   provinces: [{ id: "all", label: "All Canada", areas: [] }],
   popularAreas: ["Fallback Area"],
+  locationOptions: [],
+  popularAreaOptions: [],
   source: "fallback",
 };
 
@@ -14,7 +16,11 @@ test("catalog API data is converted to the existing frontend filter shape", () =
     [{ id: "vehicles", label: "Vehicles" }],
     {
       provinces: [
-        { id: "on", label: "Ontario", areas: [{ id: "on-1", label: "Toronto" }] },
+        {
+          id: "on",
+          label: "Ontario",
+          areas: [{ id: "on-1", label: "Toronto" }],
+        },
       ],
       popularAreas: [{ id: "on-1", label: "Toronto" }],
     },
@@ -22,9 +28,14 @@ test("catalog API data is converted to the existing frontend filter shape", () =
   );
 
   assert.equal(result.source, "api");
-  assert.deepEqual(result.provinces[0], { id: "all", label: "All Canada", areas: [] });
+  assert.deepEqual(result.provinces[0], {
+    id: "all",
+    label: "All Canada",
+    areas: [],
+  });
   assert.deepEqual(result.provinces[1].areas, ["Toronto"]);
   assert.deepEqual(result.popularAreas, ["Toronto"]);
+  assert.equal(result.locationOptions[0].areas[0].id, "on-1");
 });
 
 test("invalid or empty category responses keep the offline fallback", () => {
@@ -33,7 +44,11 @@ test("invalid or empty category responses keep the offline fallback", () => {
 });
 
 test("partial location responses preserve fallback locations", () => {
-  const result = normalizeCatalog([{ id: "personals", label: "Personals" }], {}, fallback);
+  const result = normalizeCatalog(
+    [{ id: "personals", label: "Personals" }],
+    {},
+    fallback,
+  );
 
   assert.equal(result.source, "api");
   assert.equal(result.provinces, fallback.provinces);

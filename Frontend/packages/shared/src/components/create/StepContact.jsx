@@ -4,30 +4,71 @@ import Field, { FIELD, border } from "./Field";
 import { useCatalog } from "../../context/CatalogContext";
 
 export default function StepContact({ draft, errors, onPatch }) {
-  const { popularAreas } = useCatalog();
+  const { locationOptions, popularAreaOptions } = useCatalog();
+  const province = locationOptions.find((item) => item.id === draft.provinceId);
+  const areas = province?.areas ?? [];
 
   return (
     <div className="space-y-4">
       <Field label="Location" error={errors.location}>
-        <input
-          value={draft.location}
-          onChange={(e) => onPatch({ location: e.target.value })}
-          placeholder="e.g. Metro Vancouver"
+        <select
+          value={draft.provinceId}
+          onChange={(event) =>
+            onPatch({
+              provinceId: event.target.value,
+              locationId: "",
+              location: "",
+            })
+          }
           className={`${FIELD} ${border(errors.location)}`}
-        />
+        >
+          <option value="">Choose a province or territory</option>
+          {locationOptions.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.label}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={draft.locationId}
+          disabled={!province}
+          onChange={(event) => {
+            const area = areas.find((item) => item.id === event.target.value);
+            onPatch({
+              locationId: area?.id ?? "",
+              location: area?.label ?? "",
+            });
+          }}
+          className={`${FIELD} ${border(errors.location)} mt-2 disabled:cursor-not-allowed disabled:opacity-60`}
+        >
+          <option value="">Choose an area</option>
+          {areas.map((area) => (
+            <option key={area.id} value={area.id}>
+              {area.label}
+            </option>
+          ))}
+        </select>
+
         <span className="mt-2 flex flex-wrap gap-2">
-          {popularAreas.map((c) => (
+          {popularAreaOptions.map((area) => (
             <button
-              key={c}
+              key={area.id}
               type="button"
-              onClick={() => onPatch({ location: c })}
+              onClick={() =>
+                onPatch({
+                  provinceId: area.provinceId,
+                  locationId: area.id,
+                  location: area.label,
+                })
+              }
               className={`rounded-full border px-3 py-1.5 text-[13px] font-semibold transition-colors ${
-                draft.location === c
+                draft.locationId === area.id
                   ? "border-brand bg-brand text-on-brand"
                   : "border-line text-ink hover:bg-canvas"
               }`}
             >
-              {c}
+              {area.label}
             </button>
           ))}
         </span>

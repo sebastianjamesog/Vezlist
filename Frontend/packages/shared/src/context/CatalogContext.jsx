@@ -2,7 +2,10 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
-import { categories as marketplaceCategories, popularAreas as fallbackPopularAreas } from "../data/mock";
+import {
+  categories as marketplaceCategories,
+  popularAreas as fallbackPopularAreas,
+} from "../data/mock";
 import { provinces as fallbackProvinces } from "../data/locations";
 import { IS_PERSONALS } from "../lib/sites";
 import { normalizeCatalog } from "../lib/catalog";
@@ -11,11 +14,29 @@ const personalsCategories = [
   { id: "personals", label: "Personals", icon: "Users", primary: true },
 ];
 
+const fallbackLocationOptions = fallbackProvinces
+  .filter((province) => province.id !== "all")
+  .map((province) => ({
+    id: province.id,
+    label: province.label,
+    areas: province.areas.map((label, index) => ({
+      id: `${province.id}-${index + 1}`,
+      label,
+      provinceId: province.id,
+      provinceLabel: province.label,
+    })),
+  }));
+const fallbackPopularAreaOptions = fallbackLocationOptions
+  .flatMap((province) => province.areas)
+  .filter((area) => fallbackPopularAreas.includes(area.label));
+
 function fallbackCatalog() {
   return {
     categories: IS_PERSONALS ? personalsCategories : marketplaceCategories,
     provinces: fallbackProvinces,
     popularAreas: fallbackPopularAreas,
+    locationOptions: fallbackLocationOptions,
+    popularAreaOptions: fallbackPopularAreaOptions,
     source: "fallback",
   };
 }
@@ -45,7 +66,9 @@ export function CatalogProvider({ children }) {
   }, []);
 
   const value = useMemo(() => catalog, [catalog]);
-  return <CatalogContext.Provider value={value}>{children}</CatalogContext.Provider>;
+  return (
+    <CatalogContext.Provider value={value}>{children}</CatalogContext.Provider>
+  );
 }
 
 export function useCatalog() {

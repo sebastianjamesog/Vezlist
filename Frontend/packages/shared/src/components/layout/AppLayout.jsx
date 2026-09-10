@@ -6,9 +6,14 @@ import BottomNav from "./BottomNav";
 import Sidebar from "./Sidebar";
 import CreateAdSheet from "../create/CreateAdSheet";
 import { ToastProvider, useToast } from "../../context/ToastContext";
+import { useAuth } from "../../context/AuthContext";
+import { api } from "../../lib/api";
+import { SITE } from "../../lib/sites";
+import { useNavigate } from "../../lib/nav";
+import { listingPayload } from "../../lib/listings";
 
 /** The one thing screens need from the shell: a way to open the create sheet. */
-const ShellContext = createContext({ openPost: () => {} });
+const ShellContext = createContext({ openPost: () => {}, editPost: () => {} });
 export const useShell = () => useContext(ShellContext);
 
 /**
@@ -17,7 +22,10 @@ export const useShell = () => useContext(ShellContext);
  */
 function Shell({ children }) {
   const toast = useToast();
+  const { ready, signedIn } = useAuth();
+  const navigate = useNavigate();
   const [postOpen, setPostOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
   const main = useRef(null);
   const pathname = usePathname();
 
@@ -25,17 +33,42 @@ function Shell({ children }) {
   useEffect(() => {
     main.current?.querySelector("[data-scroll]")?.scrollTo({ top: 0 });
   }, [pathname]);
-  const openPost = () => setPostOpen(true);
-  const togglePost = () => setPostOpen((v) => !v);
+  const openPost = () => {
+    if (!ready) return toast("Checking your session…");
+    if (!signedIn) return navigate("/login");
+    setEditing(null);
+    setPostOpen(true);
+  };
+  const editPost = (listing) => {
+    setEditing(listing);
+    setPostOpen(true);
+  };
+  const togglePost = () => (postOpen ? setPostOpen(false) : openPost());
 
-  function handlePublish(values) {
-    console.log("Publish ad", values);
+  async function handlePublish(values, requestKey) {
+    const payload = listingPayload(values, SITE);
+    const listing = values.listingId
+      ? await api(`/listings/${values.listingId}`, {
+          method: "PATCH",
+          body: payload,
+        })
+      : await api("/listings", {
+          method: "POST",
+          headers: { "Idempotency-Key": `${requestKey}:create` },
+          body: payload,
+        });
+    await api(`/listings/${listing.id}/submit`, {
+      method: "POST",
+      headers: { "Idempotency-Key": `${requestKey}:submit` },
+    });
     setPostOpen(false);
+    setEditing(null);
+    window.dispatchEvent(new Event("vezlist:listings-changed"));
     toast("Ad submitted — we'll review it shortly");
   }
 
   return (
-    <ShellContext.Provider value={{ openPost }}>
+    <ShellContext.Provider value={{ openPost, editPost }}>
       <div className="relative flex h-dvh w-full justify-center lg:justify-start">
         <Sidebar onPostAd={openPost} />
 
@@ -44,9 +77,11 @@ function Shell({ children }) {
             {children}
 
             <CreateAdSheet
+              key={editing?.id ?? "new-listing"}
               open={postOpen}
               onClose={() => setPostOpen(false)}
               onPublish={handlePublish}
+              initialListing={editing}
             />
           </main>
 

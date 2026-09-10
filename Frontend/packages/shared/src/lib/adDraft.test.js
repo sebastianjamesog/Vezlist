@@ -9,8 +9,11 @@ const good = draft({
   title: "2 Bedroom Apartment",
   business: "Modern City Apartments",
   category: "Property",
+  categoryId: "property",
   description: "Bright two bedroom with parking, available from next month.",
   location: "Victoria, BC",
+  provinceId: "bc",
+  locationId: "bc-1",
   email: "seller@example.com",
   phone: "+1 250 555 1234",
 });
@@ -45,6 +48,9 @@ test("details step checks title, business, category and description length", () 
 
   assert.ok(validateStep("details", draft({ ...good, category: "" })).category);
   assert.ok(
+    validateStep("details", draft({ ...good, categoryId: "" })).category,
+  );
+  assert.ok(
     validateStep("details", draft({ ...good, business: "   " })).business,
   );
 });
@@ -77,6 +83,9 @@ test("contact step validates email shape and phone digit count", () => {
   assert.equal(
     validateStep("contact", draft({ ...good, phone: "(250) 555-1234" })).phone,
     undefined,
+  );
+  assert.ok(
+    validateStep("contact", draft({ ...good, locationId: "" })).location,
   );
 });
 

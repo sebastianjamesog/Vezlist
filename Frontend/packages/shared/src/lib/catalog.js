@@ -1,27 +1,46 @@
 export function normalizeCatalog(categories, locations, fallback) {
   if (!Array.isArray(categories) || categories.length === 0) return fallback;
 
-  const apiProvinces = Array.isArray(locations?.provinces)
+  const locationOptions = Array.isArray(locations?.provinces)
     ? locations.provinces.map((province) => ({
         id: province.id,
         label: province.label,
         areas: Array.isArray(province.areas)
-          ? province.areas.map((area) => area.label)
+          ? province.areas.map((area) => ({
+              id: area.id,
+              label: area.label,
+              provinceId: province.id,
+              provinceLabel: province.label,
+            }))
           : [],
       }))
     : [];
-  const apiPopularAreas = Array.isArray(locations?.popularAreas)
-    ? locations.popularAreas.map((area) => area.label)
+  const popularAreaOptions = Array.isArray(locations?.popularAreas)
+    ? locations.popularAreas
     : [];
 
   return {
     categories,
     provinces:
-      apiProvinces.length > 0
-        ? [{ id: "all", label: "All Canada", areas: [] }, ...apiProvinces]
+      locationOptions.length > 0
+        ? [
+            { id: "all", label: "All Canada", areas: [] },
+            ...locationOptions.map((province) => ({
+              ...province,
+              areas: province.areas.map((area) => area.label),
+            })),
+          ]
         : fallback.provinces,
     popularAreas:
-      apiPopularAreas.length > 0 ? apiPopularAreas : fallback.popularAreas,
+      popularAreaOptions.length > 0
+        ? popularAreaOptions.map((area) => area.label)
+        : fallback.popularAreas,
+    locationOptions:
+      locationOptions.length > 0 ? locationOptions : fallback.locationOptions,
+    popularAreaOptions:
+      popularAreaOptions.length > 0
+        ? popularAreaOptions
+        : fallback.popularAreaOptions,
     source: "api",
   };
 }

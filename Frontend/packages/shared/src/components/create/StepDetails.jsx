@@ -38,7 +38,9 @@ export default function StepDetails({ draft, errors, onPatch }) {
               key={category.id}
               type="button"
               aria-pressed={draft.category === category.label}
-              onClick={() => onPatch({ category: category.label })}
+              onClick={() =>
+                onPatch({ category: category.label, categoryId: category.id })
+              }
               className={`rounded-full border px-4 py-2 text-[14px] font-semibold transition-colors ${
                 draft.category === category.label
                   ? "border-brand bg-brand text-on-brand"

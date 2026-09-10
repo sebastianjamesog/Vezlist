@@ -11,7 +11,12 @@ export function generateStaticParams() {
 export async function generateMetadata({ params }) {
   const { id } = await params;
   const ad = ads[id];
-  if (!ad) return { title: "Ad not found" };
+  if (!ad) {
+    return {
+      title: "Ad details",
+      description: "View this Vezlist marketplace listing.",
+    };
+  }
   return {
     title: `${ad.title} — $${ad.price.toLocaleString("en-CA")}`,
     description: `${ad.title} in ${ad.location}. ${ad.postedLabel}.`,
