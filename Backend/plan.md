@@ -358,7 +358,7 @@ This is the implementation order for the 13 modules. Finish the acceptance crite
 
 **Start with:** project bootstrap; no business module begins before this baseline exists.
 
-**Implementation status (September 6, 2026):** the Phase 0 code foundation is implemented in `Backend/`: Spring Boot/Maven project, Java 21 enforcement, Flyway/PostGIS baseline migration, Docker Compose service definitions, versioned API route, OpenAPI, health probes, trace IDs, API error envelope, CORS baseline, Testcontainers dependencies, a fast unit test, Dockerfile, environment template, and CI workflow. `mvn --batch-mode verify` passes. Docker Desktop is not installed on the current development machine, so Compose startup and container-backed integration tests remain to be verified on a Docker-enabled machine or in CI before formally closing Phase 0.
+**Implementation status (September 10, 2026): complete.** The Spring Boot/Maven foundation, Java 21 enforcement, Flyway/PostGIS migrations, Docker Compose services, versioned API, OpenAPI, health probes, trace IDs, consistent errors, CORS, Testcontainers, Dockerfile, environment template, and CI workflow are implemented. Docker Desktop and Testcontainers have been verified locally; both the fast and container-backed integration suites pass.
 
 | Step | Deliverable | Done when |
 | --- | --- | --- |
@@ -413,7 +413,7 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 
 **Depends on:** Phase 0; it may be developed in parallel with Modules 1–2, but must finish before listing publishing.
 
-**Implementation status (September 7, 2026): complete for the Module 3 scope.** Flyway V5 creates site-scoped categories and hierarchical province/area locations, seeded from the frontend reference data. Public cached APIs return Marketplace or Personals categories and all enabled Canadian locations. Reusable server-side validators reject disabled, cross-site, unknown, and mismatched category/location references; Module 4 listing writes will call these validators. Both frontends now load this catalog for category launchers, browsing/filtering, and the Create Ad flow, with a small read-only fallback if the API is temporarily unavailable.
+**Implementation status (September 7, 2026): complete for the Module 3 scope.** Flyway V5 creates site-scoped categories and hierarchical province/area locations, seeded from the frontend reference data. Public cached APIs return Marketplace or Personals categories and all enabled Canadian locations. Reusable server-side validators reject disabled, cross-site, unknown, and mismatched category/location references; Module 4 listing writes now use these validators. Both frontends load this catalog for category launchers, browsing/filtering, and the Create Ad flow, with a small read-only fallback if the API is temporarily unavailable.
 
 1. Convert existing frontend categories and Canadian province/area data into Flyway seed data.
 2. Create `categories` and `locations` tables, including parent/child location structure.
@@ -429,6 +429,8 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 #### Module 4 — Listings
 
 **Depends on:** Modules 1–3.
+
+**Implementation status (September 10, 2026): complete for the Module 4 scope.** Flyway V6 adds site-scoped listings, attributes, view storage, idempotency records, durable listing events, indexes, optimistic locking, and PostGIS coordinates. Authenticated APIs create, update, submit, list, retrieve, and soft-delete owner listings with server-side validation, ownership checks, site isolation, and retry-safe create/submit operations. The shared Marketplace and Personals frontend now submits the Create Ad wizard to the API and uses persisted data for My Ads, editing, deletion, and UUID detail routes. The public `ACTIVE` transition remains owned by Module 9 moderation, and persisted photos intentionally begin in Module 5.
 
 1. Create `listings`, `listing_attributes`, and `listing_views` migrations with UUIDs, owner IDs, site scope, status, price, location, coordinates, and timestamps.
 2. Implement domain state transitions: `DRAFT -> PENDING_REVIEW -> ACTIVE`, plus `REJECTED`, `EXPIRED`, and `DELETED`.

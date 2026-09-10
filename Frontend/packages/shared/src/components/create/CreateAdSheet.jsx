@@ -66,18 +66,52 @@ function Stepper({ step, onJump }) {
  * Instagram-style creation: one job per screen, a story-segment stepper, and a
  * single primary action. Nothing advances until that step validates.
  */
-export default function CreateAdSheet({ open, onClose, onPublish }) {
+export default function CreateAdSheet({
+  open,
+  onClose,
+  onPublish,
+  initialListing = null,
+}) {
   const { categories } = useCatalog();
-  const defaultCategory = categories[0]?.label ?? "";
+  const defaultCategory = categories[0] ?? { id: "", label: "" };
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState({
     ...EMPTY_DRAFT,
-    category: defaultCategory,
+    category: defaultCategory.label,
+    categoryId: defaultCategory.id,
   });
   const [errors, setErrors] = useState({});
+  const [submitError, setSubmitError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const requestKey = useRef(
+    globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`,
+  );
   const previews = useRef([]);
   const toast = useToast();
   const { pathname } = useLocation();
+
+  useEffect(() => {
+    if (!initialListing) return;
+    setStep(1);
+    setDraft({
+      ...EMPTY_DRAFT,
+      listingId: initialListing.id,
+      listingStatus: initialListing.status,
+      title: initialListing.title,
+      business: initialListing.businessName,
+      category: initialListing.categoryLabel,
+      categoryId: initialListing.categoryId,
+      price: initialListing.price ?? "",
+      description: initialListing.description,
+      location: initialListing.locationLabel,
+      provinceId: initialListing.provinceId,
+      locationId: initialListing.locationId,
+      email: initialListing.contactEmail,
+      phone: initialListing.contactPhone,
+    });
+    setErrors({});
+    setSubmitError("");
+  }, [initialListing]);
 
   const current = STEPS[step];
   const last = step === STEPS.length - 1;
@@ -85,7 +119,14 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
   const dirty =
     draft.images.length > 0 ||
     Object.entries(draft).some(
-      ([k, v]) => k !== "images" && k !== "category" && v !== "",
+      ([k, v]) =>
+        ![
+          "images",
+          "category",
+          "categoryId",
+          "listingId",
+          "listingStatus",
+        ].includes(k) && v !== "",
     );
 
   function releasePreviews() {
@@ -96,8 +137,14 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
   function reset() {
     releasePreviews();
     setStep(0);
-    setDraft({ ...EMPTY_DRAFT, category: defaultCategory });
+    setDraft({
+      ...EMPTY_DRAFT,
+      category: defaultCategory.label,
+      categoryId: defaultCategory.id,
+    });
     setErrors({});
+    setSubmitError("");
+    requestKey.current = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`;
   }
 
   // The draft outlives a close on purpose: leave, come back, carry on. Object
@@ -105,10 +152,14 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
   useEffect(() => releasePreviews, []);
 
   useEffect(() => {
-    if (!categories.some((category) => category.label === draft.category)) {
-      setDraft((current) => ({ ...current, category: defaultCategory }));
+    if (!categories.some((category) => category.id === draft.categoryId)) {
+      setDraft((current) => ({
+        ...current,
+        category: defaultCategory.label,
+        categoryId: defaultCategory.id,
+      }));
     }
-  }, [categories, defaultCategory, draft.category]);
+  }, [categories, defaultCategory.id, defaultCategory.label, draft.categoryId]);
 
   // Navigating away closes the sheet but keeps what was typed.
   const first = useRef(true);
@@ -133,6 +184,7 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
   if (!open) return null;
 
   const patch = (next) => {
+    setSubmitError("");
     setDraft((d) => ({ ...d, ...next }));
     setErrors((e) => {
       const cleared = { ...e };
@@ -169,12 +221,22 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
     patch({ images: draft.images.filter((i) => i.id !== id) });
   }
 
-  function next() {
+  async function next() {
     const found = validateStep(current.id, draft);
     if (Object.keys(found).length) return setErrors(found);
     if (step < STEPS.length - 1) return setStep(step + 1);
-    onPublish(draft);
-    reset();
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      await onPublish(draft, requestKey.current);
+      reset();
+    } catch (error) {
+      setSubmitError(
+        error?.message ?? "The ad could not be submitted. Please try again.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   function discard() {
@@ -271,12 +333,21 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
         </div>
 
         <footer className="shrink-0 border-t border-line bg-surface px-4 pb-4 pt-3 lg:px-8">
+          {submitError && (
+            <p
+              role="alert"
+              className="mb-2 text-center text-[13px] font-medium text-red-600"
+            >
+              {submitError}
+            </p>
+          )}
           <button
             onClick={next}
-            className="brand-gradient flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-[16px] font-bold text-on-brand shadow-pop transition-transform duration-150 hover:brightness-110 active:scale-[0.98]"
+            disabled={submitting}
+            className="brand-gradient flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-[16px] font-bold text-on-brand shadow-pop transition-transform duration-150 hover:brightness-110 active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
           >
             {last && <Sparkles className="size-5" />}
-            {current.cta}
+            {submitting ? "Submitting…" : current.cta}
             {!last && <ArrowRight className="size-5" strokeWidth={2.5} />}
           </button>
         </footer>

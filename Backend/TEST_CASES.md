@@ -122,7 +122,7 @@ mvn --batch-mode -Pintegration verify
 | TC-CATALOG-003 | Create a listing with an invalid category/location pair. | HTTP 400; invalid combination is rejected. |
 | TC-CATALOG-004 | Request province and area data. | Results match seeded Canadian location data. |
 
-`CatalogControllerIntegrationTest` verifies the V5 migration, public access, one-hour cache headers, all 13 Canadian provinces/territories, eight popular areas, invalid site handling, and Marketplace/Personals category isolation. `CatalogServiceTest` verifies rejection of cross-site categories and invalid location pairs. TC-CATALOG-003 will also be exercised over HTTP when Module 4 introduces the listing write endpoint.
+`CatalogControllerIntegrationTest` verifies the V5 migration, public access, one-hour cache headers, all 13 Canadian provinces/territories, eight popular areas, invalid site handling, and Marketplace/Personals category isolation. `CatalogServiceTest` verifies rejection of cross-site categories and invalid location pairs. `ListingControllerIntegrationTest` exercises TC-CATALOG-003 through the Module 4 HTTP write endpoint.
 
 ```powershell
 mvn --batch-mode test
@@ -138,8 +138,21 @@ mvn --batch-mode -Pintegration verify
 | TC-LIST-003 | Submit a complete draft. | Status changes to `PENDING_REVIEW`; event/audit entry is created. |
 | TC-LIST-004 | Edit own draft. | Update persists. |
 | TC-LIST-005 | Edit/delete another user's listing. | HTTP 403 or 404; no change occurs. |
-| TC-LIST-006 | Submit the same idempotency key twice. | Only one listing is created. |
-| TC-LIST-007 | Retrieve Marketplace feed with a Personals listing present. | Personals listing is never returned. |
+| TC-LIST-006 | Retry create and submit with the same idempotency keys. | The same listing/result is returned and no duplicate is created. |
+| TC-LIST-007 | Reuse a create idempotency key with a different payload. | HTTP 409; the original listing remains unchanged. |
+| TC-LIST-008 | Read own listing detail before activation. | Owner can read it; another user receives HTTP 404. |
+| TC-LIST-009 | Retrieve My Ads with listings from both sites. | Only listings matching the requested site are returned. |
+| TC-LIST-010 | Delete own listing. | HTTP 204; the soft-deleted listing disappears from detail and My Ads. |
+
+### Automated listing suite
+
+`ListingControllerIntegrationTest` runs against temporary PostGIS and covers V6 migration, create/retry/conflict, validation, ownership, site isolation, update, submit/retry, detail visibility, My Ads, and soft deletion. Frontend unit tests cover draft validation and API payload/response mapping.
+
+```powershell
+mvn --batch-mode -Pintegration verify
+cd ../Frontend
+npm test
+```
 
 ### Module 5 — Media
 

@@ -73,14 +73,30 @@ GET /api/v1/locations
 
 The frontend loads these values automatically and retains a bundled read-only fallback for temporary API outages. Restart the backend once after pulling Module 3 so Flyway can apply V5.
 
+## Listing endpoints (Module 4)
+
+Listing writes require an authenticated session and CSRF token. Create and submit also require a unique `Idempotency-Key` header so a safe retry cannot create or submit the same listing twice.
+
+```text
+POST   /api/v1/listings
+PATCH  /api/v1/listings/{listingId}
+POST   /api/v1/listings/{listingId}/submit
+GET    /api/v1/listings/{listingId}?site=MARKETPLACE
+GET    /api/v1/me/listings?site=MARKETPLACE
+DELETE /api/v1/listings/{listingId}
+```
+
+The Create Ad, My Ads, edit/delete, and listing-detail frontend flows now use these endpoints. Listing media is returned as an empty list until Module 5 adds signed uploads and persistent galleries.
+
 ## Verify
 
 ```powershell
 mvn verify
+mvn -Pintegration verify
 ```
 
-Docker is not required for the fast unit tests. Future repository/integration tests use Testcontainers and require a Docker-compatible runtime.
+Docker is not required for the fast tests. The integration command uses Testcontainers and requires Docker Desktop.
 
 ## Next module
 
-Module 4 — Listings: persist listing drafts, enforce ownership and site scope, and connect the Create Ad flow.
+Module 5 — Media: signed image uploads, validation, ordering, cover images, and persistent galleries.

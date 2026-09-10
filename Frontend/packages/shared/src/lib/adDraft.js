@@ -40,9 +40,12 @@ export const EMPTY_DRAFT = {
   title: "",
   business: "",
   category: "",
+  categoryId: "",
   price: "",
   description: "",
   location: "",
+  provinceId: "",
+  locationId: "",
   email: "",
   phone: "",
 };
@@ -68,7 +71,8 @@ export function validateStep(stepId, draft) {
       errors.title = "Give your ad a title of at least 4 characters.";
     if (!draft.business.trim())
       errors.business = "Add the business or seller name.";
-    if (!draft.category) errors.category = "Pick a category.";
+    if (!draft.category || !draft.categoryId)
+      errors.category = "Pick a category.";
     if (draft.price !== "" && !(Number(draft.price) >= 0))
       errors.price = "Price must be a positive number.";
     if (draft.description.trim().length < 20)
@@ -76,7 +80,8 @@ export function validateStep(stepId, draft) {
   }
 
   if (stepId === "contact") {
-    if (!draft.location.trim()) errors.location = "Add a location.";
+    if (!draft.location.trim() || !draft.provinceId || !draft.locationId)
+      errors.location = "Choose a province and area.";
     if (!EMAIL.test(draft.email.trim()))
       errors.email = "Enter a valid email address.";
     const digits = draft.phone.replace(/\D/g, "");

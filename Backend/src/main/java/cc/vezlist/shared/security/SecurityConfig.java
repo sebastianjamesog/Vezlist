@@ -17,6 +17,7 @@ import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpMethod;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -38,6 +39,7 @@ public class SecurityConfig {
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
                 .authorizeHttpRequests(authorize -> authorize
+                        .requestMatchers(HttpMethod.GET, "/api/v1/listings/*").permitAll()
                         .requestMatchers(
                                 "/api/v1",
                                 "/api/v1/auth/csrf",
@@ -70,7 +72,8 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Content-Type", "X-Request-Id", "X-CSRF-Token", "X-XSRF-TOKEN"));
+        configuration.setAllowedHeaders(List.of(
+                "Content-Type", "Idempotency-Key", "X-Request-Id", "X-CSRF-Token", "X-XSRF-TOKEN"));
         configuration.setExposedHeaders(List.of("X-Request-Id"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
