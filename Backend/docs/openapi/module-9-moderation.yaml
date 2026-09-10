@@ -1,0 +1,206 @@
+openapi: 3.1.0
+info:
+  title: Vezlist moderation API
+  version: 1.0.0
+  description: Mandatory review, private reporting, owner appeals, and staff decisions. All POST requests require session CSRF protection.
+security:
+  - cookieSession: []
+paths:
+  /api/v1/listings/{id}/reports:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      summary: Report another user's active listing in the specified site
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [site, reason]
+              properties:
+                site: { $ref: '#/components/schemas/Site' }
+                reason: { type: string, enum: [SPAM, FRAUD, PROHIBITED, SAFETY, OTHER] }
+                details: { type: [string, 'null'], maxLength: 1000 }
+      responses:
+        '200': { $ref: '#/components/responses/Receipt' }
+        '400': { description: Invalid input }
+        '401': { description: Authentication required }
+        '403': { description: Invalid CSRF or disabled account }
+        '404': { description: Listing is unavailable, owned by caller, or outside site }
+        '429': { description: New-report quota exceeded }
+  /api/v1/me/listings/{id}/moderation:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      summary: Read only the owner's safe moderation status
+      parameters:
+        - $ref: '#/components/parameters/Site'
+      responses:
+        '200':
+          description: Owner status, excluding all internal notes and reporter data
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [listingId, status, publicReason, appealAllowed]
+                properties:
+                  listingId: { type: string, format: uuid }
+                  status: { type: string }
+                  publicReason: { type: [string, 'null'] }
+                  appealAllowed: { type: boolean }
+        '401': { description: Authentication required }
+        '404': { description: Listing not owned by caller or outside site }
+  /api/v1/me/listings/{id}/moderation/appeals:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      summary: Appeal an owned rejected or removed listing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [site, message]
+              properties:
+                site: { $ref: '#/components/schemas/Site' }
+                message: { type: string, minLength: 1, maxLength: 2000 }
+      responses:
+        '200': { $ref: '#/components/responses/Receipt' }
+        '400': { description: Invalid input }
+        '401': { description: Authentication required }
+        '403': { description: Invalid CSRF or disabled account }
+        '404': { description: Listing not owned by caller or outside site }
+        '409': { description: Listing status cannot be appealed }
+        '429': { description: Appeal quota exceeded }
+  /api/v1/moderation/cases:
+    get:
+      summary: Staff only - list open review cases
+      parameters:
+        - $ref: '#/components/parameters/Site'
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 24 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, maximum: 10000, default: 0 } }
+      responses:
+        '200': { description: Array of case summaries ordered by creation time and ID }
+        '403': { description: Staff role required }
+  /api/v1/moderation/cases/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      summary: Staff only - listing, policy, media, and bounded report/action history
+      responses:
+        '200': { description: Case detail including restricted notes and media reviews }
+        '403': { description: Staff role required }
+        '404': { description: Case not found }
+  /api/v1/moderation/cases/{id}/assignment:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      summary: Claim own review or administrator assignment; excludes the listing owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assigneeId]
+              properties:
+                assigneeId: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/Receipt' }
+        '403': { description: Invalid role, ownership, or assignment authority }
+        '409': { description: Closed case or already claimed by another reviewer }
+  /api/v1/moderation/cases/{id}/notes:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      summary: Assigned reviewer appends a private note
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: { type: string, minLength: 1, maxLength: 2000 }
+      responses:
+        '200': { $ref: '#/components/responses/Receipt' }
+        '403': { description: Invalid role or self-review }
+        '409': { description: Case closed or not assigned to caller }
+  /api/v1/moderation/cases/{id}/media-reviews:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      summary: Assigned reviewer records a checksum-bound human media verdict
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mediaId, verdict]
+              properties:
+                mediaId: { type: string, format: uuid }
+                verdict: { type: string, enum: [PASS, BLOCK] }
+                note: { type: [string, 'null'], maxLength: 2000 }
+      responses:
+        '200': { $ref: '#/components/responses/Receipt' }
+        '403': { description: Invalid role or self-review }
+        '409': { description: Not ready, foreign media, completed vote, or invalid case state }
+  /api/v1/moderation/cases/{id}/decisions:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      summary: Assigned reviewer makes an audited listing decision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [APPROVE, REJECT, REMOVE, DISMISS] }
+                reason:
+                  type: string
+                  description: Required for REJECT and REMOVE
+                  enum: [MISLEADING_CONTENT, PROHIBITED_CONTENT, UNSAFE_CONTENT, MEDIA_REQUIRES_CHANGES, ELIGIBILITY_NOT_CONFIRMED, DUPLICATE_OR_SPAM]
+                note: { type: [string, 'null'], maxLength: 2000 }
+                eligibilityChecked: { type: boolean, default: false, description: Required true for each Personals approval }
+      responses:
+        '200':
+          description: Repeated votes are idempotent; first Personals approval leaves listing pending
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, listingStatus, caseStatus, approvals]
+                properties:
+                  id: { type: string, format: uuid }
+                  listingStatus: { type: string }
+                  caseStatus: { type: string, enum: [OPEN, CLOSED] }
+                  approvals: { type: integer, minimum: 0 }
+        '400': { description: Invalid or missing public reason }
+        '403': { description: Invalid role or self-review }
+        '409': { description: Claim, state, content version, eligibility, or media-review requirements not met }
+components:
+  securitySchemes:
+    cookieSession: { type: apiKey, in: cookie, name: SESSION }
+  parameters:
+    Id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    Site: { name: site, in: query, required: true, schema: { $ref: '#/components/schemas/Site' } }
+  schemas:
+    Site: { type: string, enum: [MARKETPLACE, PERSONALS] }
+    Receipt:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string, format: uuid }
+  responses:
+    Receipt:
+      description: Persisted receipt (original ID on idempotent retry)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Receipt' }

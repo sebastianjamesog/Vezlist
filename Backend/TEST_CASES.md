@@ -276,6 +276,21 @@ mvn -Ddebug=false -Pintegration -Dtest=SavedListingControllerIntegrationTest ver
 
 ## Regression checklist before every release
 
+### Module 9 automated coverage
+
+`ModerationIntegrationTest` exercises submission queueing, role boundaries and
+revocation, missing CSRF, self-review denial, staff reassignment, mandatory media
+checks, two distinct Personals approvals, fixed public rejection reasons,
+owner-only/idempotent appeals, changed-content rejection, site isolation,
+idempotent reporting, concurrent report quotas, listing removal, immutable
+history, invalid input, and transaction rollback on an outbox write failure.
+
+Frontend moderation tests cover submission failures, validation, and owner-query
+state. Browser smoke tests exercise both apps with intercepted API responses;
+they are separate from the database-backed controller tests.
+
+### Release checks
+
 1. Run `mvn --batch-mode verify`.
 2. Run all ready tests for the modules changed by the release.
 3. Verify authentication, authorization, validation, site-scope isolation, and error responses for every new endpoint.
