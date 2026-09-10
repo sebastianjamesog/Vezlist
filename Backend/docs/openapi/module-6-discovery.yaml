@@ -1,0 +1,173 @@
+openapi: 3.1.0
+info:
+  title: Vezlist discovery API
+  version: 1.0.0
+  description: Public, site-isolated discovery contract introduced by Module 6.
+paths:
+  /api/v1/listings:
+    get:
+      operationId: searchListings
+      summary: Search active listings
+      description: Returns stable keyset pages. Cursor values are opaque and can only be reused with the same filters and sort.
+      parameters:
+        - $ref: '#/components/parameters/Site'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Categories'
+        - $ref: '#/components/parameters/Province'
+        - $ref: '#/components/parameters/Areas'
+        - $ref: '#/components/parameters/MinPrice'
+        - $ref: '#/components/parameters/MaxPrice'
+        - $ref: '#/components/parameters/VerifiedOnly'
+        - $ref: '#/components/parameters/PostedWithin'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/Latitude'
+        - $ref: '#/components/parameters/Longitude'
+        - $ref: '#/components/parameters/RadiusKm'
+        - name: cursor
+          in: query
+          schema: { type: string, maxLength: 2048 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 24 }
+      responses:
+        '200':
+          description: One stable page of active listings.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscoveryPage' }
+        '400': { description: Invalid filters, cursor, or nearest-search coordinates. }
+  /api/v1/listings/map:
+    get:
+      operationId: mapListings
+      summary: Get a lightweight projection for map pins
+      description: Requires a center and radius. The radius is capped at 100 km and the projection at 500 pins.
+      parameters:
+        - $ref: '#/components/parameters/Site'
+        - $ref: '#/components/parameters/Query'
+        - $ref: '#/components/parameters/Categories'
+        - $ref: '#/components/parameters/Province'
+        - $ref: '#/components/parameters/Areas'
+        - $ref: '#/components/parameters/MinPrice'
+        - $ref: '#/components/parameters/MaxPrice'
+        - $ref: '#/components/parameters/VerifiedOnly'
+        - $ref: '#/components/parameters/PostedWithin'
+        - $ref: '#/components/parameters/Latitude'
+        - $ref: '#/components/parameters/Longitude'
+        - $ref: '#/components/parameters/RadiusKm'
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 200 }
+      responses:
+        '200':
+          description: Active listing pins ordered by distance.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MapPin' }
+        '400': { description: Invalid filters or missing coordinates. }
+components:
+  parameters:
+    Site:
+      name: site
+      in: query
+      required: true
+      schema: { type: string, enum: [MARKETPLACE, PERSONALS] }
+    Query:
+      name: q
+      in: query
+      schema: { type: string, maxLength: 100 }
+    Categories:
+      name: category
+      in: query
+      description: Repeat for multiple categories.
+      schema: { type: array, maxItems: 10, items: { type: string, maxLength: 80 } }
+      explode: true
+    Province:
+      name: province
+      in: query
+      schema: { type: string, maxLength: 40 }
+    Areas:
+      name: area
+      in: query
+      description: Repeat for multiple areas.
+      schema: { type: array, maxItems: 20, items: { type: string, maxLength: 40 } }
+      explode: true
+    MinPrice:
+      name: minPrice
+      in: query
+      schema: { type: number, minimum: 0 }
+    MaxPrice:
+      name: maxPrice
+      in: query
+      schema: { type: number, minimum: 0 }
+    VerifiedOnly:
+      name: verifiedOnly
+      in: query
+      schema: { type: boolean, default: false }
+    PostedWithin:
+      name: postedWithin
+      in: query
+      schema: { type: string, enum: [ANY, HOURS_24, DAYS_7, DAYS_30], default: ANY }
+    Sort:
+      name: sort
+      in: query
+      schema: { type: string, enum: [NEWEST, PRICE_ASC, PRICE_DESC, NEAREST], default: NEWEST }
+    Latitude:
+      name: latitude
+      in: query
+      schema: { type: number, minimum: -90, maximum: 90 }
+    Longitude:
+      name: longitude
+      in: query
+      schema: { type: number, minimum: -180, maximum: 180 }
+    RadiusKm:
+      name: radiusKm
+      in: query
+      schema: { type: number, exclusiveMinimum: 0, maximum: 100 }
+  schemas:
+    DiscoveryPage:
+      type: object
+      required: [items, hasMore]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DiscoveryListing' }
+        nextCursor:
+          type: [string, 'null']
+          description: Opaque Base64URL cursor, present only when another page exists.
+        hasMore: { type: boolean }
+    DiscoveryListing:
+      type: object
+      required: [id, site, title, businessName, categoryId, categoryLabel, provinceId, provinceLabel, locationId, locationLabel, verified, photoCount, publishedAt]
+      properties:
+        id: { type: string, format: uuid }
+        site: { type: string, enum: [MARKETPLACE, PERSONALS] }
+        title: { type: string }
+        businessName: { type: string }
+        price: { type: [number, 'null'] }
+        categoryId: { type: string }
+        categoryLabel: { type: string }
+        provinceId: { type: string }
+        provinceLabel: { type: string }
+        locationId: { type: string }
+        locationLabel: { type: string }
+        latitude: { type: [number, 'null'] }
+        longitude: { type: [number, 'null'] }
+        distanceKm: { type: [number, 'null'] }
+        verified: { type: boolean }
+        imageUrl: { type: [string, 'null'], format: uri }
+        photoCount: { type: integer, minimum: 0 }
+        publishedAt: { type: string, format: date-time }
+    MapPin:
+      type: object
+      required: [id, title, categoryId, latitude, longitude, distanceKm, verified]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        categoryId: { type: string }
+        price: { type: [number, 'null'] }
+        latitude: { type: number }
+        longitude: { type: number }
+        distanceKm: { type: number }
+        verified: { type: boolean }

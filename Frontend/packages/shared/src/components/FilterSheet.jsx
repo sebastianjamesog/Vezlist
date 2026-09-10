@@ -3,12 +3,8 @@
 import { useEffect, useState } from "react";
 import ChoiceRow from "./ui/ChoiceRow";
 import Modal from "./ui/Modal";
-import { DEFAULT_FILTERS, applyFilters } from "../lib/filters";
-import {
-  postedWithinOptions,
-  priceBuckets,
-  sortOptions,
-} from "../data/mock";
+import { DEFAULT_FILTERS } from "../lib/filters";
+import { postedWithinOptions, priceBuckets, sortOptions } from "../data/mock";
 import { ALL_CANADA } from "../data/locations";
 import { useCatalog } from "../context/CatalogContext";
 
@@ -26,8 +22,7 @@ const PRICE_FIELD =
 export default function FilterSheet({
   open,
   filters,
-  listings,
-  query,
+  allowNearest = false,
   initialGroup = "sort",
   hideCategory = false,
   onClose,
@@ -68,8 +63,6 @@ export default function FilterSheet({
         : [...draft[key], value],
     });
 
-  const resultCount = applyFilters(listings, draft, query).length;
-
   return (
     // The body height is pinned, not just floored: with only a minimum the
     // sheet resizes as you move between a four-row group and a twenty-row one.
@@ -93,7 +86,7 @@ export default function FilterSheet({
             onClick={() => onApply(draft)}
             className="brand-gradient flex-[1.4] rounded-2xl py-3 text-[15px] font-bold text-on-brand shadow-pop transition-transform active:scale-[0.98]"
           >
-            Show {resultCount} {resultCount === 1 ? "ad" : "ads"}
+            Show results
           </button>
         </div>
       }
@@ -125,16 +118,18 @@ export default function FilterSheet({
       <div className="min-w-0 flex-1 overflow-y-auto p-2">
         {group === "sort" && (
           <div role="radiogroup" aria-label="Sort by">
-            {sortOptions.map((o) => (
-              <ChoiceRow
-                key={o.value}
-                type="radio"
-                checked={draft.sort === o.value}
-                onChange={() => patch({ sort: o.value })}
-              >
-                {o.label}
-              </ChoiceRow>
-            ))}
+            {sortOptions
+              .filter((option) => option.value !== "nearest" || allowNearest)
+              .map((o) => (
+                <ChoiceRow
+                  key={o.value}
+                  type="radio"
+                  checked={draft.sort === o.value}
+                  onChange={() => patch({ sort: o.value })}
+                >
+                  {o.label}
+                </ChoiceRow>
+              ))}
           </div>
         )}
 
@@ -234,7 +229,8 @@ export default function FilterSheet({
               <>
                 <p className="px-3 pb-1 pt-4 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
                   Cities in{" "}
-                  {provinces.find((p) => p.id === draft.province)?.label ?? "Selected province"}
+                  {provinces.find((p) => p.id === draft.province)?.label ??
+                    "Selected province"}
                 </p>
                 {areasFor(draft.province).map((a) => (
                   <ChoiceRow

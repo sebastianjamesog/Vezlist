@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { Eye, EyeOff, SlidersHorizontal } from "lucide-react";
 import TopBar from "@vezlist/shared/components/layout/TopBar.jsx";
@@ -12,7 +12,7 @@ import LocationBar from "@vezlist/shared/components/LocationBar.jsx";
 import FilterSheet from "@vezlist/shared/components/FilterSheet.jsx";
 import FilterChips from "@vezlist/shared/components/FilterChips.jsx";
 import { StoryRail } from "@vezlist/shared/components/StatusList.jsx";
-import { useFeed } from "@vezlist/shared/context/FeedContext.jsx";
+import { useCatalog } from "@vezlist/shared/context/CatalogContext.jsx";
 import { useStatus } from "@vezlist/shared/context/StatusContext.jsx";
 import { useToast } from "@vezlist/shared/context/ToastContext.jsx";
 import { groupStatuses } from "@vezlist/shared/lib/status.js";
@@ -20,9 +20,12 @@ import { MARKETPLACE_URL } from "@vezlist/shared/lib/sites.js";
 import {
   DEFAULT_FILTERS,
   activeFilterCount,
-  applyFilters,
 } from "@vezlist/shared/lib/filters.js";
-import { personalsListings, stories } from "@vezlist/shared/data/mock.js";
+import { stories } from "@vezlist/shared/data/mock.js";
+import {
+  useDiscovery,
+  useDiscoveryUrlState,
+} from "@vezlist/shared/lib/useDiscovery.js";
 import ListingCard from "@vezlist/shared/components/cards/ListingCard.jsx";
 import { useDiscreet } from "../useDiscreet";
 
@@ -38,7 +41,33 @@ import { useDiscreet } from "../useDiscreet";
  * room it took is better spent on the board.
  */
 export default function Personals() {
-  const { filters, setFilters, query, setQuery } = useFeed();
+  return (
+    <Suspense>
+      <PersonalsScreen />
+    </Suspense>
+  );
+}
+
+function PersonalsScreen() {
+  const catalog = useCatalog();
+  const { filters, setFilters, query, setQuery, reset } = useDiscoveryUrlState({
+    catalog,
+  });
+  const {
+    items: visible,
+    loading,
+    loadingMore,
+    error,
+    hasMore,
+    loadMore,
+    retry,
+  } = useDiscovery({
+    site: "PERSONALS",
+    filters,
+    query,
+    catalog,
+    fixedCategoryIds: ["personals"],
+  });
   const [sheetOpen, setSheetOpen] = useState(false);
   const [discreet, setDiscreet] = useDiscreet();
   const { seen } = useStatus();
@@ -50,12 +79,10 @@ export default function Personals() {
   const shownStatuses = [...recent, ...viewed];
 
   const patch = (next) => setFilters((f) => ({ ...f, ...next }));
-  const visible = applyFilters(personalsListings, filters, query);
   const filterCount = activeFilterCount(filters);
 
   function resetAll() {
-    setFilters(DEFAULT_FILTERS);
-    setQuery("");
+    reset();
   }
 
   return (
@@ -144,7 +171,18 @@ export default function Personals() {
             onClearAll={() => setFilters(DEFAULT_FILTERS)}
           />
 
-          {visible.length ? (
+          {loading ? (
+            <p className="rounded-card bg-surface py-12 text-center text-[15px] text-muted shadow-card">
+              Loading posts...
+            </p>
+          ) : error && !visible.length ? (
+            <EmptyState
+              icon="WifiOff"
+              title="Could not load posts"
+              body={error.message}
+              action={<Button onClick={retry}>Try again</Button>}
+            />
+          ) : visible.length ? (
             <>
               <div className="mb-3 flex items-baseline justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2">
@@ -155,7 +193,8 @@ export default function Personals() {
                   </span>
                 </div>
                 <p className="text-[13px] font-medium tabular-nums text-muted">
-                  {visible.length} {visible.length === 1 ? "post" : "posts"}
+                  {visible.length}
+                  {hasMore ? "+" : ""} loaded
                 </p>
               </div>
 
@@ -166,6 +205,13 @@ export default function Personals() {
                   <ListingCard key={l.id} listing={l} />
                 ))}
               </div>
+              {hasMore && (
+                <div className="mt-5 flex justify-center">
+                  <Button onClick={loadMore} disabled={loadingMore}>
+                    {loadingMore ? "Loading..." : "Load more"}
+                  </Button>
+                </div>
+              )}
             </>
           ) : (
             <EmptyState
@@ -181,8 +227,6 @@ export default function Personals() {
       <FilterSheet
         open={sheetOpen}
         filters={filters}
-        listings={personalsListings}
-        query={query}
         initialGroup="sort"
         hideCategory
         onClose={() => setSheetOpen(false)}

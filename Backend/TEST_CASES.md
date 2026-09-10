@@ -181,7 +181,7 @@ npm test
 npm run build:all
 ```
 
-## Phase 2 — Planned test cases
+## Phase 2 — Ready and planned test cases
 
 ### Module 6 — Discovery
 
@@ -192,6 +192,17 @@ npm run build:all
 | TC-DISC-003 | Request `nearest` sorting with valid coordinates. | Results are ordered by database-calculated distance. |
 | TC-DISC-004 | Follow the next cursor. | No duplicate or skipped result across pages. |
 | TC-DISC-005 | Search Personals scope from Marketplace request. | No cross-site data is returned. |
+
+### Automated discovery suite
+
+`DiscoveryCursorCodecTest` covers opaque cursor round trips, filter binding, sort binding, and malformed values. `DiscoveryControllerIntegrationTest` runs against temporary PostGIS and covers Flyway V8, combined filters, active/status and site isolation, every cursor page without duplicates or missing rows, price order, validation, query metrics, bounded radius, map projection, and database-calculated distance.
+
+```powershell
+mvn -Ddebug=false -Pintegration -Dtest=DiscoveryControllerIntegrationTest verify
+cd ../Frontend
+npm test
+npm run build:all
+```
 
 ### Module 7 — Saved Listings
 

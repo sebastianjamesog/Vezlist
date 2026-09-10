@@ -6,6 +6,8 @@ import TopBar from "@vezlist/shared/components/layout/TopBar.jsx";
 import PageBody from "@vezlist/shared/components/layout/PageBody.jsx";
 import LocationBar from "@vezlist/shared/components/LocationBar.jsx";
 import { useFeed } from "@vezlist/shared/context/FeedContext.jsx";
+import { useCatalog } from "@vezlist/shared/context/CatalogContext.jsx";
+import { discoveryUrlParams } from "@vezlist/shared/lib/discovery.js";
 import { SITE_NAME } from "@vezlist/shared/lib/sites.js";
 import CategoryGrid from "./CategoryGrid.jsx";
 
@@ -16,7 +18,9 @@ import CategoryGrid from "./CategoryGrid.jsx";
  */
 export default function Home() {
   const { filters, setFilters } = useFeed();
+  const catalog = useCatalog();
   const patch = (next) => setFilters((f) => ({ ...f, ...next }));
+  const browseParams = discoveryUrlParams(filters, "", catalog);
 
   return (
     <>
@@ -31,13 +35,13 @@ export default function Home() {
           <LocationBar variant="card" filters={filters} onPatch={patch} />
 
           <div className="mt-5">
-            <CategoryGrid />
+            <CategoryGrid filters={filters} />
           </div>
 
           {/* Nine tiles is not nineteen categories — this is the way to the
               rest of them, and to the feed with nothing narrowed at all. */}
           <Link
-            href="/browse"
+            href={`/browse${browseParams.size ? `?${browseParams}` : ""}`}
             className="mt-5 flex items-center justify-center gap-1.5 rounded-card bg-surface py-3.5 text-[15px] font-semibold text-brand shadow-card transition-all hover:-translate-y-0.5 hover:shadow-lift"
           >
             Browse all ads

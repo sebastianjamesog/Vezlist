@@ -5,14 +5,16 @@ import Icon from "@vezlist/shared/components/ui/Icon.jsx";
 import { homeCategories } from "@vezlist/shared/data/mock.js";
 import { PERSONALS_URL } from "@vezlist/shared/lib/sites.js";
 import { useCatalog } from "@vezlist/shared/context/CatalogContext.jsx";
+import { discoveryUrlParams } from "@vezlist/shared/lib/discovery.js";
 
 /**
  * The nine doorways on the home screen. Everything here is a real link — a tile
  * carries you into the feed already narrowed to that category, and Personals
  * carries you off this site entirely, so it must survive a middle-click.
  */
-export default function CategoryGrid() {
-  const { categories } = useCatalog();
+export default function CategoryGrid({ filters }) {
+  const catalog = useCatalog();
+  const { categories } = catalog;
   const byId = new Map(categories.map((category) => [category.id, category]));
 
   return (
@@ -21,13 +23,20 @@ export default function CategoryGrid() {
         const personals = id === "personals";
         const cat = personals
           ? { label: "Personals", icon: "VenusAndMars" }
-          : byId.get(id) ?? { label: id, icon: "Tag" };
+          : (byId.get(id) ?? { label: id, icon: "Tag" });
         const Root = personals ? "a" : Link;
+        const browseParams = personals
+          ? null
+          : discoveryUrlParams(
+              { ...filters, categories: [cat.label] },
+              "",
+              catalog,
+            );
 
         return (
           <Root
             key={id}
-            href={personals ? PERSONALS_URL : `/browse?cat=${id}`}
+            href={personals ? PERSONALS_URL : `/browse?${browseParams}`}
             className="group flex flex-col items-center justify-center gap-2 rounded-card bg-surface px-2 py-5 shadow-card transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift active:scale-[0.98]"
           >
             <Icon

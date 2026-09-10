@@ -5,6 +5,8 @@ import java.util.List;
 
 import cc.vezlist.identity.application.EmailAlreadyRegisteredException;
 import cc.vezlist.catalog.application.CatalogReferenceInvalidException;
+import cc.vezlist.discovery.application.DiscoveryCursorInvalidException;
+import cc.vezlist.discovery.application.DiscoveryQueryInvalidException;
 import cc.vezlist.identity.web.InvalidCredentialsException;
 import cc.vezlist.listings.application.IdempotencyConflictException;
 import cc.vezlist.listings.application.ListingNotFoundException;
@@ -16,6 +18,8 @@ import cc.vezlist.users.application.CurrentPasswordInvalidException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.MDC;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -28,6 +32,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
     @ExceptionHandler(EmailAlreadyRegisteredException.class)
     ResponseEntity<ApiError> handleDuplicateEmail(
@@ -79,6 +84,15 @@ public class ApiExceptionHandler {
     ResponseEntity<ApiError> handleInvalidCatalogReference(
             Exception exception,
             HttpServletRequest request) {
+        if (exception instanceof MethodArgumentTypeMismatchException
+                && request.getRequestURI().startsWith("/api/v1/listings")) {
+            return error(
+                    HttpStatus.BAD_REQUEST,
+                    "DISCOVERY_QUERY_INVALID",
+                    "One or more discovery query values are invalid.",
+                    List.of(),
+                    request);
+        }
         return error(
                 HttpStatus.BAD_REQUEST,
                 "CATALOG_REFERENCE_INVALID",
@@ -125,6 +139,30 @@ public class ApiExceptionHandler {
         return error(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "One or more fields are invalid.", violations, request);
     }
 
+    @ExceptionHandler(DiscoveryCursorInvalidException.class)
+    ResponseEntity<ApiError> handleDiscoveryCursor(
+            DiscoveryCursorInvalidException exception,
+            HttpServletRequest request) {
+        return error(
+                HttpStatus.BAD_REQUEST,
+                "DISCOVERY_CURSOR_INVALID",
+                exception.getMessage(),
+                List.of(),
+                request);
+    }
+
+    @ExceptionHandler(DiscoveryQueryInvalidException.class)
+    ResponseEntity<ApiError> handleDiscoveryQuery(
+            DiscoveryQueryInvalidException exception,
+            HttpServletRequest request) {
+        return error(
+                HttpStatus.BAD_REQUEST,
+                "DISCOVERY_QUERY_INVALID",
+                exception.getMessage(),
+                List.of(),
+                request);
+    }
+
     @ExceptionHandler({MissingRequestHeaderException.class, HandlerMethodValidationException.class})
     ResponseEntity<ApiError> handleRequestConstraint(
             Exception exception,
@@ -139,6 +177,7 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     ResponseEntity<ApiError> handleUnexpected(Exception exception, HttpServletRequest request) {
+        log.error("Unhandled API exception for {} {}", request.getMethod(), request.getRequestURI(), exception);
         return error(
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 "INTERNAL_ERROR",
