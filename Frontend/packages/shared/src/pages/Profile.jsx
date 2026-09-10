@@ -8,7 +8,7 @@ import TopBar from "../components/layout/TopBar";
 import PageBody from "../components/layout/PageBody";
 import Icon from "../components/ui/Icon";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
-import { useSaved } from "../context/SavedContext";
+import { useSaved } from "../context/SavedStore";
 import { useToast } from "../context/ToastContext";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
@@ -34,12 +34,21 @@ function Stat({ value, label }) {
 }
 
 export default function Profile() {
-  const { count: savedCount } = useSaved();
+  const {
+    count: savedCount,
+    countKnown: savedCountKnown,
+    loading: savedLoading,
+  } = useSaved();
   const toast = useToast();
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [details, setDetails] = useState(null);
+  const savedSubtitle = savedLoading
+    ? "Loading saved items..."
+    : savedCountKnown
+      ? `${savedCount} saved ${savedCount === 1 ? "ad" : "ads"}`
+      : "View your bookmarked ads";
 
   useEffect(() => {
     let active = true;
@@ -104,7 +113,7 @@ export default function Profile() {
             <div className="relative mt-5 flex gap-2">
               <Stat value={mockProfile.activeAds} label="Active ads" />
               <Stat value={mockProfile.yearsActive} label="Years active" />
-              <Stat value={savedCount} label="Saved" />
+              <Stat value={savedCountKnown ? savedCount : "—"} label="Saved" />
             </div>
           </section>
 
@@ -133,9 +142,7 @@ export default function Profile() {
                       {item.label}
                     </span>
                     <span className="mt-0.5 block truncate text-[13px] text-muted">
-                      {item.id === "saved" && savedCount
-                        ? `${savedCount} saved ${savedCount === 1 ? "ad" : "ads"}`
-                        : item.sub}
+                      {item.id === "saved" ? savedSubtitle : item.sub}
                     </span>
                   </span>
                   <ChevronRight className="size-5 shrink-0 text-muted" />

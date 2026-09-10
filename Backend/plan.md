@@ -487,7 +487,9 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 
 #### Module 7 — Saved Listings
 
-**Depends on:** Modules 1 and 4.
+**Depends on:** Modules 1, 4, 5, and 6.
+
+**Implementation status (September 11, 2026): complete for the Module 7 scope.** Flyway V9 adds unique, indexed saved records and a nonnegative aggregate save count. Authenticated, site-scoped APIs provide current state, concurrency-safe idempotent save/remove mutations, and an account-bound cursor feed containing only accessible listing-card data and READY cover media. Save-count changes update the listing and write a delta-only durable event in one transaction without recording saver identity in the event. The shared frontend replaces browser-only saved IDs with API state, optimistic mutations with rollback, and cursor-backed saved pages. Redis-backed save rate limiting remains part of the cross-cutting launch hardening already tracked in the security plan.
 
 1. Create `saved_listings` with a unique `(user_id, listing_id)` constraint.
 2. Implement idempotent save and unsave endpoints.

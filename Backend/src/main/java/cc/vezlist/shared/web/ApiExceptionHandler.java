@@ -14,6 +14,8 @@ import cc.vezlist.listings.application.ListingStateException;
 import cc.vezlist.media.application.MediaNotFoundException;
 import cc.vezlist.media.application.MediaStateException;
 import cc.vezlist.media.application.MediaValidationException;
+import cc.vezlist.saved.application.SavedListingCursorInvalidException;
+import cc.vezlist.saved.application.SavedListingQueryInvalidException;
 import cc.vezlist.users.application.CurrentPasswordInvalidException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
@@ -24,6 +26,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -84,6 +87,15 @@ public class ApiExceptionHandler {
     ResponseEntity<ApiError> handleInvalidCatalogReference(
             Exception exception,
             HttpServletRequest request) {
+        if (exception instanceof MethodArgumentTypeMismatchException
+                && isSavedListingRequest(request)) {
+            return error(
+                    HttpStatus.BAD_REQUEST,
+                    "SAVED_LISTING_QUERY_INVALID",
+                    "One or more saved-listing request values are invalid.",
+                    List.of(),
+                    request);
+        }
         if (exception instanceof MethodArgumentTypeMismatchException
                 && request.getRequestURI().startsWith("/api/v1/listings")) {
             return error(
@@ -163,10 +175,46 @@ public class ApiExceptionHandler {
                 request);
     }
 
-    @ExceptionHandler({MissingRequestHeaderException.class, HandlerMethodValidationException.class})
+    @ExceptionHandler(SavedListingCursorInvalidException.class)
+    ResponseEntity<ApiError> handleSavedListingCursor(
+            SavedListingCursorInvalidException exception,
+            HttpServletRequest request) {
+        return error(
+                HttpStatus.BAD_REQUEST,
+                "SAVED_LISTING_CURSOR_INVALID",
+                exception.getMessage(),
+                List.of(),
+                request);
+    }
+
+    @ExceptionHandler(SavedListingQueryInvalidException.class)
+    ResponseEntity<ApiError> handleSavedListingQuery(
+            SavedListingQueryInvalidException exception,
+            HttpServletRequest request) {
+        return error(
+                HttpStatus.BAD_REQUEST,
+                "SAVED_LISTING_QUERY_INVALID",
+                exception.getMessage(),
+                List.of(),
+                request);
+    }
+
+    @ExceptionHandler({
+            MissingRequestHeaderException.class,
+            MissingServletRequestParameterException.class,
+            HandlerMethodValidationException.class
+    })
     ResponseEntity<ApiError> handleRequestConstraint(
             Exception exception,
             HttpServletRequest request) {
+        if (isSavedListingRequest(request)) {
+            return error(
+                    HttpStatus.BAD_REQUEST,
+                    "SAVED_LISTING_QUERY_INVALID",
+                    "One or more saved-listing request values are invalid.",
+                    List.of(),
+                    request);
+        }
         return error(
                 HttpStatus.BAD_REQUEST,
                 "VALIDATION_ERROR",
@@ -184,6 +232,12 @@ public class ApiExceptionHandler {
                 "An unexpected error occurred.",
                 List.of(),
                 request);
+    }
+
+    private boolean isSavedListingRequest(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        return uri.startsWith("/api/v1/me/saved-listings")
+                || (uri.startsWith("/api/v1/listings/") && uri.endsWith("/saved"));
     }
 
     private ResponseEntity<ApiError> error(

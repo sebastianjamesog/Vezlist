@@ -17,13 +17,15 @@ import { useShell } from "../components/layout/AppLayout";
 import PageBody from "../components/layout/PageBody";
 import Icon from "../components/ui/Icon";
 import Button from "../components/ui/Button";
-import { useSaved } from "../context/SavedContext";
+import { useAuth } from "../context/AuthContext";
+import { useSaved } from "../context/SavedStore";
 import { useToast } from "../context/ToastContext";
 import { ads } from "../data/mock";
 import { api } from "../lib/api";
 import { maskContact } from "../lib/format";
 import { listingToAd } from "../lib/listings";
 import { useNavigate } from "../lib/nav";
+import { isRemoteListingId } from "../lib/saved";
 import { FEED_PATH, SITE } from "../lib/sites";
 import { tones } from "../lib/tones";
 
@@ -77,7 +79,8 @@ export default function AdDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { openPost } = useShell();
-  const { isSaved, toggle } = useSaved();
+  const { ready: authReady, signedIn, user } = useAuth();
+  const { status, hydrate, setSaved } = useSaved();
   const toast = useToast();
   const mockAd = ads[id];
   const [remoteAd, setRemoteAd] = useState(null);
@@ -85,7 +88,34 @@ export default function AdDetail() {
   const [error, setError] = useState("");
   const [active, setActive] = useState(0);
   const ad = mockAd ?? remoteAd;
-  const saved = isSaved(id);
+  const saveStatus = status(id);
+  const saved = saveStatus.saved;
+  const ownListing =
+    signedIn &&
+    Boolean(user?.id) &&
+    Boolean(ad?.sellerId) &&
+    String(user.id) === String(ad.sellerId);
+  const canSave = Boolean(ad?.remote) && isRemoteListingId(id) && !ownListing;
+  const checkingSaved =
+    authReady && signedIn && canSave && !saveStatus.known && !saveStatus.error;
+  const saveDisabled = !authReady || checkingSaved || saveStatus.pending;
+  const saveLabel = saveStatus.pending
+    ? saved
+      ? "Removing..."
+      : "Saving..."
+    : checkingSaved
+      ? "Checking..."
+      : saveStatus.error
+        ? "Retry"
+        : saved
+          ? "Saved"
+          : "Save";
+  const saveAriaLabel = saveStatus.error
+    ? "Retry saved status"
+    : saved
+      ? "Remove from saved"
+      : "Save ad";
+  const saveErrorTitle = saveStatus.error?.message ?? undefined;
 
   useEffect(() => {
     setActive(0);
@@ -117,9 +147,33 @@ export default function AdDetail() {
     };
   }, [id]);
 
-  function toggleSaved() {
-    toggle(id);
-    toast(saved ? "Removed from saved" : "Saved - find it in your profile");
+  useEffect(() => {
+    if (!authReady || !signedIn || !canSave) return;
+    hydrate(id).catch(() => {});
+  }, [authReady, signedIn, canSave, hydrate, id]);
+
+  async function toggleSaved() {
+    if (!canSave || !authReady || saveStatus.pending) return;
+    if (!signedIn) {
+      navigate(`/login?next=${encodeURIComponent(`/ad/${id}`)}`);
+      return;
+    }
+    if (!saveStatus.known) {
+      try {
+        await hydrate(id, { force: true });
+      } catch (requestError) {
+        toast(requestError.message ?? "Could not check this saved ad.");
+      }
+      return;
+    }
+    try {
+      const result = await setSaved(id, !saved);
+      toast(
+        result.saved ? "Saved - find it in your profile" : "Removed from saved",
+      );
+    } catch (requestError) {
+      toast(requestError.message ?? "Could not update this saved ad.");
+    }
   }
 
   if (!ad) {
@@ -182,20 +236,26 @@ export default function AdDetail() {
                 >
                   <Share2 className="size-[18px]" strokeWidth={2.2} />
                 </button>
-                <button
-                  onClick={toggleSaved}
-                  aria-label={saved ? "Remove from saved" : "Save ad"}
-                  aria-pressed={saved}
-                  className="glass grid size-10 place-items-center rounded-full transition-transform hover:scale-105 active:scale-95"
-                >
-                  <Heart
-                    className={
-                      "size-[18px] " +
-                      (saved ? "fill-red-500 text-red-500" : "text-ink")
-                    }
-                    strokeWidth={2.2}
-                  />
-                </button>
+                {canSave && (
+                  <button
+                    type="button"
+                    onClick={toggleSaved}
+                    disabled={saveDisabled}
+                    aria-label={saveAriaLabel}
+                    aria-pressed={saveStatus.known ? saved : undefined}
+                    aria-busy={checkingSaved || saveStatus.pending}
+                    title={saveErrorTitle}
+                    className="glass grid size-10 place-items-center rounded-full transition-transform hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-60"
+                  >
+                    <Heart
+                      className={
+                        "size-[18px] " +
+                        (saved ? "fill-red-500 text-red-500" : "text-ink")
+                      }
+                      strokeWidth={2.2}
+                    />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -344,18 +404,25 @@ export default function AdDetail() {
 
       <div className="glass shrink-0 border-t border-line px-4 pb-nav pt-3 lg:hidden">
         <div className="flex gap-2.5">
-          <Button
-            variant="outline"
-            size="lg"
-            className="flex-1"
-            onClick={toggleSaved}
-            aria-pressed={saved}
-          >
-            <Heart
-              className={"size-5 " + (saved ? "fill-red-500 text-red-500" : "")}
-            />
-            {saved ? "Saved" : "Save"}
-          </Button>
+          {canSave && (
+            <Button
+              variant="outline"
+              size="lg"
+              className="flex-1"
+              onClick={toggleSaved}
+              disabled={saveDisabled}
+              aria-label={saveAriaLabel}
+              aria-pressed={saveStatus.known ? saved : undefined}
+              aria-busy={checkingSaved || saveStatus.pending}
+            >
+              <Heart
+                className={
+                  "size-5 " + (saved ? "fill-red-500 text-red-500" : "")
+                }
+              />
+              {saveLabel}
+            </Button>
+          )}
           <a
             href={
               "mailto:" + ad.email + "?subject=" + encodeURIComponent(ad.title)

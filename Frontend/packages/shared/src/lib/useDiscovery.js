@@ -110,7 +110,9 @@ export function useDiscovery({
         .then((page) => {
           setState((current) => ({
             ...current,
-            items: (page.items ?? []).map(discoveryListingToCard),
+            items: (page.items ?? []).map((item) =>
+              discoveryListingToCard(item),
+            ),
             nextCursor: page.nextCursor ?? null,
             hasMore: Boolean(page.hasMore),
             loading: false,
@@ -146,7 +148,7 @@ export function useDiscovery({
           ...current,
           items: [
             ...current.items,
-            ...(page.items ?? []).map(discoveryListingToCard),
+            ...(page.items ?? []).map((item) => discoveryListingToCard(item)),
           ],
           nextCursor: page.nextCursor ?? null,
           hasMore: Boolean(page.hasMore),
