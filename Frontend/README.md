@@ -63,10 +63,10 @@ both sides with explicit `@source` directives — without them the CSS still
 builds, just at a fraction of the size, and a site renders unstyled while the
 build reports success.
 
-**Known consequence:** browser storage is per-origin, so saved items
-(`vezlist:saved`) and watched-status (`vezlist:status-seen`) do **not** carry
-across the two sites. Sharing them needs a backend session or a cookie on the
-parent domain — neither exists yet. The create sheet is also still the
+**Known consequence:** watched-status (`vezlist:status-seen`) remains browser
+storage and does **not** carry across the two sites. Saved items are account-backed
+and follow the signed-in user across devices; each site's saved screen requests
+only listings in that site's scope. The create sheet is also still the
 marketplace's, so posting from the personals site offers marketplace categories.
 
 ## Rendering and caching
@@ -195,7 +195,7 @@ Both brands share all of it; only the eight brand vars swap.
 | `/ad/a1`, `/ad/a2`           | Ad detail — vehicle / person                                      |
 | `/seller/:id`                | Seller profile + their live ads                                   |
 | `/profile/ads`               | My Ads — Active / In review / Expired, with edit, promote, delete |
-| `/profile/saved`             | Saved Items, backed by the saved-ads store                        |
+| `/profile/saved`             | Cursor-paginated Saved Items from the signed-in account           |
 | `/profile/notifications`     | Grouped notifications, unread state, mark all read                |
 | `/profile/settings`          | Account rows and privacy/notification toggles                     |
 | `/profile/settings/details`  | Personal details form — name, email, phone, location, bio         |
@@ -318,8 +318,9 @@ action); it falls back to a sensible parent route when there's no history to pop
   survive a trip into the full-screen status player and back.
 - `AuthContext` — the signed-in session, persisted. `RequireAuth` and the
   account screens read it; see **Account and auth**.
-- `SavedContext` — saved ad ids, persisted. The heart on an ad page and the
-  Saved Items screen read the same store, so they can't disagree.
+- `SavedContext` — the authenticated saved-listing query cache. It preloads the
+  current site's first page and exact count, hydrates detail-page heart state on
+  demand, and applies optimistic save/remove updates with rollback.
 - `ToastContext` — one-line confirmations for actions that would otherwise be
   silent (saved, deleted, reply sent, ad submitted).
 
@@ -448,8 +449,8 @@ reload, signing out clears it, and the account area is gated on it:
   stands down once it has seen a session in that mount: without that it races
   the logout handler and wins, landing you on
   `/login?next=<the page you just chose to leave>`.
-- The two sites are separate origins, so a session on one is not a session on
-  the other — the same reason saved items don't carry across.
+- The two frontends are separate origins. Saved listings live behind the shared
+  backend account session and are filtered to the current site.
 
 The three Account rows in Settings are real screens now:
 
@@ -593,7 +594,7 @@ packages/
     context/     AuthContext, FeedContext, SavedContext, StatusContext, ToastContext
     data/        mock.js (screen content), locations.js (provinces and areas)
     lib/         sites.js, nav.jsx, persisted.js, tones.js, format.js, filters.js,
-                 adDraft.js, auth.js, status.js (+ tests)
+                 adDraft.js, auth.js, status.js, saved.js (+ tests)
     index.css    tokens, utilities, tone chips, both palettes
 ```
 

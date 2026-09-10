@@ -51,7 +51,7 @@ const decodeIds = (raw) => {
     : NO_IDS;
 };
 
-/** A list of ids — saved ads, watched statuses. */
+/** A reusable list of browser-persisted ids, such as watched statuses. */
 export function usePersistedIds(key) {
   return usePersisted(key, NO_IDS, decodeIds);
 }

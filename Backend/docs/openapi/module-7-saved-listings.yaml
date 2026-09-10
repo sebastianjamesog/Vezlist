@@ -1,0 +1,131 @@
+openapi: 3.1.0
+info:
+  title: Vezlist saved-listings API
+  version: 1.0.0
+  description: Authenticated, site-isolated saved-listing contract introduced by Module 7.
+security:
+  - cookieSession: []
+paths:
+  /api/v1/listings/{listingId}/saved:
+    parameters:
+      - $ref: '#/components/parameters/ListingId'
+      - $ref: '#/components/parameters/Site'
+    get:
+      operationId: getSavedListingState
+      summary: Get the current user's saved state for an accessible listing
+      responses:
+        '200':
+          description: Current saved state and accessible saved total for this site.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedState' }
+        '401': { description: Authentication is required. }
+        '404': { description: The listing is unavailable, belongs to the requester, or is outside the site. }
+    post:
+      operationId: saveListing
+      summary: Save an active listing
+      description: Idempotent. Repeating the request does not create another bookmark or count event. Requires the CSRF header supplied by `/api/v1/auth/csrf`.
+      responses:
+        '200':
+          description: The listing is saved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedState' }
+        '401': { description: Authentication is required. }
+        '403': { description: The CSRF token is missing or invalid. }
+        '404': { description: The listing is inactive, expired, unavailable, owned by the requester, or outside the site. }
+    delete:
+      operationId: unsaveListing
+      summary: Remove a saved listing
+      description: Idempotent and capable of removing a bookmark after its listing becomes inactive. Requires the CSRF header supplied by `/api/v1/auth/csrf`.
+      responses:
+        '200':
+          description: The listing is not saved in this site.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedState' }
+        '401': { description: Authentication is required. }
+        '403': { description: The CSRF token is missing or invalid. }
+  /api/v1/me/saved-listings:
+    get:
+      operationId: getMySavedListings
+      summary: Get the current user's accessible saved listings
+      description: Returns a stable keyset page ordered by saved time. Inactive, expired, deleted, cross-site, and disabled-seller listings are omitted.
+      parameters:
+        - $ref: '#/components/parameters/Site'
+        - name: cursor
+          in: query
+          description: Opaque cursor returned by the preceding page and bound to the current account and site.
+          schema: { type: string, maxLength: 2048 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 24 }
+      responses:
+        '200':
+          description: One page of saved listing cards.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedListingPage' }
+        '400': { description: The site, limit, or cursor is invalid. }
+        '401': { description: Authentication is required. }
+components:
+  securitySchemes:
+    cookieSession:
+      type: apiKey
+      in: cookie
+      name: SESSION
+  parameters:
+    ListingId:
+      name: listingId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Site:
+      name: site
+      in: query
+      required: true
+      schema: { type: string, enum: [MARKETPLACE, PERSONALS] }
+  schemas:
+    SavedState:
+      type: object
+      required: [listingId, saved, totalCount]
+      properties:
+        listingId: { type: string, format: uuid }
+        saved: { type: boolean }
+        totalCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Current number of accessible saved listings for this account and site.
+    SavedListingPage:
+      type: object
+      required: [items, hasMore, totalCount]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SavedListing' }
+        nextCursor:
+          type: [string, 'null']
+          description: Present only when another page exists.
+        hasMore: { type: boolean }
+        totalCount: { type: integer, format: int64, minimum: 0 }
+    SavedListing:
+      type: object
+      required: [id, site, title, businessName, categoryId, categoryLabel, provinceId, provinceLabel, locationId, locationLabel, verified, photoCount, publishedAt, savedAt]
+      properties:
+        id: { type: string, format: uuid }
+        site: { type: string, enum: [MARKETPLACE, PERSONALS] }
+        title: { type: string }
+        businessName: { type: string }
+        price: { type: [number, 'null'] }
+        categoryId: { type: string }
+        categoryLabel: { type: string }
+        provinceId: { type: string }
+        provinceLabel: { type: string }
+        locationId: { type: string }
+        locationLabel: { type: string }
+        verified: { type: boolean }
+        imageUrl: { type: [string, 'null'], format: uri }
+        photoCount: { type: integer, minimum: 0 }
+        publishedAt: { type: string, format: date-time }
+        savedAt: { type: string, format: date-time }

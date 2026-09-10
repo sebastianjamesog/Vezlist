@@ -211,7 +211,21 @@ npm run build:all
 | TC-SAVED-001 | Save an active listing. | Save is persisted and appears in the saved list. |
 | TC-SAVED-002 | Save the same listing twice. | Only one saved record exists; request remains idempotent. |
 | TC-SAVED-003 | Remove a saved listing. | It disappears from saved results. |
-| TC-SAVED-004 | Save a deleted or inaccessible listing. | Request is rejected or the listing is omitted safely. |
+| TC-SAVED-004 | Save a deleted, expired, disabled-seller, cross-site, or own listing. | HTTP 404 is returned without leaking listing state. |
+| TC-SAVED-005 | Remove a saved listing twice or after it becomes inactive. | Both requests succeed, the bookmark is gone, and the aggregate count never becomes negative. |
+| TC-SAVED-006 | Save one listing concurrently from multiple requests. | Exactly one bookmark, one count increment, and one durable event are created. |
+| TC-SAVED-007 | Follow every saved-feed cursor. | Every accessible item appears exactly once; another user or site cannot reuse the cursor. |
+| TC-SAVED-008 | Read a saved card containing READY media. | A signed cover URL is returned without owner, saver, contact, or exact-coordinate data. |
+| TC-SAVED-009 | Remove a save while a feed response is being assembled. | Items and total count come from the same repeatable-read database snapshot. |
+
+### Automated saved-listing suite
+
+`SavedListingCursorCodecTest` covers cursor round trips, malformed values, and account/site binding. `SavedListingControllerIntegrationTest` runs against temporary PostGIS and covers Flyway V9, authentication, state reads, idempotent save/remove, self-save and inaccessible-listing rejection, scope and account isolation, inactive cleanup, signed READY cover media, aggregate counts, durable delta-only events, stable cursor pagination, concurrent save requests, and consistent feed/count snapshots during a concurrent removal.
+
+```powershell
+mvn --batch-mode test
+mvn -Ddebug=false -Pintegration -Dtest=SavedListingControllerIntegrationTest verify
+```
 
 ### Module 8 — Seller and Reputation
 

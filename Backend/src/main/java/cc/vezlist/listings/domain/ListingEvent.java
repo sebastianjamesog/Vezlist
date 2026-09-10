@@ -38,8 +38,13 @@ public class ListingEvent {
     }
 
     public ListingEvent(UUID listingId, String eventType) {
+        this(listingId, eventType, Map.of());
+    }
+
+    public ListingEvent(UUID listingId, String eventType, Map<String, Object> payload) {
         this.listingId = listingId;
         this.eventType = eventType;
+        this.payload = Map.copyOf(payload);
     }
 
     @PrePersist

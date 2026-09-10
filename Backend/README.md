@@ -114,6 +114,19 @@ GET /api/v1/listings/map?site=MARKETPLACE&latitude=48.4284&longitude=-123.3656&r
 
 Use the returned `nextCursor` unchanged with the same filters. The cursor is intentionally opaque and is rejected if its filters or sort do not match. The standalone contract is in `docs/openapi/module-6-discovery.yaml`; generated Springdoc remains available at `/v3/api-docs`.
 
+## Saved Listings endpoints (Module 7)
+
+Saved-listing endpoints require an authenticated session and a site scope. The POST and DELETE requests also require the CSRF header/token returned by `GET /api/v1/auth/csrf`.
+
+```text
+GET    /api/v1/listings/{listingId}/saved?site=MARKETPLACE
+POST   /api/v1/listings/{listingId}/saved?site=MARKETPLACE
+DELETE /api/v1/listings/{listingId}/saved?site=MARKETPLACE
+GET    /api/v1/me/saved-listings?site=MARKETPLACE&limit=24
+```
+
+Saving and removing are idempotent. Only another user's active, unexpired listing from the requested site can be saved. Removing remains safe after a listing becomes unavailable. The saved feed returns only accessible card data, signs only READY cover media, and uses an opaque cursor bound to the account and site. See `docs/openapi/module-7-saved-listings.yaml` for the standalone contract.
+
 ## Verify
 
 ```powershell
@@ -125,4 +138,4 @@ Docker is not required for the fast tests. The integration command uses Testcont
 
 ## Next module
 
-Module 7 — Saved Listings: persisted, idempotent save/unsave and a cursor-paginated saved feed.
+Module 8 - Seller and Reputation: privacy-safe public seller profiles, active seller listings, verification, and reputation summaries.

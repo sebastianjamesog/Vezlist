@@ -88,6 +88,9 @@ public class Listing {
     @Column(nullable = false)
     private long version;
 
+    @Column(name = "save_count", nullable = false)
+    private long saveCount;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -204,6 +207,7 @@ public class Listing {
     public Double getLongitude() { return longitude; }
     public Map<String, String> getAttributes() { return Map.copyOf(attributes); }
     public long getVersion() { return version; }
+    public long getSaveCount() { return saveCount; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public Instant getSubmittedAt() { return submittedAt; }
