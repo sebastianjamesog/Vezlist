@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
-import { useSearchParams } from "@vezlist/shared/lib/nav.jsx";
 import TopBar from "@vezlist/shared/components/layout/TopBar.jsx";
 import PageBody from "@vezlist/shared/components/layout/PageBody.jsx";
 import SearchBar from "@vezlist/shared/components/ui/SearchBar.jsx";
@@ -13,45 +12,46 @@ import LocationBar from "@vezlist/shared/components/LocationBar.jsx";
 import FilterSheet from "@vezlist/shared/components/FilterSheet.jsx";
 import FilterChips from "@vezlist/shared/components/FilterChips.jsx";
 import ListingCard from "@vezlist/shared/components/cards/ListingCard.jsx";
-import { useFeed } from "@vezlist/shared/context/FeedContext.jsx";
 import { useCatalog } from "@vezlist/shared/context/CatalogContext.jsx";
 import {
   DEFAULT_FILTERS,
   activeFilterCount,
-  applyFilters,
 } from "@vezlist/shared/lib/filters.js";
-import { listings } from "@vezlist/shared/data/mock.js";
+import {
+  useDiscovery,
+  useDiscoveryUrlState,
+} from "@vezlist/shared/lib/useDiscovery.js";
 
-/**
- * The feed. Home is the category launcher; this is where a chosen category
- * lands, so it opens on whatever ?cat= the tile carried in.
- *
- * Personals is not a category here — it is its own site, reached from the
- * strip's Personals tile.
- */
+/** Public marketplace discovery. Filters are shareable URL state; cards come from the API. */
 export default function BrowseScreen() {
-  // Filters live above the routes: the status player unmounts this screen.
-  const { filters, setFilters, query, setQuery } = useFeed();
-  const { categories } = useCatalog();
+  const catalog = useCatalog();
+  const { categories } = catalog;
+  const { filters, setFilters, query, setQuery, reset } = useDiscoveryUrlState({
+    catalog,
+  });
+  const {
+    items: visible,
+    loading,
+    loadingMore,
+    error,
+    hasMore,
+    loadMore,
+    retry,
+  } = useDiscovery({
+    site: "MARKETPLACE",
+    filters,
+    query,
+    catalog,
+  });
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetGroup, setSheetGroup] = useState("sort");
-  const [params] = useSearchParams();
-  const catParam = params.get("cat");
 
-  // ponytail: ?cat= is an entry parameter, not a mirror of the filter. Picking
-  // a different category in the strip leaves the URL behind rather than
-  // rewriting it — a two-way sync buys nothing here and fights itself.
-  useEffect(() => {
-    const label = categories.find((c) => c.id === catParam)?.label;
-    setFilters((f) => (label ? { ...f, categories: [label] } : f));
-  }, [catParam, categories, setFilters]);
-
-  const patch = (next) => setFilters((f) => ({ ...f, ...next }));
-  // The category strip and the sheet's Category group are the same state.
+  const patch = (next) => setFilters((current) => ({ ...current, ...next }));
   const activeCategory =
     filters.categories.length === 1 ? filters.categories[0] : null;
   const activeCategoryId =
-    categories.find((c) => c.label === activeCategory)?.id ?? "";
+    categories.find((category) => category.label === activeCategory)?.id ?? "";
+  const filterCount = activeFilterCount(filters);
 
   function openSheet(group = "sort") {
     setSheetGroup(group);
@@ -60,35 +60,28 @@ export default function BrowseScreen() {
 
   function pickCategory(id) {
     if (id === "more") return openSheet("category");
-    const label = categories.find((c) => c.id === id)?.label;
-    if (activeCategory === label) return resetAll();
+    const label = categories.find((category) => category.id === id)?.label;
+    if (!label) return;
+    if (activeCategory === label) return reset();
     patch({ categories: [label] });
   }
-
-  function resetAll() {
-    setFilters(DEFAULT_FILTERS);
-    setQuery("");
-  }
-
-  const visible = applyFilters(listings, filters, query);
-  const filterCount = activeFilterCount(filters);
 
   return (
     <>
       <TopBar title={activeCategory ? `${activeCategory} ads` : "Browse ads"} />
 
       <PageBody className="px-4 pb-8 lg:px-8">
-        {/* Hero: search, then the place it searches in. */}
         <div className="pb-3 pt-1 lg:pt-4">
           <div className="flex gap-2.5">
             <SearchBar
               className="flex-1"
-              placeholder="Search ads, sellers, places…"
+              placeholder="Search ads, sellers, places..."
               value={query}
               onChange={setQuery}
             />
 
             <button
+              type="button"
               onClick={() => openSheet()}
               aria-label="Filters"
               className="relative grid size-12 shrink-0 place-items-center rounded-card bg-surface text-ink shadow-card transition-transform hover:-translate-y-0.5 active:scale-95 lg:size-[52px]"
@@ -120,29 +113,49 @@ export default function BrowseScreen() {
             onClearAll={() => setFilters(DEFAULT_FILTERS)}
           />
 
-          {visible.length ? (
+          {loading ? (
+            <p className="rounded-card bg-surface py-12 text-center text-[15px] text-muted shadow-card">
+              Loading ads...
+            </p>
+          ) : error && !visible.length ? (
+            <EmptyState
+              icon="WifiOff"
+              title="Could not load ads"
+              body={error.message}
+              action={<Button onClick={retry}>Try again</Button>}
+            />
+          ) : visible.length ? (
             <>
               <div className="mb-3 flex items-baseline justify-between">
                 <h3 className="text-[17px] font-bold text-ink">
                   {activeCategory ?? "Latest ads"}
                 </h3>
                 <p className="text-[13px] font-medium text-muted">
-                  {visible.length} {visible.length === 1 ? "result" : "results"}
+                  {visible.length}
+                  {hasMore ? "+" : ""} loaded
                 </p>
               </div>
 
               <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2 lg:gap-4 xl:grid-cols-3">
-                {visible.map((l) => (
-                  <ListingCard key={l.id} listing={l} />
+                {visible.map((listing) => (
+                  <ListingCard key={listing.id} listing={listing} />
                 ))}
               </div>
+
+              {hasMore && (
+                <div className="mt-5 flex justify-center">
+                  <Button onClick={loadMore} disabled={loadingMore}>
+                    {loadingMore ? "Loading..." : "Load more"}
+                  </Button>
+                </div>
+              )}
             </>
           ) : (
             <EmptyState
               icon="SearchX"
               title="No ads match your filters"
               body="Try widening the price range or clearing a filter."
-              action={<Button onClick={resetAll}>Clear filters</Button>}
+              action={<Button onClick={reset}>Clear filters</Button>}
             />
           )}
         </div>
@@ -151,8 +164,6 @@ export default function BrowseScreen() {
       <FilterSheet
         open={sheetOpen}
         filters={filters}
-        listings={listings}
-        query={query}
         initialGroup={sheetGroup}
         onClose={() => setSheetOpen(false)}
         onApply={(next) => {

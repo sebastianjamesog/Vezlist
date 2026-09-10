@@ -1,13 +1,19 @@
 "use client";
 
-import { MapContainer, Marker, TileLayer } from "react-leaflet";
+import { useEffect } from "react";
+import { MapContainer, Marker, TileLayer, useMap } from "react-leaflet";
 import L from "leaflet";
 import { LocateFixed } from "lucide-react";
 import "leaflet/dist/leaflet.css";
-import { mapPins } from "../data/mock";
 import SearchBar from "./ui/SearchBar";
 
 const VICTORIA = [48.4284, -123.3656];
+const categoryGlyph = {
+  vehicles: "Car",
+  jobs: "Briefcase",
+  property: "House",
+  personals: "User",
+};
 
 // Inline paths rather than emoji: leaflet markers are raw HTML, and emoji
 // glyphs depend on a font the browser may not have.
@@ -29,11 +35,28 @@ const pinIcon = (name) =>
     </div>`,
   });
 
-export default function MapView({ className = "" }) {
+function Recenter({ center }) {
+  const map = useMap();
+  const latitude = center[0];
+  const longitude = center[1];
+  useEffect(() => {
+    map.setView([latitude, longitude], map.getZoom());
+  }, [latitude, longitude, map]);
+  return null;
+}
+
+export default function MapView({
+  className = "",
+  center = VICTORIA,
+  pins = [],
+  query = "",
+  onQueryChange,
+  onLocate,
+}) {
   return (
     <div className={`relative ${className}`}>
       <MapContainer
-        center={VICTORIA}
+        center={center}
         zoom={12}
         zoomControl={false}
         scrollWheelZoom={false}
@@ -43,20 +66,29 @@ export default function MapView({ className = "" }) {
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        {mapPins.map((p) => (
-          <Marker key={p.id} position={[p.lat, p.lng]} icon={pinIcon(p.icon)} />
+        <Recenter center={center} />
+        {pins.map((pin) => (
+          <Marker
+            key={pin.id}
+            position={[pin.latitude, pin.longitude]}
+            icon={pinIcon(categoryGlyph[pin.categoryId] ?? "House")}
+          />
         ))}
       </MapContainer>
 
       <div className="pointer-events-none absolute inset-x-0 top-0 z-[500] p-4 lg:p-6">
         <SearchBar
-          placeholder="Search for a location..."
+          placeholder="Search nearby listings..."
+          value={query}
+          onChange={onQueryChange}
           className="pointer-events-auto rounded-full shadow-lift lg:max-w-md"
         />
       </div>
 
       <button
+        type="button"
         aria-label="Center on my location"
+        onClick={onLocate}
         className="absolute bottom-4 right-4 z-[500] grid size-11 place-items-center rounded-full bg-surface text-brand shadow-lift transition-transform hover:scale-105 lg:bottom-6 lg:right-6"
       >
         <LocateFixed className="size-6" strokeWidth={2.5} />

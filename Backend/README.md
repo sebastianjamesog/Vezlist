@@ -101,6 +101,19 @@ DELETE /api/v1/listings/{listingId}/media/{mediaId}
 
 JPEG, PNG, and WebP images up to 10 MB are accepted, with a maximum of six per listing. The API verifies the actual file signature, size, SHA-256 checksum, and stored metadata asynchronously. Only `READY` media receives a short-lived delivery URL. Local MinIO allows the two frontend development origins configured by `VEZLIST_CORS_ALLOWED_ORIGINS`.
 
+## Discovery endpoints (Module 6)
+
+Discovery reads are public, always require a site scope, and only return active listings. Nearest and map queries also require `latitude`, `longitude`, and a radius no larger than 100 km.
+
+```text
+GET /api/v1/listings?site=MARKETPLACE&sort=NEWEST&limit=24
+GET /api/v1/listings?site=MARKETPLACE&q=bike&category=vehicles&province=bc
+GET /api/v1/listings?site=MARKETPLACE&sort=NEAREST&latitude=48.4284&longitude=-123.3656&radiusKm=5
+GET /api/v1/listings/map?site=MARKETPLACE&latitude=48.4284&longitude=-123.3656&radiusKm=5
+```
+
+Use the returned `nextCursor` unchanged with the same filters. The cursor is intentionally opaque and is rejected if its filters or sort do not match. The standalone contract is in `docs/openapi/module-6-discovery.yaml`; generated Springdoc remains available at `/v3/api-docs`.
+
 ## Verify
 
 ```powershell
@@ -112,4 +125,4 @@ Docker is not required for the fast tests. The integration command uses Testcont
 
 ## Next module
 
-Module 6 — Discovery: public active-listing search, filters, sorting, and cursor pagination.
+Module 7 — Saved Listings: persisted, idempotent save/unsave and a cursor-paginated saved feed.

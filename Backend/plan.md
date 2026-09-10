@@ -470,6 +470,8 @@ This phase creates the minimum secure vertical slice: a user can authenticate, m
 
 **Depends on:** Modules 3–5. It requires active listings and indexed locations.
 
+**Implementation status (September 10, 2026): complete for the Module 6 scope.** The public discovery API now provides site-isolated, `ACTIVE`-only card pages with opaque filter-bound cursors, combined text/category/location/price/verification/time filters, newest and price sorting, and bounded PostGIS nearest search. Flyway V8 adds purpose-built partial, trigram, price, location, verification, and spatial indexes plus a seller-verification flag reserved for the moderation/reputation workflow. A separate capped map-pin projection, database statement timeout, and tagged Micrometer query timer are included. Marketplace Browse, Personals, Home entry links, and Nearby now use persisted discovery data, preserve search and filters in URL parameters, render API loading/error/empty states, and load additional cursor pages.
+
 1. Define the list/search response contract and cursor format in OpenAPI before implementation.
 2. Add indexes for `site_scope`, status, category, created time, price, location, and PostGIS coordinates.
 3. Implement search by title/description/seller, category, province, area, price range, verified-only, and posted-within filters.
