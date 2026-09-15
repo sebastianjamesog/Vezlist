@@ -1,0 +1,45 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Environment — the *.local rule above already catches .env.local, but these
+# are listed explicitly so intent doesn't depend on that overlap: apps/*/.env
+# (unlike the committed apps/*/.env.production) is where a real secret would
+# first land, and it should never be one `git add .` away from being tracked.
+.env
+.env*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Cloudflare
+.wrangler
+.dev.vars
+
+# Next / OpenNext
+.next
+.open-next
+
+# Playwright
+/test-results
+/playwright-report
+/blob-report
+/playwright/.cache

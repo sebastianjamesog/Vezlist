@@ -1,0 +1,17 @@
+{
+  "name": "@vezlist/shared",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./index.css": "./src/index.css",
+    "./*": "./src/*"
+  },
+  "dependencies": {
+    "leaflet": "^1.9.4",
+    "lucide-react": "^1.33.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-leaflet": "^5.0.0"
+  }
+}

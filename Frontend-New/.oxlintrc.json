@@ -1,0 +1,49 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["react", "oxc"],
+  "rules": {
+    "react/rules-of-hooks": "error",
+    "react/only-export-components": ["warn", { "allowConstantExport": true }]
+  },
+  "overrides": [
+    {
+      // Next App Router route files: `page.jsx`/`layout.jsx` export the
+      // component *and* `generateStaticParams`/`generateMetadata` from the
+      // same file by framework convention — there is no route-file shape
+      // that avoids this. It only costs a Fast Refresh full-reload in dev,
+      // never a runtime bug, so it is not worth carrying as a warning here.
+      "files": ["apps/*/app/**"],
+      "rules": {
+        "react/only-export-components": "off"
+      }
+    },
+    {
+      // Same shape, same tradeoff, different reason: every context module in
+      // this package pairs its `<XProvider>` with a `useX()` hook in one
+      // file on purpose, so the two can't drift apart and a consumer only
+      // ever imports one path. Splitting the hook into a sibling file would
+      // silence the warning but buys nothing — it's a Fast Refresh dev-time
+      // cost, not a correctness issue — while making the context harder to
+      // find. Scoped to `context/` specifically: other files flagged by this
+      // rule elsewhere in `packages/shared` (e.g. `lib/nav.jsx`,
+      // `pages/PasswordSettings.jsx`) don't share this established pattern
+      // and are left as real signal.
+      "files": ["packages/shared/src/context/**"],
+      "rules": {
+        "react/only-export-components": "off"
+      }
+    },
+    {
+      // The test harness. `testing/render.jsx` is one module on purpose: it
+      // holds the provider stacks, the `renderApp`/`renderAdmin` helpers that
+      // wrap them, and a re-export of React Testing Library, so a test file
+      // has one import line rather than four. This rule is about Fast
+      // Refresh, and nothing in `testing/` is ever served to a browser or
+      // hot-reloaded — it only runs under Vitest.
+      "files": ["testing/**"],
+      "rules": {
+        "react/only-export-components": "off"
+      }
+    }
+  ]
+}

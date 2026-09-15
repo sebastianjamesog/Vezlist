@@ -1,0 +1,351 @@
+@import "tailwindcss";
+/* Each app builds from its own directory, so Tailwind's automatic source
+   detection never reaches this package. Point it at both sides by hand. */
+@source "./**/*.{js,jsx}";
+@source "../../../apps/*/app/**/*.{js,jsx}";
+/* ---------------------------------------------------------------------------
+   Nova — the app's design language.
+   Everything below is a token. Brand colours are plain CSS vars, so a re-skin
+   is one block to edit; type, radii and elevation are shared by everything.
+--------------------------------------------------------------------------- */
+@theme inline {
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-2: var(--brand-2);
+  --color-brand-soft: var(--brand-soft);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-surface: var(--surface);
+  --color-canvas: var(--canvas);
+  --color-line: var(--line);
+  /* Text and icons that sit *on* a brand fill. White in the light theme; on a
+     dark theme the brand has to be bright enough to read as text, which leaves
+     it far too light to carry white labels, so this flips to near-black. */
+  --color-on-brand: var(--on-brand);
+  /* Destructive text. red-500 clears 4.5:1 on a dark surface but only
+     manages 3.8:1 on a white one, so the two themes need different reds. */
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+}
+@theme {
+  /* next/font self-hosts Inter and hands back a class that sets --font-inter,
+     so the family is never a blocking request to a third-party origin. */
+  --font-sans:
+    var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, sans-serif;
+  /* One step softer than Tailwind's defaults, and rounder: the whole UI is
+     built from stacked cards, so corners carry a lot of the character. */
+  --radius-card: 1.25rem;
+  --radius-sheet: 1.75rem;
+  /* Elevation is ambient (wide, faint) rather than a hard drop shadow. */
+  --shadow-card:
+    0 1px 2px rgb(11 11 18 / 0.04), 0 10px 24px -14px rgb(11 11 18 / 0.18);
+  --shadow-lift:
+    0 2px 6px rgb(11 11 18 / 0.05), 0 22px 48px -20px rgb(11 11 18 / 0.3);
+  --shadow-sheet: 0 -12px 40px -18px rgb(11 11 18 / 0.3);
+  --shadow-pop: 0 8px 24px -10px var(--brand);
+  /* The tab bar floats over the screen rather than reserving a band of canvas
+     under it, so every bottom-most scroller pads itself out by its height. */
+  --spacing-nav: calc(80px + max(0.5rem, env(safe-area-inset-bottom)));
+  /* The mirror of it at the other end. The brand app bar is desktop-only now,
+     so on a phone the screens that carried it paint straight into the status
+     bar — and in a PWA installed to the home screen, straight under the notch.
+     A screen that opens with a bar does not want this; the three that no longer
+     have one ask for it by name. */
+  --spacing-top: max(1rem, env(safe-area-inset-top));
+}
+:root {
+  /* blue-600, the darkest blue that still reads as blue rather than navy. It
+     clears 4.5:1 on both --surface and --canvas, which is what lets the same
+     token carry body-sized link text and not just headings. */
+  --brand: #2563eb;
+  --brand-strong: #1d4ed8;
+  /* The second stop in every gradient. A lighter blue rather than a second
+     hue: two blues read as one brand, blue-to-violet reads as two. */
+  --brand-2: #38bdf8;
+  --brand-soft: #eff6ff;
+  /* Near-black with a blue cast, so text and chrome sit in the same family as
+     the brand instead of looking like grey borrowed from somewhere else. */
+  --ink: #0b1220;
+  /* One notch past slate-500: the old value cleared 4.75:1 on white --surface
+     but only 4.34:1 on --canvas, and --muted is read on both. This clears
+     4.95:1 on --canvas and 5.43:1 on --surface — AA on every surface it
+     actually sits on, with margin instead of a razor edge. */
+  --muted: #5b6b82;
+  --surface: #ffffff;
+  --canvas: #f1f5f9;
+  --line: #e2e8f0;
+  --on-brand: #ffffff;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+}
+/* ---------------------------------------------------------------------------
+   personals.vezlist.cc — the adult board.
+
+   The same white-and-blue palette as the marketplace, one step cooler and one
+   step deeper, so the two sites read as one product without reading as one
+   site. It used to be dark; the light theme's shadows work here unchanged,
+   which is why this block no longer restates them.
+--------------------------------------------------------------------------- */
+[data-theme="personals"] {
+  --brand: #1d4ed8;
+  --brand-strong: #1e40af;
+  /* Personals is the only site that sets this one as *text*, so it is a step
+     darker than the marketplace's: sky-500 is a fine gradient stop and a
+     failing label. */
+  --brand-2: #0284c7;
+  --brand-soft: #e0ecff;
+  --ink: #0b1220;
+  --muted: #5b6b82;
+  --surface: #ffffff;
+  --canvas: #eef4fb;
+  --line: #dbe6f3;
+  --on-brand: #ffffff;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+}
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  /* Below lg the app is a phone mockup floating on a neutral desk. */
+  background: #dde5ef;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+@media (min-width: 1024px) {
+  body {
+    background: var(--canvas);
+  }
+}
+/* Headlines are set tight; Inter's default tracking is too loose at display sizes. */
+@layer base {
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.02em;
+  }
+  /* One global focus style beats per-component ring utilities. */
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
+}
+@utility glass {
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+}
+/* Discreet mode (personals): blur every photo until it is asked for. One rule
+   over an attribute on <html>, so nothing that renders media has to know. The
+   blur is on a wrapper, not the <img>, so the scrim and badges stay sharp.
+
+   This is a visual effect only — the media is still requested and still in
+   the DOM, one click away. See the comment atop apps/personals/app/
+   useDiscreet.js for why that's the stated tradeoff rather than a bug, and
+   for what *is* a real guarantee here: the attribute below is set from an
+   inline, before-hydration script, so this rule is already in effect at the
+   very first paint and nothing renders unblurred first. */
+[data-discreet="on"] [data-media] {
+  filter: blur(18px) saturate(0.7);
+  transform: scale(1.08);
+}
+[data-media] {
+  transition: filter 200ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-media] {
+    transition: none;
+  }
+}
+/* Category icon chips. A pastel fill with a saturated glyph reads as a tint of
+   the surface in the light theme; on the dark one the same pastel is a bright
+   hole, so each is restated as a wash of its own hue with a light glyph. */
+@utility tone-blue {
+  background-color: #dbeafe;
+  color: #2563eb;
+}
+@utility tone-green {
+  background-color: #d1fae5;
+  color: #059669;
+}
+@utility tone-purple {
+  background-color: #f3e8ff;
+  color: #9333ea;
+}
+@utility tone-orange {
+  background-color: #ffedd5;
+  color: #ea580c;
+}
+@utility tone-rose {
+  background-color: #ffe4e6;
+  color: #e11d48;
+}
+@utility tone-amber {
+  background-color: #fef3c7;
+  color: #b45309;
+}
+@utility tone-indigo {
+  background-color: #e0e7ff;
+  color: #4f46e5;
+}
+
+/* Gradient wash used behind heroes and on primary actions. */
+@utility brand-gradient {
+  background-image: linear-gradient(
+    135deg,
+    var(--brand) 0%,
+    var(--brand-2) 100%
+  );
+}
+/* ---------------------------------------------------------------------------
+   Verified ads: a light that never stops travelling round the card edge.
+   The border is a conic gradient masked down to a 2px frame (paint the padding
+   box, punch out the content box), so the whole thing is one element and one
+   angle to animate. @property is what makes --glow-angle interpolatable; where
+   it is unsupported the gradient simply sits still and the ring still reads.
+--------------------------------------------------------------------------- */
+@property --glow-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes glow-spin {
+  to {
+    --glow-angle: 360deg;
+  }
+}
+@keyframes glow-breathe {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0 rgb(16 185 129 / 0.35),
+      0 8px 24px -14px rgb(16 185 129 / 0.5),
+      0 10px 24px -14px rgb(11 11 18 / 0.18);
+  }
+  50% {
+    box-shadow:
+      0 0 0 5px rgb(16 185 129 / 0),
+      0 10px 30px -12px rgb(16 185 129 / 0.55),
+      0 10px 24px -14px rgb(11 11 18 / 0.18);
+  }
+}
+@utility verified-glow {
+  position: relative;
+  isolation: isolate;
+  animation: glow-breathe 3s ease-in-out infinite;
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    border-radius: inherit;
+    padding: 2px;
+    background: conic-gradient(
+      from var(--glow-angle),
+      rgb(16 185 129 / 0.15) 0deg,
+      #34d399 60deg,
+      #6ee7b7 90deg,
+      #10b981 130deg,
+      rgb(16 185 129 / 0.15) 200deg,
+      rgb(16 185 129 / 0.15) 360deg
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    animation: glow-spin 4s linear infinite;
+    pointer-events: none;
+  }
+}
+/* Live player: a tapped heart rises out of the button and fades. Each one
+   carries its own --heart-x so a burst fans out instead of stacking into one
+   thick column. Reduced motion collapses the duration, which lands it straight
+   on the transparent end frame — no motion, no leftover glyph. */
+@keyframes live-heart {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 0) scale(0.6);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, -8px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--heart-x, 0px)), -110px) scale(0.9);
+  }
+}
+/* Status viewer: the bar for the update you're on fills over its lifetime. */
+@keyframes status-fill {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
+/* A label that replaces itself — the filter button says what is applied, so its
+   text changes under you. It rises rather than cuts, which reads as the same
+   control answering again instead of a different control appearing. The global
+   reduced-motion rule below squashes it to nothing on its own. */
+@keyframes swap-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@utility swap-in {
+  animation: swap-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+/* Hide scrollbars on the horizontal chip/thumbnail strips. */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+/* Images fade in instead of flashing their alt text on slow feeds. */
+img {
+  background-color: var(--canvas);
+}
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  background: #dfe3ea;
+  /* Leaflet gives its panes z-index up to 700. Without a stacking context here
+     those escape and paint over dialogs rendered later in the tree. */
+  isolation: isolate;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+  /* An infinite animation squashed to 0.01ms flickers rather than stops, so the
+     verified glow is switched off outright and left as a static frame. */
+  .verified-glow,
+  .verified-glow::before {
+    animation: none !important;
+  }
+  .verified-glow {
+    box-shadow:
+      0 0 0 1px rgb(16 185 129 / 0.35),
+      var(--shadow-card);
+  }
+}
