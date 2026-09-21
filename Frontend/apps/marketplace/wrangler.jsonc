@@ -7,7 +7,7 @@
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": {
     "directory": ".open-next/assets",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
   },
   // Prerendered HTML and ISR payloads live here rather than in the bundle, so a
   // revalidate is a write to the bucket instead of a redeploy. Create it once:
@@ -15,7 +15,7 @@
   "r2_buckets": [
     {
       "binding": "NEXT_INC_CACHE_R2_BUCKET",
-      "bucket_name": "vezlist-next-cache"
-    }
-  ]
+      "bucket_name": "vezlist-next-cache",
+    },
+  ],
 }

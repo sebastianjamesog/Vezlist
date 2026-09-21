@@ -1,0 +1,24 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  // Its own worker and its own hostname: admin.vezlist.cc. Nothing links in to
+  // it from either public site, and its session is per-origin localStorage
+  // rather than the shared cookie — so a signed-in shopper is not an admin.
+  "name": "vezlist-admin",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-08-22",
+  // OpenNext runs the Next server inside the worker, so it needs Node built-ins.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS",
+  },
+  // Prerendered HTML and ISR payloads live here rather than in the bundle, so a
+  // revalidate is a write to the bucket instead of a redeploy. Create it once:
+  //   npx wrangler r2 bucket create vezlist-admin-next-cache
+  "r2_buckets": [
+    {
+      "binding": "NEXT_INC_CACHE_R2_BUCKET",
+      "bucket_name": "vezlist-admin-next-cache",
+    },
+  ],
+}

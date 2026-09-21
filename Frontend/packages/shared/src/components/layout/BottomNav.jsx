@@ -2,7 +2,8 @@
 
 import { NavLink } from "../../lib/nav";
 import { X } from "lucide-react";
-import { navItems } from "./navItems";
+import { navItemsFor } from "./navItems";
+import { useAccount } from "../../context/AccountContext";
 
 // Circles stretch to fill the bar, so the chain spans the screen instead of
 // floating in the middle with dead space either side.
@@ -39,7 +40,8 @@ function GooFilter() {
  */
 function Slot({ Icon, active, create, open }) {
   const pressed = active || (create && open);
-  // Create turns into its own dismiss button while the sheet is up.
+  // Create turns into its own dismiss button while either create layer — the
+  // chooser or the wizard behind it — is up.
   const Glyph = create && open ? X : Icon;
 
   return (
@@ -64,7 +66,21 @@ function Slot({ Icon, active, create, open }) {
   );
 }
 
-export default function BottomNav({ onPostAd, createOpen = false }) {
+export default function BottomNav({ onCreate, createOpen = false, navPreset }) {
+  const { role } = useAccount();
+  const items = navItemsFor(navPreset, role);
+
+  // Where the bar behind the circles has to stop. Slots split the width evenly,
+  // so the first slot's centre is half a slot in — 100/(2*n)% — and stopping
+  // there is what makes the chain terminate in a full circle rather than a thin
+  // stub sticking out past the end one. It was written as `inset-x-[10%]` while
+  // five slots was the only possibility, which was true right up until a slot
+  // could be filtered out from under it; every role gets the same five again
+  // today, but 10% on a four-slot bar overshoots by half a slot and the fix for
+  // that should not have to be rediscovered. Derived, not a literal, and inline
+  // because Tailwind cannot build an arbitrary value out of a runtime number.
+  const chainInset = `${50 / items.length}%`;
+
   return (
     <nav
       aria-label="Primary"
@@ -84,11 +100,10 @@ export default function BottomNav({ onPostAd, createOpen = false }) {
           }}
         >
           <span
-            // Stops at the first and last slot centre (half a slot = 100/(2*5)%)
-            // so the chain terminates in full circles, not a thin bar stub.
-            className="absolute inset-x-[10%] top-1/2 h-[34px] -translate-y-1/2 rounded-full bg-gradient-to-b from-[#23232e] to-[#0b0b12]"
+            style={{ left: chainInset, right: chainInset }}
+            className="absolute top-1/2 h-[34px] -translate-y-1/2 rounded-full bg-gradient-to-b from-[#23232e] to-[#0b0b12]"
           />
-          {navItems.map((item) => (
+          {items.map((item) => (
             <span key={item.id} className={CIRCLE}>
               <span className="mx-auto block size-[62px] rounded-full bg-gradient-to-b from-[#23232e] to-[#0b0b12]" />
             </span>
@@ -96,19 +111,30 @@ export default function BottomNav({ onPostAd, createOpen = false }) {
         </div>
 
         <ul className="pointer-events-auto relative flex w-full items-center">
-          {navItems.map((item) => (
+          {items.map((item) => (
             <li key={item.id} className={CIRCLE}>
               {item.action === "create" ? (
                 <button
-                  onClick={onPostAd}
-                  aria-label={
-                    createOpen ? "Close the new ad form" : "Create an ad"
-                  }
+                  onClick={onCreate}
+                  // What the plus opens differs by site — a chooser on
+                  // personals, the ad form on the marketplace — so the label
+                  // names the slot rather than the sheet behind it and stays
+                  // true on both.
+                  aria-label={createOpen ? "Close" : item.label}
                   aria-expanded={createOpen}
                   className="mx-auto block size-[62px] rounded-full transition-transform active:scale-95"
                 >
                   <Slot Icon={item.Icon} create open={createOpen} />
                 </button>
+              ) : item.href ? (
+                // Crosses to the other origin, so never a router link.
+                <a
+                  href={item.href}
+                  aria-label={item.label}
+                  className="mx-auto block size-[62px] rounded-full transition-transform active:scale-95"
+                >
+                  <Slot Icon={item.Icon} />
+                </a>
               ) : (
                 <NavLink
                   to={item.to}

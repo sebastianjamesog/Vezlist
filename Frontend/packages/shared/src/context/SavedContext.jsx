@@ -1,518 +1,179 @@
 "use client";
 
 import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
-  useReducer,
   useRef,
   useState,
 } from "react";
-import { api } from "../lib/api";
+import { useAuth } from "./AuthContext.jsx";
 import {
-  createSavedState,
-  dedupeSavedItems,
-  isRemoteListingId,
-  savedActions,
-  savedListingToCard,
-  savedListingsPath,
-  savedStateReducer,
-  savedStatusError,
-  savedStatusPath,
-} from "../lib/saved";
-import { SITE } from "../lib/sites";
-import { useAuth } from "./AuthContext";
-import { SavedContext } from "./SavedStore";
+  listSavedListings,
+  saveListing,
+  unsaveListing,
+} from "../lib/api/saved.js";
+import { SITE_SCOPE } from "../lib/api/client.js";
 
-const PAGE_SIZE = 24;
-const EMPTY_ENTRY = Object.freeze({
-  saved: false,
-  known: false,
-  pending: false,
-  error: null,
-});
-const EMPTY_FEED = Object.freeze({
-  sessionKey: null,
-  items: [],
-  nextCursor: null,
-  hasMore: false,
-  loading: false,
-  loadingMore: false,
-  loaded: false,
-  error: null,
-});
+/**
+ * Saved/bookmarked listing ids, shared by the ad page heart and the Saved
+ * Items screen — backed by the real GET/POST/DELETE
+ * /api/v1/listings/{id}/saved and GET /api/v1/me/saved-listings
+ * (cc.vezlist.saved.web.SavedListingController) rather than a bare
+ * localStorage array of ids.
+ *
+ * The backend requires a session for every one of those calls — there is no
+ * guest-saves concept on the wire, unlike the old mock version of this
+ * context, which let a signed-out visitor save freely to this device. So
+ * `toggle`/`remove` are no-ops while signed out, and `ids`/`rows`/`count`
+ * are simply empty rather than reading a local list nothing on the server
+ * would recognise.
+ *
+ * Two pieces of state, not one, because they answer two different
+ * questions at two different costs. `ids` (a Set) is what `isSaved` and the
+ * heart on an ad page need, and it is kept optimistic — flipped the instant
+ * `toggle` is called, before the request even resolves — because a heart
+ * that waits on the network reads as broken. `rows` is the full
+ * `SavedListingResponse` list (title, price, image, …) the Saved Items
+ * screen renders, and there is no way to fabricate one of those
+ * client-side for a listing just saved, so it is refreshed from the server
+ * after every mutation rather than kept optimistic itself.
+ */
+const SavedContext = createContext(null);
 
-function requestError(error, fallback) {
-  if (error instanceof Error) return error;
-  if (typeof error === "string" && error.trim()) return new Error(error);
-  return new Error(fallback);
-}
-
-function cardsFromPage(page) {
-  return dedupeSavedItems(
-    (page?.items ?? []).map((item) => savedListingToCard(item)),
-  );
+async function fetchAllSaved(site) {
+  const rows = [];
+  let cursor;
+  // Capped rather than unbounded: a saved list a few thousand rows deep
+  // should not turn "open the app" into fifty sequential requests. 20 pages
+  // at the server's max of 50 is 1000 rows, comfortably past anything a
+  // real user would accumulate; a list bigger than that would need real
+  // pagination on the Saved Items screen, which is a bigger feature than
+  // this context is trying to be.
+  for (let page = 0; page < 20; page += 1) {
+    const res = await listSavedListings({ site, cursor, limit: 50 });
+    rows.push(...(res?.items ?? []));
+    if (!res?.hasMore || !res.nextCursor) break;
+    cursor = res.nextCursor;
+  }
+  return rows;
 }
 
 export function SavedProvider({ children }) {
-  const { ready: authReady, signedIn, user } = useAuth();
-  const sessionKey = signedIn ? String(user?.id ?? "") || null : null;
+  const { signedIn, ready: authReady } = useAuth();
+  const [rows, setRows] = useState([]);
+  const [idSet, setIdSet] = useState(() => new Set());
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState(null);
+  const generation = useRef(0);
 
-  return (
-    <SavedSessionCache authReady={authReady} sessionKey={sessionKey}>
-      {children}
-    </SavedSessionCache>
-  );
-}
-
-function SavedSessionCache({ authReady, children, sessionKey }) {
-  const [savedState, dispatch] = useReducer(
-    savedStateReducer,
-    sessionKey,
-    createSavedState,
-  );
-  const [feed, setFeed] = useState(EMPTY_FEED);
-  const [statusMeta, setStatusMeta] = useState({});
-  const savedStateRef = useRef(savedState);
-  const feedRef = useRef(feed);
-  const sessionRef = useRef(sessionKey);
-  const feedVersion = useRef(0);
-  const firstPageAbort = useRef(null);
-  const statusRequests = useRef(new Map());
-  const mutationRequests = useRef(new Map());
-  const requestSequence = useRef(0);
-
-  useEffect(() => {
-    savedStateRef.current = savedState;
-  }, [savedState]);
-
-  useEffect(() => {
-    feedRef.current = feed;
-  }, [feed]);
-
-  const receiveStatuses = useCallback((items, totalCount) => {
-    dispatch(savedActions.countReceived(totalCount));
-    for (const item of items) {
-      dispatch(
-        savedActions.statusReceived(item.id, {
-          saved: true,
-          totalCount,
-        }),
-      );
+  const refresh = useCallback(() => {
+    if (!signedIn) {
+      generation.current += 1;
+      setRows([]);
+      setIdSet(new Set());
+      setError(null);
+      setReady(true);
+      return Promise.resolve();
     }
-    setStatusMeta((all) => {
-      const next = { ...all };
-      for (const item of items) delete next[item.id];
-      return next;
-    });
-  }, []);
-
-  const loadFirstPage = useCallback(
-    async ({ showLoading = true } = {}) => {
-      if (!sessionKey) return null;
-
-      firstPageAbort.current?.abort();
-      const controller = new AbortController();
-      firstPageAbort.current = controller;
-      const version = ++feedVersion.current;
-      const requestSession = sessionKey;
-      if (showLoading) {
-        setFeed({ ...EMPTY_FEED, sessionKey, loading: true });
-      } else {
-        setFeed((current) => ({ ...current, error: null }));
-      }
-
-      try {
-        const page = await api(
-          savedListingsPath({ site: SITE, limit: PAGE_SIZE }),
-          { signal: controller.signal },
-        );
-        if (
-          controller.signal.aborted ||
-          feedVersion.current !== version ||
-          sessionRef.current !== requestSession
-        ) {
-          return null;
-        }
-        const items = cardsFromPage(page);
-        setFeed({
-          sessionKey,
-          items,
-          nextCursor: page.nextCursor ?? null,
-          hasMore: Boolean(page.hasMore),
-          loading: false,
-          loadingMore: false,
-          loaded: true,
-          error: null,
-        });
-        receiveStatuses(items, page.totalCount);
-        return page;
-      } catch (error) {
-        if (
-          error.name === "AbortError" ||
-          feedVersion.current !== version ||
-          sessionRef.current !== requestSession
-        ) {
-          return null;
-        }
-        setFeed((current) => ({
-          ...current,
-          loading: false,
-          loadingMore: false,
-          error: requestError(error, "Could not load saved items."),
-        }));
-        return null;
-      }
-    },
-    [receiveStatuses, sessionKey],
-  );
-
-  useEffect(() => {
-    feedVersion.current += 1;
-    firstPageAbort.current?.abort();
-    sessionRef.current = sessionKey;
-    const statusCache = statusRequests.current;
-    const mutationCache = mutationRequests.current;
-    statusCache.clear();
-    mutationCache.clear();
-    dispatch(savedActions.resetSession(sessionKey));
-    const timer = window.setTimeout(() => {
-      setStatusMeta({});
-      setFeed({
-        ...EMPTY_FEED,
-        sessionKey,
-        loading: Boolean(authReady && sessionKey),
-      });
-      if (authReady && sessionKey) {
-        loadFirstPage({ showLoading: false });
-      }
-    }, 0);
-
-    return () => {
-      window.clearTimeout(timer);
-      feedVersion.current += 1;
-      firstPageAbort.current?.abort();
-      sessionRef.current = null;
-      statusCache.clear();
-      mutationCache.clear();
-    };
-  }, [authReady, loadFirstPage, sessionKey]);
-
-  const retry = useCallback(() => loadFirstPage(), [loadFirstPage]);
-
-  const loadMore = useCallback(async () => {
-    const current = feedRef.current;
-    const requestSession = sessionRef.current;
-    if (
-      !requestSession ||
-      current.sessionKey !== requestSession ||
-      !current.nextCursor ||
-      current.loading ||
-      current.loadingMore
-    ) {
-      return null;
-    }
-
-    const version = feedVersion.current;
-    const cursor = current.nextCursor;
-    setFeed((value) => ({ ...value, loadingMore: true, error: null }));
-    try {
-      const page = await api(
-        savedListingsPath({
-          site: SITE,
-          limit: PAGE_SIZE,
-          cursor,
-        }),
-      );
-      if (
-        feedVersion.current !== version ||
-        sessionRef.current !== requestSession
-      ) {
-        return null;
-      }
-      const pageItems = cardsFromPage(page);
-      setFeed((value) => ({
-        ...value,
-        items: dedupeSavedItems([...value.items, ...pageItems]),
-        nextCursor: page.nextCursor ?? null,
-        hasMore: Boolean(page.hasMore),
-        loadingMore: false,
-        loaded: true,
-        error: null,
-      }));
-      receiveStatuses(pageItems, page.totalCount);
-      return page;
-    } catch (error) {
-      if (
-        feedVersion.current !== version ||
-        sessionRef.current !== requestSession
-      ) {
-        return null;
-      }
-      setFeed((value) => ({
-        ...value,
-        loadingMore: false,
-        error: requestError(error, "Could not load more saved items."),
-      }));
-      return null;
-    }
-  }, [receiveStatuses]);
-
-  const hydrate = useCallback(
-    (listingId, { force = false } = {}) => {
-      if (!sessionKey) {
-        return Promise.reject(new Error("Sign in to save this ad."));
-      }
-      if (!isRemoteListingId(listingId)) {
-        return Promise.reject(new Error("This demo ad cannot be saved."));
-      }
-
-      const current =
-        savedStateRef.current.sessionKey === sessionKey
-          ? savedStateRef.current.byId[listingId]
-          : null;
-      if (!force && current?.known) {
-        return Promise.resolve({
-          listingId,
-          saved: current.saved,
-          totalCount: savedStateRef.current.totalCount,
-        });
-      }
-      const existing = statusRequests.current.get(listingId);
-      if (existing) return existing;
-
-      const requestSession = sessionKey;
-      setStatusMeta((all) => ({
-        ...all,
-        [listingId]: { loading: true, error: null },
-      }));
-      const request = api(savedStatusPath(listingId, SITE))
-        .then((result) => {
-          if (sessionRef.current === requestSession) {
-            dispatch(savedActions.statusReceived(listingId, result));
-          }
-          return result;
-        })
-        .catch((error) => {
-          const normalized = requestError(
-            error,
-            "Could not check this saved ad.",
-          );
-          if (sessionRef.current === requestSession) {
-            setStatusMeta((all) => ({
-              ...all,
-              [listingId]: { loading: false, error: normalized },
-            }));
-          }
-          throw normalized;
-        })
-        .finally(() => {
-          if (statusRequests.current.get(listingId) === request) {
-            statusRequests.current.delete(listingId);
-          }
-          if (sessionRef.current === requestSession) {
-            setStatusMeta((all) => ({
-              ...all,
-              [listingId]: {
-                loading: false,
-                error: all[listingId]?.error ?? null,
-              },
-            }));
-          }
-        });
-      statusRequests.current.set(listingId, request);
-      return request;
-    },
-    [sessionKey],
-  );
-
-  const setSaved = useCallback(
-    (listingId, nextSaved) => {
-      if (!sessionKey) {
-        return Promise.reject(new Error("Sign in to save this ad."));
-      }
-      if (!isRemoteListingId(listingId)) {
-        return Promise.reject(new Error("This demo ad cannot be saved."));
-      }
-      if (savedStateRef.current.sessionKey !== sessionKey) {
-        return Promise.reject(new Error("Saved items are still loading."));
-      }
-
-      const existing = mutationRequests.current.get(listingId);
-      if (existing) return existing;
-
-      const current = savedStateRef.current.byId[listingId] ?? EMPTY_ENTRY;
-      const desired = Boolean(nextSaved);
-      if (!current.known) {
-        return Promise.reject(
-          new Error("Check the saved status before updating this ad."),
-        );
-      }
-      if (current.saved === desired) {
-        return Promise.resolve({
-          listingId,
-          saved: desired,
-          totalCount: savedStateRef.current.totalCount,
-        });
-      }
-
-      const requestId = ++requestSequence.current;
-      const requestSession = sessionKey;
-      const previousFeed = feedRef.current;
-      const removedIndex = previousFeed.items.findIndex(
-        (item) => item.id === listingId,
-      );
-      const removedItem =
-        removedIndex >= 0 ? previousFeed.items[removedIndex] : null;
-
-      feedVersion.current += 1;
-      firstPageAbort.current?.abort();
-      dispatch(savedActions.optimisticSet(listingId, desired, requestId));
-      setStatusMeta((all) => ({
-        ...all,
-        [listingId]: { loading: false, error: null },
-      }));
-      if (!desired && removedItem) {
-        setFeed((value) => ({
-          ...value,
-          items: value.items.filter((item) => item.id !== listingId),
-        }));
-      }
-
-      const request = api(savedStatusPath(listingId, SITE), {
-        method: desired ? "POST" : "DELETE",
+    const gen = ++generation.current;
+    setError(null);
+    return fetchAllSaved(SITE_SCOPE)
+      .then((items) => {
+        if (gen !== generation.current) return;
+        setRows(items);
+        setIdSet(new Set(items.map((r) => r.id)));
+        setReady(true);
       })
-        .then((result) => {
-          if (sessionRef.current === requestSession) {
-            dispatch(
-              savedActions.mutationSucceeded(listingId, result, requestId),
-            );
-            if (!result.saved) {
-              setFeed((value) => ({
-                ...value,
-                items: value.items.filter((item) => item.id !== listingId),
-              }));
-            }
-            loadFirstPage({ showLoading: false });
-          }
-          return result;
-        })
-        .catch((error) => {
-          const normalized = requestError(
-            error,
-            "Could not update this saved ad.",
-          );
-          if (sessionRef.current === requestSession) {
-            dispatch(
-              savedActions.mutationFailed(listingId, normalized, requestId),
-            );
-            if (!desired && removedItem) {
-              setFeed((value) => {
-                if (value.items.some((item) => item.id === listingId)) {
-                  return value;
-                }
-                const items = [...value.items];
-                items.splice(
-                  Math.min(removedIndex, items.length),
-                  0,
-                  removedItem,
-                );
-                return { ...value, items: dedupeSavedItems(items) };
-              });
-            }
-            loadFirstPage({ showLoading: false });
-          }
-          throw normalized;
-        })
-        .finally(() => {
-          if (mutationRequests.current.get(listingId) === request) {
-            mutationRequests.current.delete(listingId);
-          }
-        });
-      mutationRequests.current.set(listingId, request);
-      return request;
+      .catch((err) => {
+        if (gen !== generation.current) return;
+        setError(err);
+        setReady(true);
+      });
+  }, [signedIn]);
+
+  useEffect(() => {
+    if (!authReady) return;
+    setReady(false);
+    refresh();
+  }, [authReady, signedIn, refresh]);
+
+  const isSaved = useCallback((id) => idSet.has(id), [idSet]);
+
+  /** Flip one listing's saved state. A no-op while signed out. */
+  const toggle = useCallback(
+    async (id) => {
+      if (!signedIn) return;
+      const was = idSet.has(id);
+      setIdSet((prev) => {
+        const next = new Set(prev);
+        if (was) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+      try {
+        if (was) await unsaveListing(id, SITE_SCOPE);
+        else await saveListing(id, SITE_SCOPE);
+        // `rows` has no local stand-in for a row it has never fetched, so
+        // this is what keeps the Saved Items list in sync — non-blocking,
+        // the heart itself already has its answer from `idSet` above.
+        refresh();
+      } catch (err) {
+        // Resync with the server's actual state rather than guessing at a
+        // rollback — the request may have partially applied.
+        refresh();
+        throw err;
+      }
     },
-    [loadFirstPage, sessionKey],
+    [signedIn, idSet, refresh],
   );
 
-  const status = useCallback(
-    (listingId) => {
-      if (savedState.sessionKey !== sessionKey) return EMPTY_ENTRY;
-      const entry = savedState.byId[listingId] ?? EMPTY_ENTRY;
-      const meta = statusMeta[listingId];
-      const rawError = savedStatusError(entry, meta?.error);
-      const error = rawError
-        ? requestError(rawError, "Could not update this saved ad.")
-        : null;
-      return {
-        ...entry,
-        hydrating: Boolean(meta?.loading),
-        error,
-      };
+  /** Explicit unsave — the Saved Items "Remove" row and the account-deletion sweep. */
+  const remove = useCallback(
+    async (id) => {
+      if (!signedIn) return;
+      setIdSet((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      setRows((rs) => rs.filter((r) => r.id !== id));
+      try {
+        await unsaveListing(id, SITE_SCOPE);
+      } catch (err) {
+        refresh();
+        throw err;
+      }
     },
-    [savedState.byId, savedState.sessionKey, sessionKey, statusMeta],
+    [signedIn, refresh],
   );
 
-  const isSaved = useCallback(
-    (listingId) =>
-      savedState.sessionKey === sessionKey &&
-      Boolean(savedState.byId[listingId]?.saved),
-    [savedState.byId, savedState.sessionKey, sessionKey],
-  );
-  const isPending = useCallback(
-    (listingId) =>
-      savedState.sessionKey === sessionKey &&
-      Boolean(savedState.byId[listingId]?.pending),
-    [savedState.byId, savedState.sessionKey, sessionKey],
-  );
-
-  const stateMatchesSession = savedState.sessionKey === sessionKey;
-  const feedMatchesSession = feed.sessionKey === sessionKey;
-  const visibleFeed = useMemo(
-    () =>
-      feedMatchesSession
-        ? feed
-        : {
-            ...EMPTY_FEED,
-            sessionKey,
-            loading: Boolean(authReady && sessionKey),
-          },
-    [authReady, feed, feedMatchesSession, sessionKey],
-  );
-  const visibleCount = stateMatchesSession ? savedState.totalCount : null;
+  const ids = useMemo(() => Array.from(idSet), [idSet]);
 
   const value = useMemo(
     () => ({
-      items: visibleFeed.items,
-      count: visibleCount ?? 0,
-      countKnown: visibleCount != null,
-      loading: visibleFeed.loading,
-      loadingMore: visibleFeed.loadingMore,
-      loaded: visibleFeed.loaded,
-      error: visibleFeed.error,
-      hasMore: visibleFeed.hasMore,
-      retry,
-      loadMore,
-      status,
-      hydrate,
-      setSaved,
+      ids,
+      rows,
+      ready,
+      error,
+      retry: refresh,
+      toggle,
+      remove,
       isSaved,
-      isPending,
+      count: ids.length,
     }),
-    [
-      visibleFeed,
-      visibleCount,
-      retry,
-      loadMore,
-      status,
-      hydrate,
-      setSaved,
-      isSaved,
-      isPending,
-    ],
+    [ids, rows, ready, error, refresh, toggle, remove, isSaved],
   );
 
   return (
     <SavedContext.Provider value={value}>{children}</SavedContext.Provider>
   );
+}
+
+export function useSaved() {
+  const ctx = useContext(SavedContext);
+  if (!ctx) throw new Error("useSaved must be used inside <SavedProvider>");
+  return ctx;
 }

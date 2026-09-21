@@ -2,12 +2,17 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
+import { useNavigate } from "../lib/nav";
 import SubPageBar from "../components/layout/SubPageBar";
 import PageBody from "../components/layout/PageBody";
 import EmptyState from "../components/ui/EmptyState";
 import Icon from "../components/ui/Icon";
-import { tickets } from "../data/mock";
+import Modal from "../components/ui/Modal";
+import Button from "../components/ui/Button";
+import Field, { FIELD, border } from "../components/create/Field";
+import { useToast } from "../context/ToastContext";
+import { useTickets } from "../context/TicketsContext";
 
 const tabs = [
   { value: "all", label: "All" },
@@ -15,10 +20,54 @@ const tabs = [
   { value: "Resolved", label: "Resolved" },
 ];
 
+const EMPTY_TICKET = { subject: "", body: "" };
+
+function validateTicket({ subject, body }) {
+  const errors = {};
+  if (!subject.trim()) errors.subject = "Give it a subject.";
+  if (!body.trim()) errors.body = "Say what's going on.";
+  return errors;
+}
+
 export default function Tickets() {
+  const toast = useToast();
+  const navigate = useNavigate();
+  const { tickets, open } = useTickets();
   const [tab, setTab] = useState("all");
+  const [composing, setComposing] = useState(false);
+  const [form, setForm] = useState(EMPTY_TICKET);
+  const [errors, setErrors] = useState({});
   const rows =
     tab === "all" ? tickets : tickets.filter((t) => t.status === tab);
+
+  const patch = (next) => {
+    setForm((f) => ({ ...f, ...next }));
+    setErrors((e) => {
+      const cleared = { ...e };
+      Object.keys(next).forEach((k) => delete cleared[k]);
+      return cleared;
+    });
+  };
+
+  /**
+   * `open` writes through TicketsContext, which persists the ticket (see
+   * lib/tickets.js) rather than pushing into the imported mock module the
+   * way this used to — that only ever changed this tab's copy of it, gone on
+   * reload and never touched on the server that renders the detail page's
+   * id straight off the URL.
+   */
+  function submitTicket(e) {
+    e.preventDefault();
+    const found = validateTicket(form);
+    setErrors(found);
+    if (Object.keys(found).length) return;
+
+    const id = open(form);
+    setForm(EMPTY_TICKET);
+    setComposing(false);
+    toast("Ticket opened");
+    navigate(`/support/tickets/${id}`);
+  }
 
   return (
     <>
@@ -26,6 +75,15 @@ export default function Tickets() {
         title="Support Tickets"
         subtitle={`${tickets.length} total`}
         fallback="/support"
+        action={
+          <button
+            onClick={() => setComposing(true)}
+            aria-label="New ticket"
+            className="grid size-10 shrink-0 place-items-center rounded-full bg-surface text-brand shadow-card transition-transform hover:scale-105 active:scale-95"
+          >
+            <Plus className="size-5" strokeWidth={2.6} />
+          </button>
+        }
       />
 
       <PageBody className="px-4 pb-6 pt-3 lg:px-8 lg:py-6">
@@ -83,9 +141,53 @@ export default function Tickets() {
             icon="ReceiptText"
             title="No tickets here"
             body="Nothing in this status yet."
+            action={
+              <Button variant="soft" onClick={() => setComposing(true)}>
+                New ticket
+              </Button>
+            }
           />
         )}
       </PageBody>
+
+      <Modal
+        open={composing}
+        title="New ticket"
+        subtitle="Tell us what's going on — a support agent replies here."
+        onClose={() => setComposing(false)}
+        size="max-w-md"
+        footer={
+          <Button type="submit" form="new-ticket" size="lg" className="w-full">
+            Open ticket
+          </Button>
+        }
+      >
+        <form
+          id="new-ticket"
+          onSubmit={submitTicket}
+          noValidate
+          className="space-y-4"
+        >
+          <Field label="Subject" error={errors.subject}>
+            <input
+              value={form.subject}
+              onChange={(e) => patch({ subject: e.target.value })}
+              className={`${FIELD} ${border(errors.subject)}`}
+              placeholder="What's this about?"
+            />
+          </Field>
+
+          <Field label="Message" error={errors.body}>
+            <textarea
+              rows={4}
+              value={form.body}
+              onChange={(e) => patch({ body: e.target.value })}
+              className={`${FIELD} ${border(errors.body)} resize-none`}
+              placeholder="Give us the details."
+            />
+          </Field>
+        </form>
+      </Modal>
     </>
   );
 }

@@ -6,11 +6,13 @@ import { NavLink, useNavigate } from "../../lib/nav";
 import { LogOut } from "lucide-react";
 import Wordmark from "./Wordmark";
 import Button from "../ui/Button";
-import { navItems } from "./navItems";
+import { navItemsFor } from "./navItems";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import { useToast } from "../../context/ToastContext";
 import { useAuth } from "../../context/AuthContext";
+import { useAccount } from "../../context/AccountContext";
 import { profile } from "../../data/mock";
+import MediaImage from "../media/MediaImage.jsx";
 
 const ROW =
   "flex items-center gap-4 rounded-2xl px-3 py-2.5 text-[15px] font-semibold transition-colors xl:pr-5";
@@ -19,9 +21,13 @@ const ROW =
  * Desktop rail: icon-only from lg, labels from xl — the same collapse
  * Instagram's web sidebar does on narrower desktops.
  */
-export default function Sidebar({ onPostAd, credits = 100 }) {
+export default function Sidebar({ onCreate, onPostAd, navPreset }) {
   const toast = useToast();
   const { user, signOut } = useAuth();
+  // The balance used to be a `credits = 100` default prop that no caller ever
+  // passed, so the rail told every account it had 100 no matter what it had
+  // spent. It reads the wallet now.
+  const { role, credits } = useAccount();
   const navigate = useNavigate();
   const [confirmLogout, setConfirmLogout] = useState(false);
 
@@ -37,17 +43,27 @@ export default function Sidebar({ onPostAd, credits = 100 }) {
       </Link>
 
       <nav className="space-y-1">
-        {navItems.map((item) =>
+        {navItemsFor(navPreset, role).map((item) =>
           item.action === "create" ? (
             <button
               key={item.id}
-              onClick={onPostAd}
+              onClick={onCreate}
               title="Create"
               className={`${ROW} w-full text-ink hover:bg-canvas`}
             >
               <item.Icon className="size-6 shrink-0" strokeWidth={2} />
               <span className="hidden xl:inline">{item.label}</span>
             </button>
+          ) : item.href ? (
+            <a
+              key={item.id}
+              href={item.href}
+              title={item.label}
+              className={`${ROW} text-ink hover:bg-canvas`}
+            >
+              <item.Icon className="size-6 shrink-0" strokeWidth={2} />
+              <span className="hidden xl:inline">{item.label}</span>
+            </a>
           ) : (
             <NavLink
               key={item.id}
@@ -61,9 +77,11 @@ export default function Sidebar({ onPostAd, credits = 100 }) {
               {({ isActive }) => (
                 <>
                   {item.avatar ? (
-                    <img
+                    <MediaImage
                       src={user?.avatar ?? profile.avatar}
                       alt=""
+                      width={24}
+                      height={24}
                       className={`size-6 shrink-0 rounded-full object-cover ring-2 ${
                         isActive ? "ring-brand" : "ring-transparent"
                       }`}
@@ -82,6 +100,19 @@ export default function Sidebar({ onPostAd, credits = 100 }) {
         )}
       </nav>
 
+      {/* The rail's one big button. It used to be hidden from a browsing
+          account, mirroring the nav table's old habit of hiding Create from
+          one; both have stopped, and for the same reason. The refusal now
+          happens on the click and says which account type posts and where to
+          change it, so the account that cannot publish learns that in a
+          sentence instead of by noticing an absence. Nobody loses an evening to
+          a four-step form either way — the gate is in front of the form, not
+          behind it.
+
+          It goes to `onPostAd` and not `onCreate` because it is labelled "Post
+          an ad" and that is what it must do. The chooser belongs to the plus,
+          which does not say what it will open; a button that names one thing
+          and offers three is a button that lied. */}
       <div className="mt-6 hidden xl:block">
         <Button size="lg" className="w-full" onClick={onPostAd}>
           Post an ad
@@ -89,8 +120,11 @@ export default function Sidebar({ onPostAd, credits = 100 }) {
       </div>
 
       <div className="mt-auto space-y-1 pt-6">
+        {/* Stays for both roles: `wallet.view` is everyone's, a browsing account
+            can hold and top up a balance, and hiding the row would hide the
+            money it already paid for. Only spending it is the creator's. */}
         <Link
-          href="/profile"
+          href="/profile/wallet"
           title={`${credits} credits`}
           className={`${ROW} text-ink hover:bg-canvas`}
         >

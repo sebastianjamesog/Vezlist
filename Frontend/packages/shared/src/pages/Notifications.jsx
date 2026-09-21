@@ -1,179 +1,210 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import SubPageBar from "../components/layout/SubPageBar";
 import PageBody from "../components/layout/PageBody";
+import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
 import Icon from "../components/ui/Icon";
-import { useNotifications } from "../context/NotificationsContext";
+import { Skeleton } from "../components/ui/Skeleton";
+import { useToast } from "../context/ToastContext";
+import * as notificationsApi from "../lib/api/notifications";
+import { ApiError } from "../lib/api/client";
+import { tones } from "../lib/tones";
+import { timeAgo } from "../lib/format";
 
-const buttonClass =
-  "rounded-lg px-3 py-2 text-sm font-semibold text-brand hover:bg-brand-soft focus-visible:outline-2 focus-visible:outline-brand disabled:opacity-50";
+/**
+ * `NotificationType` (Backend/src/main/java/cc/vezlist/notifications/domain
+ * /NotificationType.java) is where `title`/`message`/`href` come from — the
+ * server already writes copy for every event. This is purely presentation:
+ * an icon and a colour per type, since the API has no use for either.
+ */
+const TYPE_META = {
+  LISTING_APPROVED: { icon: "BadgeCheck", tone: "green" },
+  LISTING_REJECTED: { icon: "Ban", tone: "rose" },
+  LISTING_REMOVED: { icon: "Ban", tone: "rose" },
+  LISTING_EXPIRING: { icon: "Clock", tone: "amber" },
+  LISTING_SAVED_AGGREGATE: { icon: "Heart", tone: "rose" },
+  SUPPORT_REPLY: { icon: "ReceiptText", tone: "slate" },
+  PAYMENT_EVENT: { icon: "Coins", tone: "amber" },
+  SECURITY_EVENT: { icon: "ShieldAlert", tone: "purple" },
+};
+
+function metaFor(type) {
+  return TYPE_META[type] ?? { icon: "Bell", tone: "blue" };
+}
+
+/** Today / Earlier, from the server's `createdAt` rather than a seeded label. */
+function groupFor(createdAt) {
+  const created = new Date(createdAt);
+  const now = new Date();
+  const sameDay =
+    created.getFullYear() === now.getFullYear() &&
+    created.getMonth() === now.getMonth() &&
+    created.getDate() === now.getDate();
+  return sameDay ? "Today" : "Earlier";
+}
+
+function messageFor(error) {
+  if (error instanceof ApiError) return error.message;
+  return "Something went wrong. Check your connection and try again.";
+}
 
 export default function Notifications() {
-  const {
-    items,
-    nextCursor,
-    loaded,
-    loading,
-    loadingMore,
-    count,
-    error,
-    countError,
-    mutationError,
-    pending,
-    sessionExpired,
-    query,
-  } = useNotifications();
+  const toast = useToast();
+  const [items, setItems] = useState(null);
+  const [error, setError] = useState(null);
+  const [markingAll, setMarkingAll] = useState(false);
+
+  const load = () => {
+    setError(null);
+    setItems(null);
+    notificationsApi
+      .listNotifications()
+      .then((page) => setItems(page.items))
+      .catch((err) => setError(messageFor(err)));
+  };
+
   useEffect(() => {
-    query.load();
-  }, [query]);
+    load();
+  }, []);
+
+  const unread = items ? items.filter((n) => !n.readAt).length : 0;
+  const groups = items ? [...new Set(items.map((n) => groupFor(n.createdAt)))] : [];
+
+  async function markRead(id) {
+    setItems((s) =>
+      s.map((n) => (n.id === id ? { ...n, readAt: n.readAt ?? new Date().toISOString() } : n)),
+    );
+    try {
+      await notificationsApi.markNotificationRead(id);
+    } catch {
+      // Best-effort: a failed read receipt just leaves the dot showing, and
+      // the next full list load will reconcile it either way.
+    }
+  }
+
+  async function markAllRead() {
+    setMarkingAll(true);
+    try {
+      await notificationsApi.markAllNotificationsRead();
+      setItems((s) => s.map((n) => ({ ...n, readAt: n.readAt ?? new Date().toISOString() })));
+      toast("All notifications marked read");
+    } catch (err) {
+      toast(messageFor(err));
+    } finally {
+      setMarkingAll(false);
+    }
+  }
 
   return (
     <>
       <SubPageBar
         title="Notifications"
-        fallback="/profile"
         subtitle={
-          countError || count == null
-            ? "Your account updates"
-            : count
-              ? `${count} unread`
-              : "All caught up"
+          items ? (unread ? `${unread} unread` : "All caught up") : undefined
         }
+        fallback="/profile"
         action={
-          count > 0 && (
+          unread > 0 && (
             <button
-              disabled={Boolean(pending)}
-              onClick={() => query.markRead()}
-              className={buttonClass}
+              onClick={markAllRead}
+              disabled={markingAll}
+              className="shrink-0 rounded-lg px-2.5 py-1.5 text-[14px] font-semibold text-brand transition-colors hover:bg-brand-soft disabled:opacity-50"
             >
-              {pending === "all" ? "Saving..." : "Mark all read"}
+              Mark all read
             </button>
           )
         }
       />
+
       <PageBody className="px-4 pb-6 pt-3 lg:px-8 lg:py-6">
-        {sessionExpired && (
-          <a
-            href="/login?next=%2Fprofile%2Fnotifications"
-            className={buttonClass}
-          >
-            Sign in again to view notifications
-          </a>
-        )}
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <p className="text-sm text-muted">
-            Ad updates and important account alerts.
-          </p>
-          <button
-            className={buttonClass}
-            disabled={loading || Boolean(pending)}
-            onClick={() => {
-              query.load();
-              query.count();
-            }}
-          >
-            Refresh
-          </button>
-        </div>
-        {(error || countError) && (
-          <div
-            role="alert"
-            className="mb-4 rounded-xl bg-danger-soft p-4 text-sm text-danger"
-          >
-            {(error || countError).message}
-            <button
-              className={buttonClass}
-              onClick={() => {
-                query.load();
-                query.count();
-              }}
-            >
-              Try again
-            </button>
+        {error ? (
+          <div className="flex flex-col items-center gap-3 rounded-card bg-surface px-6 py-16 text-center shadow-card">
+            <p className="text-[15px] font-semibold text-ink">
+              Couldn't load your notifications
+            </p>
+            <p className="max-w-xs text-[13px] text-muted">{error}</p>
+            <Button onClick={load}>Try again</Button>
           </div>
-        )}
-        {mutationError && (
-          <p
-            role="alert"
-            className="mb-4 rounded-xl bg-danger-soft p-4 text-sm text-danger"
-          >
-            {mutationError.message} Your read status was not confirmed. Please
-            try again.
-          </p>
-        )}
-        {!loaded && !error && (
-          <div role="status" className="grid gap-3">
-            <span>Loading notifications...</span>
-            {[1, 2, 3].map((id) => (
+        ) : items === null ? (
+          <div className="space-y-2.5">
+            {Array.from({ length: 4 }).map((_, i) => (
               <div
-                key={id}
-                className="h-28 rounded-2xl bg-surface motion-safe:animate-pulse"
-              />
+                key={i}
+                className="flex gap-3 rounded-2xl bg-surface p-4 shadow-card"
+              >
+                <Skeleton className="size-10 shrink-0 rounded-xl" />
+                <div className="min-w-0 flex-1">
+                  <Skeleton className="h-[15px] w-3/4 rounded" />
+                  <Skeleton className="mt-2 h-[13px] w-1/2 rounded" />
+                </div>
+              </div>
             ))}
           </div>
-        )}
-        {loaded && items.length === 0 && (
+        ) : items.length ? (
+          groups.map((group) => (
+            <section key={group} className="mb-5">
+              <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
+                {group}
+              </h2>
+              <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
+                {items
+                  .filter((n) => groupFor(n.createdAt) === group)
+                  .map((n) => {
+                    const meta = metaFor(n.type);
+                    const unreadItem = !n.readAt;
+                    return (
+                      <Link
+                        key={n.id}
+                        href={n.href || "/profile/notifications"}
+                        onClick={() => unreadItem && markRead(n.id)}
+                        className={`flex gap-3 rounded-2xl p-4 shadow-card transition-shadow hover:shadow-lift ${
+                          unreadItem ? "bg-brand-soft" : "bg-surface"
+                        }`}
+                      >
+                        <span
+                          className={`grid size-10 shrink-0 place-items-center rounded-xl ${tones[meta.tone]}`}
+                        >
+                          <Icon
+                            name={meta.icon}
+                            className="size-5"
+                            strokeWidth={2.5}
+                          />
+                        </span>
+
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-start justify-between gap-2">
+                            <span className="text-[15px] font-bold leading-tight text-ink">
+                              {n.title}
+                            </span>
+                            {unreadItem && (
+                              <span
+                                className="mt-1.5 size-2 shrink-0 rounded-full bg-brand"
+                                aria-label="Unread"
+                              />
+                            )}
+                          </span>
+                          <span className="mt-0.5 block text-[13px] leading-snug text-muted">
+                            {n.message}
+                          </span>
+                          <span className="mt-1 block text-[12px] text-muted">
+                            {timeAgo(Date.now() - new Date(n.createdAt).getTime())}
+                          </span>
+                        </span>
+                      </Link>
+                    );
+                  })}
+              </div>
+            </section>
+          ))
+        ) : (
           <EmptyState
             icon="Bell"
             title="No notifications"
             body="Alerts about your ads land here."
           />
-        )}
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          {items.map((item) => (
-            <article
-              key={item.id}
-              aria-label={item.title}
-              className={`flex gap-3 rounded-2xl p-4 shadow-card ${item.readAt ? "bg-surface" : "bg-brand-soft"}`}
-            >
-              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface text-brand">
-                <Icon name="Bell" className="size-5" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <h2 className="text-[15px] font-bold text-ink">{item.title}</h2>
-                <p className="mt-1 text-sm text-muted">{item.message}</p>
-                <time
-                  dateTime={item.createdAt}
-                  className="mt-1 block text-xs text-muted"
-                >
-                  {new Date(item.createdAt).toLocaleString()}
-                </time>
-                <div className="mt-2 flex flex-wrap items-center gap-3">
-                  <Link href={item.href} className={buttonClass}>
-                    View details
-                  </Link>
-                  {item.readAt ? (
-                    <span className="text-xs text-muted">Read</span>
-                  ) : (
-                    <>
-                      <span className="text-xs font-semibold text-brand">
-                        Unread
-                      </span>
-                      <button
-                        disabled={Boolean(pending)}
-                        className={buttonClass}
-                        onClick={() => query.markRead(item.id)}
-                      >
-                        {pending === item.id ? "Saving..." : "Mark as read"}
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </article>
-          ))}
-        </div>
-        {nextCursor && (
-          <button
-            disabled={loading || loadingMore || Boolean(pending)}
-            className={`${buttonClass} mt-4 w-full bg-surface`}
-            onClick={() => query.load(true)}
-          >
-            {loadingMore ? "Loading more..." : "Load more notifications"}
-          </button>
         )}
       </PageBody>
     </>

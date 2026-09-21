@@ -7,12 +7,16 @@ Router) + React 19 + Tailwind v4, deployed to Cloudflare Workers via OpenNext.
 npm install
 npm run dev              # marketplace  http://localhost:3000
 npm run dev:personals    # personals    http://localhost:3001
+npm run dev:admin        # console      http://localhost:3002
 npm run build            # next build -> apps/marketplace/.next
-npm run build:all        # both workspaces
+npm run build:all        # all three workspaces
 npm start                # next start, production server
 npm run preview          # build for Cloudflare and run it in workerd
-npm run deploy:all       # both workers
-npm test                 # node:test, no test framework dependency
+npm run deploy:all       # all three workers
+npm test                 # both suites: node:test over lib/, Vitest over *.jsx
+npm run test:unit        # node:test only — no framework, no DOM
+npm run test:components  # Vitest + Testing Library only
+npm run test:e2e         # Playwright: post an ad, promote, moderate
 ```
 
 Cloudflare account setup — R2 buckets, custom domains, CI — is in
@@ -22,11 +26,13 @@ Cloudflare account setup — R2 buckets, custom domains, CI — is in
 
 `vezlist.cc` is the marketplace; `personals.vezlist.cc` is the adult board. Two
 Next apps, two builds, two Cloudflare workers — one npm workspace each, both
-eating the same `packages/shared`.
+eating the same `packages/shared`. `admin.vezlist.cc` is a third build off the
+same package: the moderation console, covered in [its own section](#the-console).
 
 ```
 apps/marketplace/   app/ route tree, next + wrangler + open-next config
 apps/personals/     app/ route tree, next + wrangler + open-next config
+apps/admin/         app/ route tree, next + wrangler + open-next config
 packages/shared/    everything else — components, screens, data, lib, index.css
 ```
 
@@ -63,10 +69,10 @@ both sides with explicit `@source` directives — without them the CSS still
 builds, just at a fraction of the size, and a site renders unstyled while the
 build reports success.
 
-**Known consequence:** watched-status (`vezlist:status-seen`) remains browser
-storage and does **not** carry across the two sites. Saved items are account-backed
-and follow the signed-in user across devices; each site's saved screen requests
-only listings in that site's scope. The create sheet is also still the
+**Known consequence:** browser storage is per-origin, so saved items
+(`vezlist:saved:v1`) and watched-status (`vezlist:status-seen:v1`) do **not**
+carry across the two sites. Sharing them needs a backend session or a cookie on the
+parent domain — neither exists yet. The create sheet is also still the
 marketplace's, so posting from the personals site offers marketplace categories.
 
 ## Rendering and caching
@@ -122,9 +128,10 @@ app/
     status/[id]/          the story player, full-bleed
 ```
 
-Route groups are the reason `/status` (in the shell) and `/status/[id]` (full
-bleed) can sit at the same URL prefix under different layouts — the parentheses
-never reach the URL.
+Route groups are the reason `/ad/[id]` (in the shell) and `/status/[id]` (full
+bleed) can sit under different layouts — the parentheses never reach the URL.
+There used to be a `/status` list page in the shell alongside the player; the
+stories now live only on the board's rail, so the player is the whole feature.
 
 `browse` and `nearby` are the routes split in two files: each screen reads a
 query parameter on the client (`?cat=`, `?view=`), and a prerendered page needs a
@@ -185,22 +192,22 @@ Both brands share all of it; only the eight brand vars swap.
 | `/` (marketplace)            | Home — wordmark, location card, nine category tiles               |
 | `/browse`                    | The feed — search, location, category strip, filters, listings    |
 | `/browse?cat=vehicles`       | The same feed, opened already narrowed to one category            |
-| `/` (personals)              | The board — story rail, 18+ label, photo grid                     |
+| `/` (personals)              | The board — story rail, photo grid                                |
 | `/nearby`                    | Map + a "near you" sheet, on both sites                           |
-| `/nearby?view=people`        | Same screen with the people feed                                  |
-| `/status`                    | Status updates list — mine, recent, viewed                        |
 | `/status/:id`                | Story player — full-bleed, outside the shell                      |
 | `/support`                   | Help search, contact channels, tickets, FAQ accordion             |
 | `/profile`                   | Profile card, stats, menu, log out                                |
 | `/ad/a1`, `/ad/a2`           | Ad detail — vehicle / person                                      |
 | `/seller/:id`                | Seller profile + their live ads                                   |
+| `/profile/dashboard`         | Creator dashboard — views, saves, replies, 7-day trend            |
+| `/profile/wallet`            | Credit balance, packs, and the transaction ledger                 |
 | `/profile/ads`               | My Ads — Active / In review / Expired, with edit, promote, delete |
-| `/profile/saved`             | Cursor-paginated Saved Items from the signed-in account           |
+| `/profile/saved`             | Saved Items, backed by the saved-ads store                        |
 | `/profile/notifications`     | Grouped notifications, unread state, mark all read                |
 | `/profile/settings`          | Account rows and privacy/notification toggles                     |
 | `/profile/settings/details`  | Personal details form — name, email, phone, location, bio         |
 | `/profile/settings/password` | Password change with live strength rules                          |
-| `/profile/settings/payment`  | Saved cards, credit packs, billing history                        |
+| `/profile/settings/payment`  | Saved cards and the card-charge statement                         |
 | `/login`                     | Sign in / create account — standalone, outside the shell          |
 | `/support/tickets`           | All tickets, filtered by status                                   |
 | `/support/tickets/:id`       | Ticket thread with a working reply box                            |
@@ -228,9 +235,13 @@ The phone shell keeps its 430px width at tablet sizes, so column counts key off
 
 ## Chrome
 
-The app bar is a glass row: the wordmark (name only — the gradient mark is the
-rail's job) and two actions, notifications and credits, on mobile; on desktop
-the wordmark moves into the rail and the bar carries the page title instead. Sub-pages swap it for `SubPageBar` (back + title + action).
+The app bar is a glass row carrying the page title and two actions,
+notifications and credits — and it is **desktop only**. Below `lg` it does not
+render at all: on a phone it spent a whole row restating the wordmark already
+sitting under it, and the tab bar is the navigation. Its two actions moved onto
+the profile screen, which is where a phone reaches for them. Sub-pages are the
+exception and keep `SubPageBar` (back + title + action) at every width —
+without it a phone has no way back out of a detail screen.
 
 Navigation follows Instagram's shape. `navItems.js` is the single source both
 bars read, and **Create** sits in the middle of it as an action rather than a
@@ -243,7 +254,8 @@ route:
   smear them too. The bar spans the screen on purpose — five plain circles wide
   enough to fill 430px end up ~86px tall, which eats the screen; the connecting
   bar buys the width back at 62px circles (kept thin at 34px — a taller bar leaves too shallow a bump and the end caps read as pills, not circles). The bar stops at the first and last
-  slot centre (`inset-x-[10%]`, half a slot), so the chain terminates in full
+  slot centre (`50 / items.length`%, half a slot — derived, so a bar with a
+  different slot count still ends in round caps), so the chain terminates in full
   round caps instead of a thin stub poking past the end circles. The active tab is a white disc nested
   _inside_ its slot, leaving a black rim — lifting it out with a canvas ring cut
   the end circles loose from the chain, and an unbroken chain is the whole point
@@ -294,9 +306,9 @@ the brand colour, so the signal reads the same in Vezlist blue and personals
 rose, and kept scarce in the data on purpose, because a badge on every card is
 a badge on none.
 
-The thumbnail carries `data-media`, which is what personals' discreet mode
-blurs; the title and price stay sharp, so a blurred feed is still a readable
-feed.
+The thumbnail is a `MediaImage` with `discreet` set, which is what personals'
+discreet mode withholds; the title and price stay sharp, so a closed feed is
+still a readable one.
 
 ## Navigation
 
@@ -305,8 +317,8 @@ FAQs", the seller card on an ad, story avatars and the notification bell are
 all real links; unknown paths redirect to `/`.
 
 The contact tiles on Support hand off to the device rather than faking a screen
-— `tel:`, `mailto:` and `wa.me` — and "Contact Me Now" opens a `mailto:` prefilled
-with the ad title. Live Chat is the one in-app tile, going to the ticket list.
+— `mailto:` — and "Contact Me Now" opens a `mailto:` prefilled with the ad
+title. Live Chat is the one in-app tile, going to the ticket list.
 
 Screens you reach from another screen use `SubPageBar` (back + title + optional
 action); it falls back to a sensible parent route when there's no history to pop.
@@ -318,9 +330,8 @@ action); it falls back to a sensible parent route when there's no history to pop
   survive a trip into the full-screen status player and back.
 - `AuthContext` — the signed-in session, persisted. `RequireAuth` and the
   account screens read it; see **Account and auth**.
-- `SavedContext` — the authenticated saved-listing query cache. It preloads the
-  current site's first page and exact count, hydrates detail-page heart state on
-  demand, and applies optimistic save/remove updates with rollback.
+- `SavedContext` — saved ad ids, persisted. The heart on an ad page and the
+  Saved Items screen read the same store, so they can't disagree.
 - `ToastContext` — one-line confirmations for actions that would otherwise be
   silent (saved, deleted, reply sent, ad submitted).
 
@@ -360,7 +371,7 @@ involved and blob previews stay valid.
 
 `packages/shared/src/lib/adDraft.js` owns the step order and `validateStep(stepId, draft)`, so
 the wizard can't advance past a step it never checked — errors land inline on
-the offending field. `adDraft.test.js` covers the gates (8 cases).
+the offending field. `adDraft.test.js` covers the gates (18 cases).
 
 The photos step fills the sheet with a drop zone (tap, or drag files in — the
 handlers filter to `image/*`), previews with `URL.createObjectURL` and revokes
@@ -369,19 +380,22 @@ every URL on close or unmount, marks the first image as the cover, and caps at
 step renders the ad as it will appear in the feed, with a pencil on each section
 that jumps back to the step that owns it.
 
-## Status
+## Stories
 
-Stories live on the personals site. They show up twice, in the two shapes the
-job actually needs:
+Stories live on the personals site, under one heading on the board — **Stories**
+to the reader, `status` to every identifier behind it, because the copy changed
+and a rename of `StatusContext`, `groupStatuses` and the `/status/:id` route was
+not worth the churn.
 
 - **`StoryRail`** — the Instagram tray at the top of the board: 66px gradient
-  rings, truncated names, a `+` badge on your own. Gradient because the ring is
-  the only ornament on the screen; grey once watched.
-- **`StatusUpdates` (`/status`)** — WhatsApp's list shape, which carries what a
-  rail can't: who posted, how long ago, how many updates, and whether you've
-  watched them. `My status` first, then **Recent updates**, then **Viewed**.
+  rings and truncated names. Gradient because the ring is the only ornament on
+  the screen; grey once watched.
+- There was a second shape, a WhatsApp-style list at `/status` carrying who
+  posted, how long ago and how many updates. It is gone: the rail already shows
+  everything, and the tile for posting your own moved to the profile menu, where
+  people look for the things they own.
 
-Both draw the same **segmented ring** — one arc per update, gapped, a single SVG
+The rail draws a **segmented ring** — one arc per update, gapped, a single SVG
 circle with a computed `stroke-dasharray` (`ringDashes` in `lib/status.js`). The
 gradient stroke needs a `<defs>` id per instance, so it keys off `useId()`; a
 shared id would make every ring on the page render the first one's gradient.
@@ -393,8 +407,8 @@ button. Press-and-hold pauses the slide (`animation-play-state`).
 The player freezes a **queue** of story ids on mount (mine → recent → viewed) and
 walks it, so finishing one story rolls into the next instead of ejecting you.
 The last story closes, and closing is history-aware: `navigate(-1)` normally, a
-`replace` to `/status` only when `location.key === "default"` says you deep-linked
-in with nothing to pop. Intra-story steps are `replace: true`, so Back leaves the
+`replace` to `/` — the board, where the rail is — only when the history stack
+says you deep-linked in with nothing to pop. Intra-story steps are `replace: true`, so Back leaves the
 player rather than replaying it slide by slide.
 
 Resetting the slide index when the story changes happens **during render**
@@ -415,9 +429,11 @@ The support screen is built as a funnel, widest first:
 
 1. **Gradient hero** — a live "Support is online" pill and the search field, which
    is the fastest path for most people.
-2. **Talk to us** — the four channels, each carrying its real cost: "~2 min",
-   "Mon-Fri, 9-5 PT", "Within 24 hours". `to` stays in-app, `href` hands off to
-   the device (tel:, mailto:, wa.me).
+2. **Talk to us** — two channels, each carrying its real cost: "~2 min",
+   "Within 24 hours". `to` stays in-app, `href` hands off to the device
+   (`mailto:`). There were four; the phone line and the WhatsApp number are
+   gone, because a channel nobody is staffing is worse than one fewer channel —
+   the person who used it believes they have been in touch.
 3. **Browse by topic** — four tiles that deep-link into a pre-filtered help
    centre (`/support/faqs?cat=Safety`); the chip there reads the query param, so
    the link and the UI can't disagree.
@@ -449,25 +465,119 @@ reload, signing out clears it, and the account area is gated on it:
   stands down once it has seen a session in that mount: without that it races
   the logout handler and wins, landing you on
   `/login?next=<the page you just chose to leave>`.
-- The two frontends are separate origins. Saved listings live behind the shared
-  backend account session and are filtered to the current site.
+- The session is a cookie on the parent domain, not localStorage, so it _does_
+  cross the two origins: signing in on either site signs you in on both. The
+  credit wallet rides the same mechanism, for the blunt reason that a balance
+  existing on only one of the two sites is a balance you can spend twice.
+  Saved items still do not carry across — they are a bigger payload than a
+  cookie wants.
+
+Because there is nothing to register against, `/login` also carries two **demo
+accounts** (`demoAccounts` in `mock.js`), printed credentials and all:
+
+| Button      | Signs you in as | Email              | Password      |
+| ----------- | --------------- | ------------------ | ------------- |
+| Ads creator | `creator`       | `sarah@vezlist.cc` | `creator123`  |
+| Browsing    | `user`          | `alex@vezlist.cc`  | `browsing123` |
+
+The passwords are on the screen on purpose — they authenticate nothing, and a
+demo credential you have to ask someone for is not one. The Browsing row is the
+only way to reach that view without switching down in Settings, since signup
+always makes a creator. Both sign in as the mock profile (Sarah), whose ads,
+saved items and tickets the rest of the app is full of; only the role differs.
+When a real backend lands, that array and the block rendering it are the first
+two things to delete.
 
 The three Account rows in Settings are real screens now:
 
 - **Personal details** — validated profile form (name, email, phone, location, bio).
 - **Password** — current/new/confirm, with the three strength rules ticking live
   as you type and a mismatch check on confirm.
-- **Payment methods** — add, remove and re-default cards, credit packs, billing
-  history. Card entry validates number length, `MM / YY` expiry and CVC.
+- **Payment methods** — add, remove and re-default cards, and the card-charge
+  statement derived from the wallet ledger. Buying credits lives on
+  `/profile/wallet` instead: two buy buttons backed by two ideas of the balance
+  is a bug waiting to be filed. Card entry validates number length, `MM / YY`
+  expiry and CVC.
 
 Password inputs carry an explicit `aria-label`: the show/hide button sits inside
 the `<label>`, so without one the input's accessible name picks up "Show
 password" too.
 
+## Two kinds of account
+
+Most people on a classifieds board never post anything, and the app was built
+as though everyone did — everyone got My Ads, everyone got a credit balance.
+There are two account types now:
+
+| Role                    | Has                                                            |
+| ----------------------- | -------------------------------------------------------------- |
+| `user` (Browsing)       | Browse, save, contact, open tickets, hold a balance            |
+| `creator` (Ads creator) | All of that, plus posting, My Ads, the dashboard, and spending |
+
+**Signup does not ask which one you want.** It did, briefly, and the question
+had no good answer: browsing needs no account, so the only thing an account
+buys you is the ability to post — and offering Browsing on the form invited
+people to pick the account that cannot do the thing they opened the form to do,
+then find out later on a screen that was missing. So `SIGNUP_ROLE` is
+`creator`, full stop. Browsing is what a **signed-out visitor** is, and what
+you can move _down_ to in Settings once you have stopped selling.
+
+That is also why signing in falls back to `SIGNUP_ROLE` rather than
+`DEFAULT_ROLE` when this browser has never held a session: with no server to
+ask, the browsing default would sign a seller in to an account with no My Ads
+and nothing on screen to explain why.
+
+`lib/accountRoles.js` holds one capability matrix (8 tests) read by the shell to
+decide which tabs exist, by Profile to decide which menu rows it draws, and by
+the wallet to decide whether a spend is allowed at all. Same honesty as the
+console's `adminRoles.js`: it shapes what the UI offers and what the store
+accepts, and it is **not** a security boundary, because the client owns the
+store. On a real backend the matrix moves to the server and stays here only to
+hide buttons.
+
+The role rides on the session cookie, so it crosses both origins with the
+account. Three consequences worth knowing:
+
+- The tab bar keeps five slots either way. A browsing account has no **Create**,
+  so `navItemsFor` swaps that slot for **Saved** rather than dropping it — the
+  goo chain's geometry is derived from the slot count (`50 / items.length`%),
+  but a four-slot bar would still read as a different app.
+- A creator screen reached by a browsing account is not an error, it is someone
+  who found the thing they would switch for. `RequireCapability` renders the
+  offer in place instead of redirecting, so deep links and bookmarks survive.
+- Hiding a row is not the guard. Every gated action checks the capability again
+  where it happens — `spendCredits` refuses on role _and_ on funds.
+
+## Credits
+
+Credits were a number painted on the app bar: `credits = 100`, a default
+argument, the same on every screen and unmoved by anything you did. They are a
+model now — `lib/wallet.js`, pure functions, no React, 11 tests.
+
+One balance and one ledger, moved by two verbs. `topUp` adds a pack; `spend`
+refuses rather than overdrawing and hands the caller back the _same object_, so
+"nothing changed" is a thing every call site can test for and report. Promoting
+an ad costs 20, 60 or 140 credits (`boostOptions`) and is the only thing that
+spends them — posting is free. `MyAds` calls `spendCredits` **before** it marks
+a row promoted, so a refused spend cannot leave a phantom badge behind.
+
+The wallet is a cookie on the parent domain for the same reason the session is:
+a balance that exists on only one of two origins is a balance you spend twice.
+That is also why the ledger is capped at 12 rows and labels are clipped to 64
+characters — an ad title is whatever somebody typed, and a cookie over ~4KB is
+dropped by the browser silently, as a no-op rather than an error.
+
+Money and credits are different units and the screens never mix them: a pack
+costs `$25` and grants `350 credits`, a promotion costs `60 credits` and no
+dollars. `/profile/settings/payment` shows the dollars side (card charges,
+derived from ledger rows that carry a `price`); `/profile/wallet` shows the
+credits side. Neither invents a number the other disagrees with.
+
 ## Categories and locations
 
 Nineteen categories live in `packages/shared/src/data/mock.js`, and two lists
-choose from them.
+choose from them. Each carries `subs` — its sub-categories, **83 in
+all** (Vehicles → Cars & Trucks · Motorcycles · Boats · RVs & Campers · Parts).
 
 `homeCategories` is the nine on the launcher, in reading order: Vehicles,
 Personals, Buy/Sell, Property, Services, Electronics, Entertainment, Jobs,
@@ -483,6 +593,54 @@ Category group. The More tile is pinned outside the scroller and adopts the
 name and icon of whichever secondary category is picked, so the choice never
 scrolls out of sight.
 
+### Sub-categories
+
+Two levels, and it stops there. A third needs breadcrumbs in the heading, a
+third step in the create form and a recursive picker, and no classifieds board
+has needed one — "Vehicles › Cars & Trucks" is where people stop describing and
+start searching.
+
+**The rule the whole feature turns on: a sub-category is optional at every point
+it is asked for.** An ad may sit directly in Vehicles; six of the twenty-three
+seeded listings do, deliberately, so every screen gets built against the
+unclassified ad rather than only the happy path — a test in `taxonomy.test.js`
+fails if that ever becomes none or all. Filtering on Vehicles matches those ads
+too; only naming a sub-category narrows past them.
+
+`lib/taxonomy.js` owns the tree (`subsFor`, `isSubOf`, `categoryPath`, 8 tests).
+`isSubOf(cat, null)` is **true**, because absent is valid and treating it as an
+error is precisely how the optional case gets broken.
+
+In the filter model it is `subcategory` — **singular**, where `categories` is
+plural. That asymmetry is the design: narrowing to Vehicles _and_ Property is a
+reasonable thing to want, but Cars & Trucks _and_ Motorcycles is what the
+Vehicles filter already does. It only means something under exactly one
+category, so `reconcileSubcategory` drops it the moment that stops being true,
+and every writer of `categories` runs its patch through it — the invalid state
+is unreachable rather than merely unrendered.
+
+Where it surfaces:
+
+- **Launcher** — each card carries a live ad count off `listings` and its first
+  three subs as chips linking to `/browse?cat=<id>&sub=<label>`. The card is an
+  `<li>` with a stretched `after:` overlay for the category link, so the chips
+  are siblings rather than anchors nested inside an anchor.
+- **Filter sheet** — check exactly one category and its subs open beneath it as
+  a radio group, led by "All of {category}" so there is always a way back to any.
+- **`/browse`** — the heading reads `Vehicles › Cars & Trucks`. A `?sub=` naming
+  a sub-category of some other category is dropped rather than yielding an empty
+  feed with no visible cause.
+- **Create** — a Sub-category field marked `Optional`, with **None** as its own
+  pill rather than a second press on the chosen one: nothing tells you a pressed
+  pill can be un-pressed, and a keyboard user would never find it. Changing the
+  category clears it in the same patch, so the illegal pair never exists for a
+  frame.
+- **Console** — Taxonomy expands a category to add, rename, reorder and remove
+  its subs (owner-only, `taxonomy.edit`). Removing one **nulls the ads filed
+  under it** rather than deleting them: a dangling label is reachable through no
+  filter at all while the ad goes on claiming it. Re-filing an ad into another
+  category does the same, for the same reason.
+
 `packages/shared/src/data/locations.js` holds the Canadian coverage: All Canada plus thirteen
 provinces and territories, 209 areas in all. Ontario, Quebec and BC are sold by
 region (Greater Toronto Area, Montérégie, Vancouver Island…); the rest are sold
@@ -495,13 +653,14 @@ areas inside it.
 
 `packages/shared/src/lib/filters.js` is the whole filter model — a pure `applyFilters(listings,
 filters, query)` plus helpers for the active-count badge and the chip row. It is
-covered by `filters.test.js` (13 cases) and shared by Home and Nearby.
+covered by `filters.test.js` (21 cases) and shared by Home and Nearby.
 
 `FilterSheet` is the Flipkart/Amazon two-pane sheet: a group rail on the left
-(Sort / Category / Price / Location / More), options on the right, and a footer
-with **Clear all** and a live **Show N ads** count. Edits go to a draft and only
-land on apply, so backing out of the sheet changes nothing. Applied filters
-appear as removable chips above the feed via `FilterChips`.
+(Sort by / Category / Location / More filters — a price filter was considered
+and explicitly declined as not-planned, issue #27), options on the right, and
+a footer with **Clear all** and a live **Show N ads** count. Edits go to a
+draft and only land on apply, so backing out of the sheet changes nothing.
+Applied filters appear as removable chips above the feed via `FilterChips`.
 
 Tapping **More** in the category strip opens the sheet on its Category group;
 the strip and the sheet share one piece of state, so they can't disagree. The
@@ -560,18 +719,98 @@ The personals site is a different room, not a re-skin of the marketplace:
   visit is the door rather than a flash of the board. The board stays mounted
   behind it — the page is still server-rendered — but carries `inert`, because a
   gate you can tab straight past is decoration.
-- **Discreet mode** (`app/useDiscreet.js`) — blurs every photo until you ask for
-  it, for reading the board with people around. It is an attribute on `<html>`
-  and one CSS rule over `[data-media]`, not a prop threaded through the tree:
-  media shows up in the feed, the story rail and the ad gallery, and none of
-  them should have to know. It is set from the root layout rather than the
-  board, or loading an ad page directly would come up sharp. The clip lives on
-  the wrapper and the blur on the image, since an element's own `overflow` does
-  not clip its own filter.
+- **Discreet mode** (`app/useDiscreet.js`) — withholds every photo until you ask
+  for it, for reading the board with people around: `MediaImage`
+  (`components/media/MediaImage.jsx`) does not set `src` while the switch is
+  on, so nothing downloads, not just a blur over something that already did.
+  The switch is an attribute on `<html>`, not a prop threaded through the
+  tree — media shows up in the feed, the story rail and the ad gallery, and
+  none of them should have to know beyond passing `discreet` to `MediaImage`.
+  It is set from the root layout rather than the board, or loading an ad page
+  directly would come up sharp. Reveal is the same toggle, board-wide, not a
+  per-photo tap — turning discreet mode off is what reveals it, and that
+  reveal is a real network fetch, so a freshly revealed photo appears slower
+  than an already-loaded one did under the old CSS-only blur.
 - **Not indexed** — `noindex, nofollow` plus the `RTA` label in the root
   layout's metadata, so the whole origin is marked at once.
 - **A standing 18+ label** on the board. The gate is a one-time door; the chip
   next to **Browse** is what says where you are after it.
+
+## The console
+
+`admin.vezlist.cc` moderates both boards from one place. It is a third build off
+`packages/shared` rather than a fourth codebase, but it shares almost nothing at
+runtime with the two public sites — and the things it does not share are the
+point.
+
+|             | the console                                                         |
+| ----------- | ------------------------------------------------------------------- |
+| workspace   | `@vezlist/admin`, dev port 3002, worker `vezlist-admin`             |
+| screens     | `packages/shared/src/admin/` — 18, one per section                  |
+| state       | `lib/adminStore.js`: `buildSeed()` + one reducer, no React          |
+| persistence | `localStorage` under `vezlist:admin:v1`                             |
+| session     | `localStorage`, **not** the shared cookie                           |
+| shell       | its own `AdminLayout` — no phone mockup, no age gate, no bottom nav |
+| indexing    | `noindex, nofollow` in the root layout                              |
+
+**`site` is a column, not a fork.** `listings` and `personalsListings` are folded
+into one `allListings` at seed time, each row stamped with the board it came out
+of. Every screen filters on that field; nothing re-derives it. The top bar's site
+switcher writes `?site=` to the URL, which is what makes a filtered queue —
+`/listings?status=pending&site=personals` — a link one moderator can send
+another.
+
+**The session is deliberately per-origin.** The two public sites share one
+account through a cookie on the parent domain; the console uses `localStorage`
+on its own hostname instead. A signed-in shopper is not a signed-in moderator,
+and that isolation is free rather than enforced. Do not move the console onto a
+path of either public host.
+
+**Every mutation is one reducer action and one audit entry** —
+`{ id, at, actor, action, entity, entityId, note }`, newest first, capped at 200.
+The actor, the role and the clock are injected by `AdminDataContext`, so
+`reducer` stays a function of `(state, action)` — which is what lets the same
+action replay identically under StrictMode's double-invoke. `reducer` is the
+half worth testing and `lib/adminStore.test.js` covers it in 57 cases.
+`admin/Listings.test.jsx` covers the other half — that a moderator can reach
+approve and reject from the queue, and that the reducer refuses a `support`
+session that gets as far as pressing the button.
+
+**Three roles, enforced at both ends.** `lib/adminRoles.js` holds one matrix —
+owner / moderator / support against ~19 permissions — and it is read twice: by
+the screens, to decide what to render, and by the reducer, to decide what to
+honour. Both on purpose. Hiding a button stops the button, not the dispatch
+behind it, and the reducer is the one place every mutation passes through.
+Deleting is separated from moderating throughout: approving is reversible and
+rejecting is a conversation, but a delete is neither, so it stays with the
+owner. This is a real permission model with no server behind it — on a backend
+the matrix moves server-side and stays here only to grey out buttons.
+
+**The charts are four divs deep, not a library.** `components/admin/Charts.jsx`
+builds columns, a stacked status bar and ranked bars out of HTML, because the
+specs that matter are in real pixels — a bar caps at 24px, fills are separated
+by a 2px gap of surface, a hit target clears 24px — and inside a scaling
+`viewBox` none of those numbers mean what they say. Every chart plots one
+series and so wears one hue with no legend; the only multi-colour mark is the
+status bar, whose three chromatic fills were validated rather than eyeballed
+(ΔE 13.0 under protanopia, 27.5 in normal vision). `expired` is deliberately
+achromatic — it is the absent state, not a fourth identity. Every chart ships a
+table twin, because a tooltip may enhance a value but must never be the only
+way to read it.
+
+**Honest limit, stated on `/settings` as well as here:** the console writes to
+its own storage. Three origins, three storages, no server between them — so
+approving an ad here does not publish it on `vezlist.cc`. Swapping the reducer
+for an API is one file, `context/AdminDataContext.jsx`, because that is the only
+place `adminStore` is called; screens never import `data/mock.js` directly.
+
+Personals media on `/live` and `/status` opens **withheld**, via the same
+`MediaImage` component the public board uses, gated by this screen's own
+Reveal button (`components/admin/RevealMedia.jsx`) rather than the board's
+`[data-discreet]` switch — the console gets opened on office screens. Nothing
+downloads until a moderator presses Reveal; before this, the photos were
+fetched either way and only blurred with CSS, one click from anyone at the
+screen.
 
 ## Structure
 
@@ -580,6 +819,7 @@ apps/
   marketplace/     next.config.mjs, postcss.config.mjs, open-next.config.ts, wrangler.jsonc
     app/           the route tree (above) — routing, layouts and metadata only
   personals/       the same, plus AgeGate.jsx and useDiscreet.js in app/
+  admin/           the same; app/(admin)/ is the whole console behind one layout
 packages/
   shared/src/
     components/
@@ -588,13 +828,17 @@ packages/
                  ChoiceRow, ConfirmDialog, EmptyState, Icon
       cards/     ListingCard, NearbyListingCard, PersonCard
       create/    CreateAdSheet + one file per step
-      StatusList, CategoryStrip, LocationBar, MapView, FilterSheet, FilterChips
+      admin/     AdminLayout, DataTable, StatCard, Sparkline, StatusBadge,
+                 AdminHeader, RevealMedia, RequireAdmin, adminNav
+      StatusList, LocationBar, MapView, FilterSheet, FilterChips
       RequireAuth
     pages/       the screens both sites serve (see the Screens table)
-    context/     AuthContext, FeedContext, SavedContext, StatusContext, ToastContext
+    admin/       the console's screens — one per section, nothing public imports them
+    context/     AuthContext, FeedContext, SavedContext, StatusContext, ToastContext,
+                 AdminAuthContext, AdminDataContext
     data/        mock.js (screen content), locations.js (provinces and areas)
     lib/         sites.js, nav.jsx, persisted.js, tones.js, format.js, filters.js,
-                 adDraft.js, auth.js, status.js, saved.js (+ tests)
+                 adDraft.js, auth.js, status.js, adminStore.js, adminScope.js (+ tests)
     index.css    tokens, utilities, tone chips, both palettes
 ```
 
@@ -603,46 +847,7 @@ The server half of the app is `app/` and nothing else.
 
 ## Notes
 
-### Module 10 notifications
-
-Both sites use the authenticated `/me/notifications` API for the inbox, keyset
-pagination, unread count, and read-one/read-all actions. Top-bar and profile badges
-share a session-scoped query cache; no notification fixtures are used in production.
-The cache is discarded on account/session replacement and ignores stale requests.
-Unread counts refresh every 30 seconds while visible and on window focus; an inbox
-already loaded is refreshed alongside the count. Refresh and retry controls are
-available, and failed writes never falsely mark an alert as read.
-
-In-app notifications are always available. The existing Account Settings email/push
-preferences control optional delivery channels on the backend; push provider/device
-registration and email deployment configuration are separate operational concerns.
-
-Run `npm test`, `npm run build:all`, and `npm run test:browser` to verify. Notification
-browser scenarios run real Next/React UI on both sites with **mocked HTTP APIs**;
-they cover authentication, badges, CSRF/site scope, read durability across browser
-reloads, failed reads/writes, empty state, and pagination. They are not live
-frontend-to-backend acceptance tests. Backend persistence and isolation require the
-backend integration suite.
-
-An additional **opt-in live smoke** closes that API integration gap for the Module
-10 inbox: from `Backend`, run `mvn -Pintegration -Dtest=NotificationBrowserIT test`.
-It requires Docker/Testcontainers, installed frontend npm dependencies, and local
-Chrome (or a Playwright Chromium install / `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`).
-The harness starts isolated Postgres and Spring Boot, provisions an ephemeral user
-with two alerts per site, and supplies `VEZLIST_LIVE_API_BASE_URL`,
-`VEZLIST_LIVE_EMAIL`, and `VEZLIST_LIVE_PASSWORD` to `npm run test:browser:live`.
-Do not point it at a shared/production account: it marks the seeded notifications
-read. The frontend configuration only accepts a `127.0.0.1` HTTP backend.
-
-This separate suite starts Next on ports 3200/3201 with `.next-live` build output
-and real login/session/CSRF calls, validates site-scoped responses, and verifies
-read-one/read-all persistence after reload. It has **no HTTP interception**. Only
-the Personals age-gate acknowledgement is set locally for the adult test account.
-Live tests are excluded from the regular mocked browser suite; credentials are
-never logged and trace/video/screenshot/AI page-snapshot recording is disabled for
-this suite. See [live browser prerequisites](e2e-live/README.md).
-
-- Some unfinished screens still use `packages/shared/src/data/mock.js`; implemented account, listing, seller, moderation, and notification flows use backend APIs.
+- Data is static mock data in `packages/shared/src/data/mock.js`; swap it for API calls at the page level.
 - Icons referenced from data go through `Icon`'s explicit registry — an unregistered
   name silently renders a blank circle, so add new ones there when you add data.
   Filtering runs client-side over that array — move it into the query when there's an API.

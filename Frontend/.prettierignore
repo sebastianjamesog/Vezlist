@@ -1,0 +1,17 @@
+# Build output and dependencies
+node_modules
+.next
+.open-next
+.wrangler
+package-lock.json
+
+# Written by `next dev`, not by us. Prettier and the generator disagree about
+# this file's formatting, and the generator wins every time it runs — so
+# formatting them here only sets up a CI failure on a file nobody edited.
+# See node_modules/next/dist/server/lib/generate-agent-files.js.
+apps/*/AGENTS.md
+apps/*/CLAUDE.md
+
+# Playwright output
+test-results
+playwright-report

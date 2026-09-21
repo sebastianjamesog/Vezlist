@@ -11,17 +11,24 @@ import {
   X,
 } from "lucide-react";
 import {
+  CREATE_CATEGORIES,
+  DRAFT_KEY,
   EMPTY_DRAFT,
   MAX_IMAGES,
   STEPS,
+  isDraftWorthSaving,
+  normaliseDraft,
+  reorderImages,
   validateStep,
 } from "../../lib/adDraft";
+import { downscaleToDataUri, validatePhotoFile } from "../../lib/media";
+import { usePersistedObject } from "../../lib/persisted";
 import StepPhotos from "./StepPhotos";
 import StepDetails from "./StepDetails";
 import StepContact from "./StepContact";
 import StepReview from "./StepReview";
 import { useToast } from "../../context/ToastContext";
-import { useCatalog } from "../../context/CatalogContext";
+import { useAccount } from "../../context/AccountContext";
 
 /** Story-style progress: one segment per step, filled behind you, live on you. */
 function Stepper({ step, onJump }) {
@@ -66,122 +73,97 @@ function Stepper({ step, onJump }) {
  * Instagram-style creation: one job per screen, a story-segment stepper, and a
  * single primary action. Nothing advances until that step validates.
  */
-export default function CreateAdSheet({
-  open,
-  onClose,
-  onPublish,
-  initialListing = null,
-}) {
-  const { categories } = useCatalog();
-  const defaultCategory = categories[0] ?? { id: "", label: "" };
+export default function CreateAdSheet({ open, onClose, onPublish }) {
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState({
     ...EMPTY_DRAFT,
-    category: defaultCategory.label,
-    categoryId: defaultCategory.id,
+    category: CREATE_CATEGORIES[0],
   });
   const [errors, setErrors] = useState({});
-  const [submitError, setSubmitError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState("");
-  const requestKey = useRef(
-    globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`,
-  );
-  const previews = useRef([]);
+  // True while a just-picked photo is being downscaled and stripped of EXIF
+  // (see `lib/media.js`) — a `<input disabled>`/`aria-live` state in
+  // `StepPhotos`, not a spinner of its own, because the work is normally a
+  // couple hundred milliseconds and a modal spinner for that would flicker
+  // more than it informs.
+  const [addingPhotos, setAddingPhotos] = useState(false);
+  const idSeq = useRef(0);
   const toast = useToast();
+  const { can } = useAccount();
   const { pathname } = useLocation();
-
-  useEffect(() => {
-    if (!initialListing) return;
-    setStep(0);
-    setDraft({
-      ...EMPTY_DRAFT,
-      listingId: initialListing.id,
-      listingStatus: initialListing.status,
-      images: (initialListing.media ?? [])
-        .filter((media) => media.status === "READY" && media.url)
-        .sort((left, right) => left.position - right.position)
-        .map((media) => ({
-          id: media.id,
-          mediaId: media.id,
-          name: media.fileName,
-          url: media.url,
-          persisted: true,
-        })),
-      title: initialListing.title,
-      business: initialListing.businessName,
-      category: initialListing.categoryLabel,
-      categoryId: initialListing.categoryId,
-      price: initialListing.price ?? "",
-      description: initialListing.description,
-      location: initialListing.locationLabel,
-      provinceId: initialListing.provinceId,
-      locationId: initialListing.locationId,
-      email: initialListing.contactEmail,
-      phone: initialListing.contactPhone,
-    });
-    setErrors({});
-    setSubmitError("");
-    setUploadProgress("");
-  }, [initialListing]);
 
   const current = STEPS[step];
   const last = step === STEPS.length - 1;
-  // Category is pre-filled, so it can't count towards "the user typed something".
-  const dirty =
-    draft.images.length > 0 ||
-    Object.entries(draft).some(
-      ([k, v]) =>
-        ![
-          "images",
-          "category",
-          "categoryId",
-          "listingId",
-          "listingStatus",
-          "removedMediaIds",
-        ].includes(k) && v !== "",
-    );
+  const dirty = isDraftWorthSaving(draft);
 
-  function releasePreviews() {
-    previews.current.forEach((url) => URL.revokeObjectURL(url));
-    previews.current = [];
-  }
-
-  function reset() {
-    releasePreviews();
-    setStep(0);
-    setDraft({
-      ...EMPTY_DRAFT,
-      category: defaultCategory.label,
-      categoryId: defaultCategory.id,
-    });
-    setErrors({});
-    setSubmitError("");
-    setUploadProgress("");
-    requestKey.current = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`;
-  }
-
-  // The draft outlives a close on purpose: leave, come back, carry on. Object
-  // URLs still leak until revoked, so unmount drops them.
-  useEffect(() => releasePreviews, []);
+  /* --------------------------------------------------------- persistence */
+  /**
+   * The draft that used to live only in the `useState` above and vanish on
+   * reload. Every image on it is already a stripped-and-downscaled data URI
+   * by the time it lands here (`addImages` below), so — unlike
+   * `ListingsContext`'s equivalent write — there is no async conversion to
+   * do on the way into storage: the draft is simply serialisable as-is.
+   */
+  const [storedDraft, setStoredDraft, draftLoaded] =
+    usePersistedObject(DRAFT_KEY);
+  // One-shot, the same pattern `ListingsContext` uses for its own rehydrate:
+  // `draftLoaded` is false on the server and on the first client render —
+  // there is nothing to read yet — and flips true one tick later with
+  // whatever localStorage actually holds. Read exactly once after that, then
+  // never again, or a later effect on `storedDraft` would watch its own
+  // write below and restore forever.
+  const [restored, setRestored] = useState(false);
 
   useEffect(() => {
-    if (!categories.some((category) => category.id === draft.categoryId)) {
-      setDraft((current) => ({
-        ...current,
-        category: defaultCategory.label,
-        categoryId: defaultCategory.id,
-      }));
-    }
-  }, [categories, defaultCategory.id, defaultCategory.label, draft.categoryId]);
+    if (!draftLoaded || restored) return;
+    const found = normaliseDraft(storedDraft);
+    if (found && isDraftWorthSaving(found)) setDraft(found);
+    setRestored(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftLoaded, restored, storedDraft]);
 
-  // Navigating away closes the sheet but keeps what was typed.
+  // ...and written back on every change afterwards, exactly the way
+  // `ListingsContext` persists a published ad — never before `restored`,
+  // which is what stops this from overwriting a saved draft with the empty
+  // one this component always starts on, one render before the effect above
+  // gets to replace it.
+  useEffect(() => {
+    if (!restored) return;
+    setStoredDraft(isDraftWorthSaving(draft) ? draft : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, restored]);
+
+  function reset() {
+    setStep(0);
+    setDraft({ ...EMPTY_DRAFT, category: CREATE_CATEGORIES[0] });
+    setErrors({});
+    // The write-back effect above clears storage on its own the next time it
+    // sees this draft (`isDraftWorthSaving` is false for a fresh one), but
+    // discard and publish both mean "gone now" — a reload between this line
+    // and that render should not still offer the draft back.
+    setStoredDraft(null);
+  }
+
+  // Navigating away closes the sheet but keeps what was typed. This is keyed
+  // on `pathname` alone, on purpose: it should fire only when the route
+  // changes, not whenever `dirty`/`open`/`toast`/`onClose` themselves change
+  // (adding them as deps would fire this on every keystroke that flips
+  // `dirty`, or the instant `open` turns true, immediately closing the sheet
+  // it was just asked to show). The values it reads are still current, not
+  // stale, because the ref below is refreshed by an unconditional effect that
+  // runs after every render — including the one that changed `pathname` —
+  // so by the time this effect's callback runs it is reading this render's
+  // values, just indirectly.
   const first = useRef(true);
+  const latest = useRef({ open, dirty, toast, onClose });
+  useEffect(() => {
+    latest.current = { open, dirty, toast, onClose };
+  });
   useEffect(() => {
     if (first.current) {
       first.current = false;
       return;
     }
+    const { open, dirty, toast, onClose } = latest.current;
     if (open) {
       onClose();
       if (dirty) toast("Draft saved");
@@ -195,10 +177,24 @@ export default function CreateAdSheet({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
+  // The shell's `openPost` is still the only thing that sets `open`, and it
+  // still refuses a browsing account before it gets here — the tab bar offers
+  // Create to everyone now, but offering the button is not the same as opening
+  // the form, and the refusal simply moved to the tap. So this stays the belt
+  // to that pair of braces: a role that changes while the sheet is up, or a
+  // future call site that mounts it with `open` of its own, and the form is
+  // gone rather than half-usable. A signed-out visitor is caught by the same
+  // line without a second check, because a guest holds the browsing role and a
+  // browsing role does not hold `ad.create`. It sits beside the `open` check and not
+  // above the hooks because bailing early would change the hook order — the
+  // draft-persistence effects above have to run for every render this
+  // component ever does, `open` or not, or a draft typed just before closing
+  // would never reach its last write. Nothing about posting costs credits,
+  // so there is no balance to read here; the charge is on promoting, which
+  // is the wallet's screen.
+  if (!open || !can("ad.create")) return null;
 
   const patch = (next) => {
-    setSubmitError("");
     setDraft((d) => ({ ...d, ...next }));
     setErrors((e) => {
       const cleared = { ...e };
@@ -207,89 +203,75 @@ export default function CreateAdSheet({
     });
   };
 
-  function addImages(files) {
-    const acceptedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-    const valid = files.filter(
-      (file) => acceptedTypes.has(file.type) && file.size <= 10 * 1024 * 1024,
-    );
-    const room = MAX_IMAGES - draft.images.length;
-    const picked = valid.slice(0, Math.max(room, 0));
-    const added = picked.map((file) => {
-      const url = URL.createObjectURL(file);
-      previews.current.push(url);
-      return {
-        id:
-          globalThis.crypto?.randomUUID?.() ??
-          `${file.name}-${previews.current.length}`,
-        name: file.name,
-        url,
-        file,
-        persisted: false,
-      };
-    });
-    patch({ images: [...draft.images, ...added] });
-    if (valid.length !== files.length) {
-      setErrors((e) => ({
-        ...e,
-        images: "Use JPEG, PNG, or WebP files no larger than 10 MB.",
-      }));
-    } else if (files.length > room) {
-      setErrors((e) => ({
-        ...e,
-        images: `Only ${MAX_IMAGES} photos per ad — extras were skipped.`,
-      }));
+  /**
+   * Every picked file, validated then downscaled and stripped of EXIF/GPS
+   * before it ever joins the draft — see `lib/media.js`'s `downscaleToDataUri`
+   * for the guarantee and how it was verified. Doing this now rather than at
+   * publish (the old design) is what makes draft persistence possible at all:
+   * the draft this writes to storage below already holds the same data URIs
+   * `publish` would produce, not `blob:` pointers that die with the tab.
+   *
+   * Async, and each rejection is a message rather than a silent drop — a file
+   * that isn't an image, one over `MAX_PHOTO_BYTES`, or one that fails to
+   * decode all report why through the same `errors.images` line the "only 6
+   * per ad" message already used.
+   */
+  async function addImages(files) {
+    const room = Math.max(MAX_IMAGES - draft.images.length, 0);
+    const overflow = files.length > room;
+    const candidates = files.slice(0, room);
+
+    const refused = [];
+    const toDecode = [];
+    for (const file of candidates) {
+      const reason = validatePhotoFile(file);
+      if (reason) refused.push(reason);
+      else toDecode.push(file);
     }
+
+    setAddingPhotos(true);
+    const results = await Promise.allSettled(
+      toDecode.map(async (file) => ({
+        id: `img-${idSeq.current++}`,
+        name: file.name,
+        url: await downscaleToDataUri(file),
+      })),
+    );
+    setAddingPhotos(false);
+
+    const added = [];
+    for (const result of results) {
+      if (result.status === "fulfilled") added.push(result.value);
+      else refused.push("A photo couldn't be read and was skipped.");
+    }
+    if (added.length) patch({ images: [...draft.images, ...added] });
+
+    const messages = [];
+    if (refused.length) messages.push(refused[0]);
+    if (refused.length > 1)
+      messages.push(`${refused.length - 1} more skipped.`);
+    if (overflow) messages.push(`Only ${MAX_IMAGES} photos per ad.`);
+    if (messages.length) {
+      setErrors((e) => ({ ...e, images: messages.join(" ") }));
+    }
+  }
+
+  function reorderImage(id, toIndex) {
+    const fromIndex = draft.images.findIndex((i) => i.id === id);
+    if (fromIndex === -1) return;
+    patch({ images: reorderImages(draft.images, fromIndex, toIndex) });
   }
 
   function removeImage(id) {
-    const gone = draft.images.find((i) => i.id === id);
-    if (gone && !gone.persisted) URL.revokeObjectURL(gone.url);
-    previews.current = previews.current.filter((url) => url !== gone?.url);
-    patch({
-      images: draft.images.filter((image) => image.id !== id),
-      removedMediaIds: gone?.mediaId
-        ? [...new Set([...draft.removedMediaIds, gone.mediaId])]
-        : draft.removedMediaIds,
-    });
+    patch({ images: draft.images.filter((i) => i.id !== id) });
   }
 
-  function moveImage(id, offset) {
-    const from = draft.images.findIndex((image) => image.id === id);
-    const to = from + offset;
-    if (from < 0 || to < 0 || to >= draft.images.length) return;
-    const images = [...draft.images];
-    const [moved] = images.splice(from, 1);
-    images.splice(to, 0, moved);
-    patch({ images });
-  }
-
-  function makeCover(id) {
-    const from = draft.images.findIndex((image) => image.id === id);
-    if (from <= 0) return;
-    const images = [...draft.images];
-    const [cover] = images.splice(from, 1);
-    images.unshift(cover);
-    patch({ images });
-  }
-
-  async function next() {
+  function next() {
     const found = validateStep(current.id, draft);
     if (Object.keys(found).length) return setErrors(found);
     if (step < STEPS.length - 1) return setStep(step + 1);
-    setSubmitting(true);
-    setSubmitError("");
-    setUploadProgress("Starting...");
-    try {
-      await onPublish(draft, requestKey.current, setUploadProgress);
-      reset();
-    } catch (error) {
-      setSubmitError(
-        error?.message ?? "The ad could not be submitted. Please try again.",
-      );
-    } finally {
-      setSubmitting(false);
-      setUploadProgress("");
-    }
+    onPublish(draft);
+    reset();
   }
 
   function discard() {
@@ -370,10 +352,10 @@ export default function CreateAdSheet({
             <StepPhotos
               images={draft.images}
               error={errors.images}
+              busy={addingPhotos}
               onAdd={addImages}
               onRemove={removeImage}
-              onMove={moveImage}
-              onMakeCover={makeCover}
+              onReorder={reorderImage}
             />
           )}
           {current.id === "details" && (
@@ -388,21 +370,12 @@ export default function CreateAdSheet({
         </div>
 
         <footer className="shrink-0 border-t border-line bg-surface px-4 pb-4 pt-3 lg:px-8">
-          {submitError && (
-            <p
-              role="alert"
-              className="mb-2 text-center text-[13px] font-medium text-red-600"
-            >
-              {submitError}
-            </p>
-          )}
           <button
             onClick={next}
-            disabled={submitting}
-            className="brand-gradient flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-[16px] font-bold text-on-brand shadow-pop transition-transform duration-150 hover:brightness-110 active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
+            className="brand-gradient flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-[16px] font-bold text-on-brand shadow-pop transition-transform duration-150 hover:brightness-110 active:scale-[0.98]"
           >
             {last && <Sparkles className="size-5" />}
-            {submitting ? uploadProgress || "Submitting…" : current.cta}
+            {current.cta}
             {!last && <ArrowRight className="size-5" strokeWidth={2.5} />}
           </button>
         </footer>

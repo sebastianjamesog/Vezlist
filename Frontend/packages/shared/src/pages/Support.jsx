@@ -8,7 +8,9 @@ import PageBody from "../components/layout/PageBody";
 import Accordion from "../components/ui/Accordion";
 import Button from "../components/ui/Button";
 import Icon from "../components/ui/Icon";
+import { LEGAL_LINKS } from "../components/layout/legalLinks";
 import { contactChannels, faqs, supportTopics, tickets } from "../data/mock";
+import { SITE_NAME } from "../lib/sites";
 import { tones } from "../lib/tones";
 
 function Eyebrow({ children, action }) {
@@ -73,7 +75,7 @@ export default function Support() {
     <>
       <TopBar title="Support" />
 
-      <PageBody className="px-4 pb-8 pt-3 lg:px-8 lg:py-6">
+      <PageBody className="px-4 pb-8 pt-top lg:px-8 lg:py-6">
         {/* Hero owns the search and says how fast a human answers. */}
         <section className="brand-gradient relative overflow-hidden rounded-card p-5 shadow-lift lg:p-8">
           <span
@@ -300,6 +302,36 @@ export default function Support() {
             </section>
           </>
         )}
+
+        {/*
+          The signed-out route to the legal pages on a phone.
+
+          `Settings` carries these too, but everything under `/profile` sits
+          behind `RequireAuth`, so that copy is reachable only once you have an
+          account — and the reader most likely to want the terms is the one who
+          has not agreed to them yet. Support is a tab in the bar on both
+          boards and needs no session, which makes it the one public screen
+          that can hold them. Desktop draws `Footer` instead, hence `lg:hidden`.
+
+          Outside the search branch on purpose: these are still the right links
+          when a search has come back with nothing.
+        */}
+        <section className="mt-8 lg:hidden">
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 border-t border-line pt-4 text-[12px] font-semibold text-muted">
+            {LEGAL_LINKS.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="transition-colors hover:text-ink hover:underline"
+              >
+                {link.label}
+              </Link>
+            ))}
+            <span className="font-medium text-muted/70">
+              &copy; {new Date().getFullYear()} {SITE_NAME}
+            </span>
+          </div>
+        </section>
       </PageBody>
     </>
   );

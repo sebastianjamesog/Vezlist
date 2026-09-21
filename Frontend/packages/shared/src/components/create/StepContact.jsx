@@ -1,74 +1,31 @@
 "use client";
 
 import Field, { FIELD, border } from "./Field";
-import { useCatalog } from "../../context/CatalogContext";
+import { popularAreas } from "../../data/mock";
 
 export default function StepContact({ draft, errors, onPatch }) {
-  const { locationOptions, popularAreaOptions } = useCatalog();
-  const province = locationOptions.find((item) => item.id === draft.provinceId);
-  const areas = province?.areas ?? [];
-
   return (
     <div className="space-y-4">
       <Field label="Location" error={errors.location}>
-        <select
-          value={draft.provinceId}
-          onChange={(event) =>
-            onPatch({
-              provinceId: event.target.value,
-              locationId: "",
-              location: "",
-            })
-          }
+        <input
+          value={draft.location}
+          onChange={(e) => onPatch({ location: e.target.value })}
+          placeholder="e.g. Metro Vancouver"
           className={`${FIELD} ${border(errors.location)}`}
-        >
-          <option value="">Choose a province or territory</option>
-          {locationOptions.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-
-        <select
-          value={draft.locationId}
-          disabled={!province}
-          onChange={(event) => {
-            const area = areas.find((item) => item.id === event.target.value);
-            onPatch({
-              locationId: area?.id ?? "",
-              location: area?.label ?? "",
-            });
-          }}
-          className={`${FIELD} ${border(errors.location)} mt-2 disabled:cursor-not-allowed disabled:opacity-60`}
-        >
-          <option value="">Choose an area</option>
-          {areas.map((area) => (
-            <option key={area.id} value={area.id}>
-              {area.label}
-            </option>
-          ))}
-        </select>
-
+        />
         <span className="mt-2 flex flex-wrap gap-2">
-          {popularAreaOptions.map((area) => (
+          {popularAreas.map((c) => (
             <button
-              key={area.id}
+              key={c}
               type="button"
-              onClick={() =>
-                onPatch({
-                  provinceId: area.provinceId,
-                  locationId: area.id,
-                  location: area.label,
-                })
-              }
+              onClick={() => onPatch({ location: c })}
               className={`rounded-full border px-3 py-1.5 text-[13px] font-semibold transition-colors ${
-                draft.locationId === area.id
+                draft.location === c
                   ? "border-brand bg-brand text-on-brand"
                   : "border-line text-ink hover:bg-canvas"
               }`}
             >
-              {area.label}
+              {c}
             </button>
           ))}
         </span>
@@ -98,9 +55,21 @@ export default function StepContact({ draft, errors, onPatch }) {
         />
       </Field>
 
+      {/*
+        This note used to promise a Show control that did not exist anywhere in
+        the app, and promised it for the email as well as the phone. Both halves
+        are corrected with issue #25: the reveal ships, it covers the number
+        only, and the switch that governs it is named so a poster can find it.
+
+        Worth being blunt about the last line, because it is the part a poster
+        gets wrong: there is no messaging on Vezlist, so a buyer who cannot see
+        a number has no way to reach them at all.
+      */}
       <p className="rounded-xl bg-canvas px-4 py-3 text-[13px] leading-relaxed text-muted">
-        Buyers only see your phone and email after tapping <strong>Show</strong>{" "}
-        on the ad.
+        Buyers see your number masked and tap <strong>Show</strong> to reveal
+        it. Turn it off any time under{" "}
+        <strong>Account Settings → Privacy → Show phone on ads</strong> — but
+        with it off, buyers have no way to contact you about this ad.
       </p>
     </div>
   );

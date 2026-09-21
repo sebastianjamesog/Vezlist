@@ -1,0 +1,22 @@
+# Normalise line endings to LF in the repository and in the working tree.
+#
+# Without this, git on Windows converts to CRLF on checkout while Prettier's
+# default (endOfLine: "lf") wants LF — so `npm run format:check` fails on files
+# nobody edited, and any operation that re-creates a file (a revert, a branch
+# switch, a stash pop) can turn a clean tree red. That is a CI failure with no
+# author and no fix in the diff, which is the kind people learn to ignore.
+#
+# `eol=lf` sets the working-tree ending too, not just the stored one, so the
+# checkout matches what the formatter and CI expect on every platform.
+* text=auto eol=lf
+
+# Binary: never converted, never diffed as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.pdf binary

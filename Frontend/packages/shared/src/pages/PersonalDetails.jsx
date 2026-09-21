@@ -6,12 +6,22 @@ import SubPageBar from "../components/layout/SubPageBar";
 import PageBody from "../components/layout/PageBody";
 import Button from "../components/ui/Button";
 import Field, { FIELD, border } from "../components/create/Field";
+import MediaImage from "../components/media/MediaImage.jsx";
+import { Skeleton } from "../components/ui/Skeleton";
 import { useToast } from "../context/ToastContext";
 import { useAuth } from "../context/AuthContext";
-import { api } from "../lib/api";
-import { profile as mockProfile } from "../data/mock";
+import * as usersApi from "../lib/api/users";
+import { ApiError } from "../lib/api/client";
+import { profile as profileSeed } from "../data/mock";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+function messageFor(error) {
+  if (error instanceof ApiError) {
+    return error.details?.[0]?.message ?? error.message;
+  }
+  return "Something went wrong. Check your connection and try again.";
+}
 
 export function validateDetails(values) {
   const errors = {};
@@ -28,43 +38,44 @@ export function validateDetails(values) {
 export default function PersonalDetails() {
   const toast = useToast();
   const navigate = useNavigate();
-  const { user, refreshSession } = useAuth();
+  const { ready, updateProfile: applyLocalProfilePatch, refreshUser } = useAuth();
   const [values, setValues] = useState({
-    name: user?.name ?? "",
-    email: user?.email ?? "",
+    name: "",
+    email: "",
     phone: "",
     location: "",
     bio: "",
   });
-  const [errors, setErrors] = useState({});
   const [avatarUrl, setAvatarUrl] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [errors, setErrors] = useState({});
+  const [loadError, setLoadError] = useState(null);
+  const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    api("/me/profile")
-      .then((details) => {
-        if (!active) return;
+  const load = () => {
+    setLoadError(null);
+    usersApi
+      .getProfile()
+      .then((p) => {
         setValues({
-          name: details.name ?? "",
-          email: details.email ?? "",
-          phone: details.phone ?? "",
-          location: details.location ?? "",
-          bio: details.bio ?? "",
+          name: p.name ?? "",
+          email: p.email ?? "",
+          phone: p.phone ?? "",
+          location: p.location ?? "",
+          bio: p.bio ?? "",
         });
-        setAvatarUrl(details.avatarUrl);
+        setAvatarUrl(p.avatarUrl ?? null);
+        setLoaded(true);
       })
-      .catch((error) => {
-        if (active) toast(error.message);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [toast]);
+      .catch((error) => setLoadError(messageFor(error)));
+  };
+
+  useEffect(() => {
+    if (!ready) return;
+    load();
+    // Runs once the session is ready, not on every retry click below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
 
   const patch = (next) => {
     setValues((v) => ({ ...v, ...next }));
@@ -80,21 +91,69 @@ export default function PersonalDetails() {
     const found = validateDetails(values);
     setErrors(found);
     if (Object.keys(found).length) return;
+    const patchValues = {
+      name: values.name.trim(),
+      email: values.email.trim(),
+      phone: values.phone.trim(),
+      location: values.location.trim(),
+      bio: values.bio,
+    };
     setSaving(true);
     try {
-      await api("/me/profile", { method: "PATCH", body: values });
-      await refreshSession();
+      await usersApi.updateProfile(patchValues);
+      // The backend replaces this session's principal when name/email
+      // change (UserProfileController#updateProfile), so the cached
+      // AuthContext user has to be re-fetched rather than trusted stale.
+      await refreshUser();
+      applyLocalProfilePatch(patchValues);
       toast("Details saved");
       navigate("/profile/settings");
     } catch (error) {
-      const fieldErrors = Object.fromEntries(
-        (error.details ?? []).map(({ field, message }) => [field, message]),
-      );
-      setErrors(fieldErrors);
-      if (!error.details?.length) toast(error.message);
+      setErrors({ email: messageFor(error) });
     } finally {
       setSaving(false);
     }
+  }
+
+  if (loadError) {
+    return (
+      <>
+        <SubPageBar title="Personal details" fallback="/profile/settings" />
+        <PageBody className="px-4 pb-8 pt-3 lg:max-w-2xl lg:px-8 lg:py-6">
+          <div className="rounded-card bg-surface p-6 text-center shadow-card">
+            <p className="text-[15px] font-semibold text-ink">
+              Couldn't load your details
+            </p>
+            <p className="mt-1 text-[13px] text-muted">{loadError}</p>
+            <Button className="mt-4" onClick={load}>
+              Try again
+            </Button>
+          </div>
+        </PageBody>
+      </>
+    );
+  }
+
+  if (!loaded) {
+    return (
+      <>
+        <SubPageBar title="Personal details" fallback="/profile/settings" />
+        <PageBody className="px-4 pb-8 pt-3 lg:max-w-2xl lg:px-8 lg:py-6">
+          <div className="mb-4 flex items-center gap-4 rounded-card bg-surface p-4 shadow-card">
+            <Skeleton className="size-16 shrink-0 rounded-2xl" />
+            <div className="min-w-0 flex-1">
+              <Skeleton className="h-[15px] w-1/2 rounded" />
+              <Skeleton className="mt-2 h-[13px] w-2/3 rounded" />
+            </div>
+          </div>
+          <div className="space-y-4 rounded-card bg-surface p-4 shadow-card lg:p-5">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-[46px] w-full rounded-xl" />
+            ))}
+          </div>
+        </PageBody>
+      </>
+    );
   }
 
   return (
@@ -104,9 +163,11 @@ export default function PersonalDetails() {
       <PageBody className="px-4 pb-8 pt-3 lg:max-w-2xl lg:px-8 lg:py-6">
         <form onSubmit={save} noValidate>
           <div className="mb-4 flex items-center gap-4 rounded-card bg-surface p-4 shadow-card">
-            <img
-              src={avatarUrl ?? mockProfile.avatar}
+            <MediaImage
+              src={avatarUrl ?? profileSeed.avatar}
               alt=""
+              width={64}
+              height={64}
               className="size-16 shrink-0 rounded-2xl object-cover"
             />
             <div className="min-w-0">
@@ -114,9 +175,24 @@ export default function PersonalDetails() {
               <p className="mt-0.5 text-[13px] text-muted">
                 Shown on every ad you post.
               </p>
+              {/*
+                Left as an honest stub rather than a data-URI preview.
+                `AccountContext` already draws this line for card numbers —
+                content that only lives in this demo's memory does not belong
+                in the cookie session or in localStorage — and a photo is the
+                same shape of problem: bigger, and worse to lose silently.
+                Actually storing one needs somewhere durable to put it, which
+                is the media backend #12 is blocked on, not a wiring issue in
+                this screen. So the tap says exactly that instead of quietly
+                doing nothing.
+              */}
               <button
                 type="button"
-                onClick={() => toast("Photo uploads arrive in the Media module")}
+                onClick={() =>
+                  toast(
+                    "Photo uploads need a backend to store the image (#12) — not wired up yet",
+                  )
+                }
                 className="mt-1.5 text-[13px] font-bold text-brand hover:underline"
               >
                 Change photo
@@ -124,10 +200,7 @@ export default function PersonalDetails() {
             </div>
           </div>
 
-          <fieldset
-            disabled={loading || saving}
-            className="space-y-4 rounded-card bg-surface p-4 shadow-card disabled:opacity-60 lg:p-5"
-          >
+          <div className="space-y-4 rounded-card bg-surface p-4 shadow-card lg:p-5">
             <Field label="Full name" error={errors.name}>
               <input
                 value={values.name}
@@ -174,7 +247,7 @@ export default function PersonalDetails() {
                 className={`${FIELD} ${border(false)} resize-none`}
               />
             </Field>
-          </fieldset>
+          </div>
 
           <div className="mt-4 flex gap-3">
             <Button
@@ -183,11 +256,17 @@ export default function PersonalDetails() {
               size="lg"
               className="flex-1"
               onClick={() => navigate("/profile/settings")}
+              disabled={saving}
             >
               Cancel
             </Button>
-            <Button disabled={loading || saving} type="submit" size="lg" className="flex-[1.4]">
-              {saving ? "Saving..." : "Save changes"}
+            <Button
+              type="submit"
+              size="lg"
+              className="flex-[1.4]"
+              disabled={saving}
+            >
+              {saving ? "Saving…" : "Save changes"}
             </Button>
           </div>
         </form>
