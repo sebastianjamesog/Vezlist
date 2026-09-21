@@ -20,6 +20,7 @@ import cc.vezlist.catalog.web.AdminCategoryResponse;
 import cc.vezlist.catalog.web.AdminLocationResponse;
 import cc.vezlist.catalog.web.CreateAreaRequest;
 import cc.vezlist.catalog.web.CreateCategoryRequest;
+import cc.vezlist.catalog.web.CreateProvinceRequest;
 import cc.vezlist.catalog.web.UpdateCategoryRequest;
 import cc.vezlist.catalog.web.UpdateLocationRequest;
 import cc.vezlist.shared.domain.SiteScope;
@@ -104,6 +105,19 @@ public class AdminCatalogService {
     }
 
     @Transactional
+    public AdminLocationResponse createProvince(UUID actorId, CreateProvinceRequest request) {
+        String id = slug(request.label());
+        if (locations.existsById(id)) {
+            throw new CatalogAlreadyExistsException("A province with a similar name already exists (id: " + id + ").");
+        }
+        Location province = new Location(id, request.label().trim(), LocationType.PROVINCE, null,
+                request.displayOrder(), false);
+        locations.save(province);
+        audit.record(actorId, "PROVINCE_CREATED", "LOCATION", id, request.label());
+        return AdminLocationResponse.from(province);
+    }
+
+    @Transactional
     public AdminLocationResponse createArea(UUID actorId, CreateAreaRequest request) {
         Location province = locations.findById(request.provinceId())
                 .orElseThrow(() -> new CatalogNotFoundException("Province '" + request.provinceId() + "' was not found."));
@@ -135,16 +149,22 @@ public class AdminCatalogService {
     public void deleteArea(UUID actorId, String id) {
         Location location = locations.findById(id)
                 .orElseThrow(() -> new CatalogNotFoundException("Location '" + id + "' was not found."));
-        if (location.getType() != LocationType.AREA) {
-            throw new CatalogReferenceInvalidException("Only areas can be deleted; provinces are a fixed reference list.");
+        if (location.getType() == LocationType.PROVINCE) {
+            boolean hasAreas = locations.findAll().stream()
+                    .anyMatch(area -> area.getParent() != null && area.getParent().getId().equals(id));
+            if (hasAreas) {
+                throw new CatalogInUseException(
+                        "Cannot delete province '" + id + "': it still has areas under it.");
+            }
         }
         long referencing = referenceChecks.activeListingsReferencingLocation(id);
         if (referencing > 0) {
             throw new CatalogInUseException(
-                    "Cannot delete area '" + id + "': " + referencing + " listing(s) still reference it.");
+                    "Cannot delete " + location.getType().name().toLowerCase(Locale.ROOT) + " '" + id + "': "
+                            + referencing + " listing(s) still reference it.");
         }
         locations.delete(location);
-        audit.record(actorId, "AREA_DELETED", "LOCATION", id, location.getLabel());
+        audit.record(actorId, location.getType() + "_DELETED", "LOCATION", id, location.getLabel());
     }
 
     private String slug(String label) {

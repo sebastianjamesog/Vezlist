@@ -38,17 +38,26 @@ export function listLocations(provinceId) {
   return api.get("/api/v1/admin/locations", { provinceId });
 }
 
+/** POST /api/v1/admin/locations/provinces -> AdminLocationResponse. `{label, displayOrder}`. */
+export function createProvince(request) {
+  return api.post("/api/v1/admin/locations/provinces", request);
+}
+
 /** POST /api/v1/admin/locations/areas -> AdminLocationResponse. `{label, provinceId, displayOrder, popular}`. */
 export function createArea(request) {
   return api.post("/api/v1/admin/locations/areas", request);
 }
 
-/** PATCH /api/v1/admin/locations/{id} -> AdminLocationResponse. `{label, displayOrder, popular, enabled}`. */
+/** PATCH /api/v1/admin/locations/{id} -> AdminLocationResponse. `{label, displayOrder, popular, enabled}`. Works for provinces and areas alike. */
 export function updateLocation(id, request) {
   return api.patch(`/api/v1/admin/locations/${id}`, request);
 }
 
-/** DELETE /api/v1/admin/locations/{id} -> 204. Areas only; 409 CATALOG_ENTRY_IN_USE if referenced. */
+/**
+ * DELETE /api/v1/admin/locations/{id} -> 204. Works for provinces and areas
+ * alike; 409 CATALOG_ENTRY_IN_USE if a province still has areas under it or
+ * anything (province or area) is still referenced by an active listing.
+ */
 export function deleteArea(id) {
   return api.delete(`/api/v1/admin/locations/${id}`);
 }

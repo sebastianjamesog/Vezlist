@@ -168,6 +168,11 @@ export default function Taxonomy() {
   const [area, setArea] = useState("");
   const [deletingArea, setDeletingArea] = useState(null);
   const [areaDeleteError, setAreaDeleteError] = useState(null);
+  const [addingProvince, setAddingProvince] = useState(false);
+  const [newProvince, setNewProvince] = useState("");
+  const [savingProvince, setSavingProvince] = useState(false);
+  const [deletingProvince, setDeletingProvince] = useState(null);
+  const [provinceDeleteError, setProvinceDeleteError] = useState(null);
 
   const loadLocations = useCallback(async () => {
     setLocError(null);
@@ -220,18 +225,57 @@ export default function Taxonomy() {
     }
   }
 
+  async function saveProvince() {
+    if (!newProvince.trim()) return;
+    setSavingProvince(true);
+    try {
+      const created = await catalogApi.createProvince({
+        label: newProvince.trim(),
+        displayOrder: provinces.length,
+      });
+      setLocations((rows) => [...(rows ?? []), created]);
+      setProvince(created.id);
+      setNewProvince("");
+      setAddingProvince(false);
+      toast("Province added");
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Couldn't add the province");
+    } finally {
+      setSavingProvince(false);
+    }
+  }
+
+  async function confirmDeleteProvince() {
+    try {
+      await catalogApi.deleteArea(deletingProvince.id);
+      setLocations((rows) => rows.filter((l) => l.id !== deletingProvince.id));
+      // The select was pointing at what we just deleted; fall back to whatever's left.
+      setProvince((current) =>
+        current === deletingProvince.id ? (provinces.find((p) => p.id !== current)?.id ?? "") : current,
+      );
+      toast("Province removed");
+      setDeletingProvince(null);
+    } catch (err) {
+      setProvinceDeleteError(err instanceof ApiError ? err.message : "Couldn't remove this province.");
+    }
+  }
+
   return (
     <>
       <AdminHeader
         title="Taxonomy"
         subtitle="Categories and area coverage"
         actions={
-          tab === "categories" &&
-          canEdit && (
+          canEdit &&
+          (tab === "categories" ? (
             <Button size="sm" onClick={openAdd}>
               Add category
             </Button>
-          )
+          ) : (
+            <Button size="sm" onClick={() => setAddingProvince(true)}>
+              Add province
+            </Button>
+          ))
         }
       />
 
@@ -386,20 +430,35 @@ export default function Taxonomy() {
               </p>
 
               <div className="flex flex-col gap-3 sm:flex-row">
-                <select
-                  value={province}
-                  onChange={(e) => setProvince(e.target.value)}
-                  aria-label="Province"
-                  className={`${FIELD} ${border(false)} sm:max-w-xs`}
-                >
-                  {provinces.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex gap-2 sm:max-w-xs sm:flex-1">
+                  <select
+                    value={province}
+                    onChange={(e) => setProvince(e.target.value)}
+                    aria-label="Province"
+                    className={`${FIELD} ${border(false)} flex-1`}
+                  >
+                    {provinces.length === 0 && <option value="">No provinces yet</option>}
+                    {provinces.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                  {canEdit && province && (
+                    <IconButton
+                      label={`Delete ${provinces.find((p) => p.id === province)?.label ?? "province"}`}
+                      danger
+                      onClick={() => {
+                        setProvinceDeleteError(null);
+                        setDeletingProvince(provinces.find((p) => p.id === province));
+                      }}
+                    >
+                      <Trash2 className="size-4" strokeWidth={2.4} />
+                    </IconButton>
+                  )}
+                </div>
 
-                {canEdit && (
+                {canEdit && province && (
                   <form
                     className="flex flex-1 gap-2"
                     onSubmit={(e) => {
@@ -445,8 +504,11 @@ export default function Taxonomy() {
                     )}
                   </li>
                 ))}
-                {areasOf(province).length === 0 && (
+                {province && areasOf(province).length === 0 && (
                   <li className="text-[14px] text-muted">No areas yet — this province is sold as one.</li>
+                )}
+                {!province && (
+                  <li className="text-[14px] text-muted">Add a province to start covering areas under it.</li>
                 )}
               </ul>
             </section>
@@ -518,6 +580,65 @@ export default function Taxonomy() {
           </div>
         )}
       </Modal>
+
+      <Modal
+        open={addingProvince}
+        title="Add a province"
+        size="max-w-md"
+        onClose={() => {
+          setAddingProvince(false);
+          setNewProvince("");
+        }}
+        footer={
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              size="lg"
+              className="flex-1"
+              onClick={() => {
+                setAddingProvince(false);
+                setNewProvince("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="lg"
+              className="flex-1"
+              disabled={!newProvince.trim() || savingProvince}
+              onClick={saveProvince}
+            >
+              {savingProvince ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        }
+      >
+        <Field label="Label">
+          <input
+            value={newProvince}
+            onChange={(e) => setNewProvince(e.target.value)}
+            autoFocus
+            placeholder="British Columbia"
+            className={`${FIELD} ${border(false)}`}
+          />
+        </Field>
+      </Modal>
+
+      <ConfirmDialog
+        open={Boolean(deletingProvince)}
+        title={`Delete ${deletingProvince?.label}?`}
+        body={
+          provinceDeleteError ??
+          "This is refused if the province still has areas under it, or any active listing still references it."
+        }
+        confirmLabel="Delete"
+        destructive
+        onClose={() => {
+          setDeletingProvince(null);
+          setProvinceDeleteError(null);
+        }}
+        onConfirm={confirmDeleteProvince}
+      />
 
       <ConfirmDialog
         open={Boolean(deleting)}

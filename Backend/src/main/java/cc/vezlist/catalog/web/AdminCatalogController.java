@@ -69,6 +69,14 @@ public class AdminCatalogController {
         return service.listLocations(provinceId);
     }
 
+    @PostMapping("/locations/provinces")
+    @PreAuthorize("hasRole('ADMIN')")
+    @ResponseStatus(HttpStatus.CREATED)
+    public AdminLocationResponse createProvince(
+            @AuthenticationPrincipal VezlistUserPrincipal actor, @Valid @RequestBody CreateProvinceRequest request) {
+        return service.createProvince(actor.id(), request);
+    }
+
     @PostMapping("/locations/areas")
     @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.CREATED)
