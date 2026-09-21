@@ -37,6 +37,27 @@ public class Category {
     protected Category() {
     }
 
+    public Category(String id, String label, String icon, SiteScope siteScope, boolean primary, int displayOrder) {
+        this.id = id;
+        this.label = label;
+        this.icon = icon;
+        this.siteScope = siteScope;
+        this.primary = primary;
+        this.displayOrder = displayOrder;
+        this.enabled = true;
+    }
+
+    public void update(String label, String icon, boolean primary, int displayOrder) {
+        this.label = label;
+        this.icon = icon;
+        this.primary = primary;
+        this.displayOrder = displayOrder;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+
     public String getId() { return id; }
     public String getLabel() { return label; }
     public String getIcon() { return icon; }

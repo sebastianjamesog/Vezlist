@@ -40,6 +40,32 @@ public class Location {
     protected Location() {
     }
 
+    public Location(String id, String label, LocationType type, Location parent, int displayOrder, boolean popular) {
+        if (type == LocationType.AREA && parent == null) {
+            throw new IllegalArgumentException("An area must have a parent province.");
+        }
+        if (type == LocationType.PROVINCE && parent != null) {
+            throw new IllegalArgumentException("A province cannot have a parent.");
+        }
+        this.id = id;
+        this.label = label;
+        this.type = type;
+        this.parent = parent;
+        this.displayOrder = displayOrder;
+        this.popular = popular;
+        this.enabled = true;
+    }
+
+    public void update(String label, int displayOrder, boolean popular) {
+        this.label = label;
+        this.displayOrder = displayOrder;
+        this.popular = popular;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
+
     public String getId() { return id; }
     public String getLabel() { return label; }
     public LocationType getType() { return type; }

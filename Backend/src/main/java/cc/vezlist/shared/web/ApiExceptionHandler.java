@@ -4,9 +4,13 @@ import java.time.Instant;
 import java.util.List;
 
 import cc.vezlist.identity.application.EmailAlreadyRegisteredException;
+import cc.vezlist.catalog.application.CatalogAlreadyExistsException;
+import cc.vezlist.catalog.application.CatalogInUseException;
+import cc.vezlist.catalog.application.CatalogNotFoundException;
 import cc.vezlist.catalog.application.CatalogReferenceInvalidException;
 import cc.vezlist.discovery.application.DiscoveryCursorInvalidException;
 import cc.vezlist.discovery.application.DiscoveryQueryInvalidException;
+import cc.vezlist.identity.web.AccountSuspendedException;
 import cc.vezlist.identity.web.InvalidCredentialsException;
 import cc.vezlist.listings.application.IdempotencyConflictException;
 import cc.vezlist.listings.application.ListingNotFoundException;
@@ -16,9 +20,12 @@ import cc.vezlist.media.application.MediaStateException;
 import cc.vezlist.media.application.MediaValidationException;
 import cc.vezlist.saved.application.SavedListingCursorInvalidException;
 import cc.vezlist.saved.application.SavedListingQueryInvalidException;
+import cc.vezlist.users.application.AdminActionConflictException;
+import cc.vezlist.users.application.AdminUserNotFoundException;
 import cc.vezlist.users.application.CurrentPasswordInvalidException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
+import org.springframework.security.access.AccessDeniedException;
 import org.slf4j.MDC;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,6 +63,18 @@ public class ApiExceptionHandler {
         return error(
                 HttpStatus.UNAUTHORIZED,
                 "INVALID_CREDENTIALS",
+                exception.getMessage(),
+                List.of(),
+                request);
+    }
+
+    @ExceptionHandler(AccountSuspendedException.class)
+    ResponseEntity<ApiError> handleAccountSuspended(
+            AccountSuspendedException exception,
+            HttpServletRequest request) {
+        return error(
+                HttpStatus.FORBIDDEN,
+                "ACCOUNT_SUSPENDED",
                 exception.getMessage(),
                 List.of(),
                 request);
@@ -138,6 +157,59 @@ public class ApiExceptionHandler {
             Exception exception,
             HttpServletRequest request) {
         return error(HttpStatus.CONFLICT, "LISTING_CONFLICT", exception.getMessage(), List.of(), request);
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    ResponseEntity<ApiError> handleAccessDenied(
+            AccessDeniedException exception,
+            HttpServletRequest request) {
+        // Method-level @PreAuthorize checks (e.g. ADMIN-only admin actions) throw this from inside the
+        // dispatch, so it must be mapped here explicitly - otherwise it would fall through to the generic
+        // 500 handler below instead of reaching Spring Security's filter-level 403 translation.
+        return error(HttpStatus.FORBIDDEN, "FORBIDDEN", "You do not have permission to perform this action.",
+                List.of(), request);
+    }
+
+    @ExceptionHandler(CatalogNotFoundException.class)
+    ResponseEntity<ApiError> handleCatalogNotFound(
+            CatalogNotFoundException exception,
+            HttpServletRequest request) {
+        return error(HttpStatus.NOT_FOUND, "CATALOG_ENTRY_NOT_FOUND", exception.getMessage(), List.of(), request);
+    }
+
+    @ExceptionHandler(CatalogInUseException.class)
+    ResponseEntity<ApiError> handleCatalogInUse(
+            CatalogInUseException exception,
+            HttpServletRequest request) {
+        return error(HttpStatus.CONFLICT, "CATALOG_ENTRY_IN_USE", exception.getMessage(), List.of(), request);
+    }
+
+    @ExceptionHandler(CatalogAlreadyExistsException.class)
+    ResponseEntity<ApiError> handleCatalogAlreadyExists(
+            CatalogAlreadyExistsException exception,
+            HttpServletRequest request) {
+        return error(HttpStatus.CONFLICT, "CATALOG_ENTRY_ALREADY_EXISTS", exception.getMessage(), List.of(), request);
+    }
+
+    @ExceptionHandler(AdminUserNotFoundException.class)
+    ResponseEntity<ApiError> handleAdminUserNotFound(
+            AdminUserNotFoundException exception,
+            HttpServletRequest request) {
+        return error(HttpStatus.NOT_FOUND, "ADMIN_USER_NOT_FOUND", exception.getMessage(), List.of(), request);
+    }
+
+    @ExceptionHandler(AdminActionConflictException.class)
+    ResponseEntity<ApiError> handleAdminActionConflict(
+            AdminActionConflictException exception,
+            HttpServletRequest request) {
+        return error(HttpStatus.CONFLICT, "ADMIN_ACTION_CONFLICT", exception.getMessage(), List.of(), request);
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    ResponseEntity<ApiError> handleIllegalArgument(
+            IllegalArgumentException exception,
+            HttpServletRequest request) {
+        return error(HttpStatus.BAD_REQUEST, "REQUEST_INVALID", exception.getMessage(), List.of(), request);
     }
 
     @ExceptionHandler(ConstraintViolationException.class)

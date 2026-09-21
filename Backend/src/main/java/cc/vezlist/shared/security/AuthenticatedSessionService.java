@@ -39,4 +39,19 @@ public class AuthenticatedSessionService {
                 .filter(id -> !id.equals(currentSessionId))
                 .forEach(sessions::deleteById);
     }
+
+    /**
+     * Revokes every session for this principal, including the one making the
+     * current request (there isn't one here - the caller is always someone
+     * else acting on this principal, e.g. an admin suspending them). Sessions
+     * are the only place {@code User.enabled} is cached: Spring Security
+     * never re-reads it mid-session, so suspending an account without this
+     * leaves every session opened before the suspend fully authenticated.
+     */
+    public void revokeAllSessions(String principalName) {
+        Map<String, ? extends Session> matching = sessions.findByPrincipalName(principalName);
+        matching.values().stream()
+                .map(Session::getId)
+                .forEach(sessions::deleteById);
+    }
 }

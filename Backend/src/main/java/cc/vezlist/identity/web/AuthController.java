@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AccountStatusException;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -61,6 +62,12 @@ public class AuthController {
             return identityService.toResponse(principal);
         } catch (BadCredentialsException exception) {
             throw new InvalidCredentialsException();
+        } catch (AccountStatusException exception) {
+            // Covers DisabledException (suspended accounts) and the other
+            // AccountStatusException subtypes DaoAuthenticationProvider's
+            // pre-auth checks can throw - none of these are "unexpected", so
+            // they must not reach the generic 500 handler.
+            throw new AccountSuspendedException();
         }
     }
 

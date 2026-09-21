@@ -151,6 +151,38 @@ See [the notification workflow](docs/notifications.md) and
 [the API contract](docs/openapi/module-10-notifications.yaml) for endpoints,
 privacy, worker operation, and verification instructions.
 
+## Admin console API (Module 11)
+
+Flyway V13 adds `admin_audit_log` and suspension detail on `app_users`. A
+dev-only `AdminAccountSeeder` (`vezlist.seed-admin`, default `true`, set
+`VEZLIST_SEED_ADMIN=false` outside local dev) idempotently ensures
+`admin@vezlist.cc` / `Vezlist#Admin2026` exists with the ADMIN role.
+
+All endpoints below are under `/api/v1/admin/**`, require MODERATOR or ADMIN
+for reads, and ADMIN for anything destructive (see `SecurityConfig` and each
+controller's `@PreAuthorize`):
+
+- `GET /admin/users?query=&cursor=&limit=` / `GET /admin/users/{id}` — cursor-paginated user search and detail
+  (roles, enabled/suspension state, listing counts).
+- `POST /admin/users/{id}/suspend` `{reason}"` / `POST /admin/users/{id}/reinstate` — ADMIN-only; suspend flips the
+  same `app_users.enabled` flag already used app-wide (moderation, saved listings, discovery, sellers), and
+  records `suspended_at`/`suspension_reason`.
+- `GET /admin/listings?site=&status=&query=&cursor=&limit=` / `GET /admin/listings/{id}` — admin-scoped browse
+  across every owner (unlike the owner-scoped `GET /me/listings`).
+- `POST /admin/listings/{id}/remove` `{reason}` — ADMIN-only force takedown; only legal from `ACTIVE`, using the
+  same `Listing` state machine as moderation's own REMOVE decision.
+- `GET/POST/PATCH/DELETE /admin/categories[/{id}]` and `GET /admin/locations`, `POST /admin/locations/areas`,
+  `PATCH/DELETE /admin/locations/{id}` — taxonomy CRUD. Deleting a category or area that active listings still
+  reference returns `409 CATALOG_ENTRY_IN_USE` instead of cascading.
+- `GET /admin/analytics/summary?site=` — real aggregate counts (users, listings by status, new listings in the
+  last 7/30 days, active reports, open moderation cases); no fabricated numbers.
+- `GET /admin/audit?site=&cursor=&limit=` — flattens moderation decisions (`moderation_actions`) and other admin
+  actions (`admin_audit_log`: suspend/reinstate, taxonomy CRUD, listing takedown) into one chronological feed.
+
+Billing/payments, live/streaming, a support desk, and CMS-style "content" management have no underlying data
+model in this domain and were intentionally left out of this module; see the module's implementation notes for
+why.
+
 ## Verification commands
 
 ```powershell
