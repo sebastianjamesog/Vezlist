@@ -1,15 +1,17 @@
 // Run with: npm test
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
-  CREATE_CATEGORIES,
   EMPTY_DRAFT,
   STEPS,
+  draftFromListing,
   isDraftWorthSaving,
   isPersonalsCategory,
   normaliseDraft,
   reorderImages,
   stepIndex,
+  toListingWriteRequest,
   validateStep,
 } from "./adDraft.js";
 import { ethnicities } from "../data/mock.js";
@@ -20,8 +22,11 @@ const good = draft({
   title: "2 Bedroom Apartment",
   business: "Modern City Apartments",
   category: "Property",
+  categoryId: "property",
   description: "Bright two bedroom with parking, available from next month.",
   location: "Victoria, BC",
+  locationId: "bc-victoria",
+  provinceId: "bc",
   email: "seller@example.com",
   phone: "+1 250 555 1234",
 });
@@ -60,30 +65,28 @@ test("details step checks title, business, category and description length", () 
   );
 });
 
-test("a sub-category is optional, but must belong to the category", () => {
-  // Property's own subs, so this is the pair the pills can actually produce.
+test("legacy subcategory attributes are preserved without mock taxonomy validation", () => {
+  const legacy = { ...good, subcategory: "A retired subcategory" };
+  assert.deepEqual(validateStep("details", legacy), {});
   assert.equal(
-    validateStep("details", draft({ ...good, subcategory: "For rent" }))
-      .subcategory,
-    undefined,
+    toListingWriteRequest(legacy, { site: "MARKETPLACE" }).attributes.subcategory,
+    "A retired subcategory",
   );
-  // The whole point of the feature: skipping it is not an error.
-  assert.equal(
-    validateStep("details", draft({ ...good, subcategory: "" })).subcategory,
-    undefined,
-  );
-  // A sub belonging to some *other* category — a draft that outlived a switch.
-  assert.ok(
-    validateStep("details", draft({ ...good, subcategory: "Motorcycles" }))
-      .subcategory,
-  );
-  // No category to belong to, so a sub-category cannot be checked, only refused.
-  assert.ok(
-    validateStep(
-      "details",
-      draft({ ...good, category: "", subcategory: "For rent" }),
-    ).subcategory,
-  );
+});
+
+test("details require an exact category selection, not a label alone", () => {
+  for (const selection of [
+    { categoryId: "" },
+    { categoryId: undefined },
+    { categoryId: "   " },
+    { categoryId: 42 },
+    { category: "" },
+  ]) {
+    assert.equal(
+      validateStep("details", { ...good, ...selection }).category,
+      "Select a category from the list.",
+    );
+  }
 });
 
 test("a draft written before sub-categories existed still validates", () => {
@@ -126,6 +129,40 @@ test("contact step validates email shape and phone digit count", () => {
   );
 });
 
+test("contact requires a selected location, not just a typed or legacy label", () => {
+  for (const selection of [
+    { locationId: "", provinceId: "" },
+    { locationId: undefined, provinceId: undefined },
+    { locationId: "bc-victoria", provinceId: "" },
+    { locationId: "   ", provinceId: "bc" },
+    { locationId: 42, provinceId: "bc" },
+    { location: "", locationId: "bc-victoria", provinceId: "bc" },
+  ]) {
+    assert.equal(
+      validateStep("contact", { ...good, ...selection }).location,
+      "Select a location from the suggestions.",
+    );
+  }
+});
+
+test("editing and mapping places with duplicate labels preserves each exact ID", () => {
+  for (const [locationId, provinceId] of [["bc-richmond", "bc"], ["on-richmond", "on"]]) {
+    const edited = draftFromListing({
+      locationLabel: "Richmond",
+      locationId,
+      provinceId,
+    });
+    assert.equal(edited.location, "Richmond");
+    assert.equal(edited.locationId, locationId);
+    assert.equal(edited.provinceId, provinceId);
+    const request = toListingWriteRequest(edited, {
+      site: "MARKETPLACE",
+    });
+    assert.equal(request.locationId, locationId);
+    assert.equal(request.provinceId, provinceId);
+  }
+});
+
 test("a step only reports its own fields", () => {
   const empty = draft({});
   assert.deepEqual(Object.keys(validateStep("photos", empty)), ["images"]);
@@ -140,13 +177,8 @@ test("review never blocks", () => {
   assert.deepEqual(validateStep("review", draft({})), {});
 });
 
-/*
-  The personals group. "Dating" is the category the two lists share — it is in
-  `postCategories`, which is what the create sheet offers, and in
-  `personalsCategories`, which is what turns the extra questions on — so it is
-  the pairing the pills can actually produce.
-*/
-const person = draft({ ...good, category: "Dating", subcategory: "" });
+// Marketplace retains its Dating compatibility; Personals uses its site scope.
+const person = draft({ ...good, category: "Dating", categoryId: "dating", subcategory: "" });
 
 test("a personals draft with none of the extra fields filled in still passes", () => {
   // The whole stance: eight optional questions, and answering none of them is
@@ -248,12 +280,34 @@ test("a draft written before the personals group existed still validates", () =>
   assert.deepEqual(validateStep("details", older), {});
 });
 
-test("isPersonalsCategory only says yes to a category about a person", () => {
+test("Marketplace only retains the Dating category's personal fields", () => {
   assert.equal(isPersonalsCategory("Dating"), true);
-  assert.equal(isPersonalsCategory("Women seeking Men"), true);
+  assert.equal(isPersonalsCategory("A new marketplace category"), false);
   assert.equal(isPersonalsCategory("Vehicles"), false);
   assert.equal(isPersonalsCategory(""), false);
   assert.equal(isPersonalsCategory(undefined), false);
+});
+
+test("dynamic Personals categories share personal-field validation and payload mapping", () => {
+  const moduleUrl = new URL("./adDraft.js", import.meta.url).href;
+  const script = `
+    import assert from "node:assert/strict";
+    import { isPersonalsCategory, validateStep, toListingWriteRequest } from ${JSON.stringify(moduleUrl)};
+    const draft = ${JSON.stringify({ ...good, category: "New community", categoryId: "new-community", age: "27", weight: "60 kg" })};
+    assert.equal(isPersonalsCategory(draft.category), true);
+    assert.equal(isPersonalsCategory(""), true);
+    assert.deepEqual(validateStep("details", draft), {});
+    assert.ok(validateStep("details", { ...draft, age: "17" }).age);
+    const request = toListingWriteRequest(draft, { site: "PERSONALS" });
+    assert.equal(request.categoryId, "new-community");
+    assert.equal(request.attributes.age, "27");
+    assert.equal(request.attributes.weight, "60 kg");
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script], {
+    encoding: "utf8",
+    env: { ...process.env, NEXT_PUBLIC_SITE: "personals" },
+  });
+  assert.equal(result.status, 0, result.stderr);
 });
 
 test("stepIndex tracks order and reports -1 for unknown ids", () => {
@@ -310,11 +364,10 @@ test("reordering never mutates the array it was handed", () => {
 
 /* ------------------------------------------------------- isDraftWorthSaving */
 
-test("a fresh draft — only the pre-filled category set — is not worth saving", () => {
-  assert.equal(
-    isDraftWorthSaving({ ...EMPTY_DRAFT, category: CREATE_CATEGORIES[0] }),
-    false,
-  );
+test("a fresh draft has no preselected category and is not worth saving", () => {
+  assert.equal(EMPTY_DRAFT.category, "");
+  assert.equal(EMPTY_DRAFT.categoryId, "");
+  assert.equal(isDraftWorthSaving({ ...EMPTY_DRAFT }), false);
 });
 
 test("a single photo is enough to be worth saving", () => {
@@ -328,10 +381,10 @@ test("a single typed field, other than category, is enough to be worth saving", 
   assert.equal(isDraftWorthSaving({ ...EMPTY_DRAFT, title: "T" }), true);
 });
 
-test("changing only the category is not enough on its own", () => {
+test("an intentional category selection is worth restoring", () => {
   assert.equal(
-    isDraftWorthSaving({ ...EMPTY_DRAFT, category: "Vehicles" }),
-    false,
+    isDraftWorthSaving({ ...EMPTY_DRAFT, category: "Vehicles", categoryId: "vehicles" }),
+    true,
   );
 });
 
@@ -344,7 +397,8 @@ test("a well-formed stored draft comes back whole", () => {
     ],
     title: "Kayak, barely used",
     business: "Jane",
-    category: CREATE_CATEGORIES[0],
+    category: "Property",
+    categoryId: "property",
     subcategory: "",
     price: "150",
     description: "Great condition, used twice.",
@@ -366,6 +420,28 @@ test("anything that isn't an object is nothing worth restoring", () => {
   assert.equal(normaliseDraft("a draft"), null);
   assert.equal(normaliseDraft(["not", "a", "draft"]), null);
   assert.equal(normaliseDraft(5), null);
+});
+
+test("selected location IDs survive draft persistence without matching labels again", () => {
+  const restored = normaliseDraft(JSON.parse(JSON.stringify(good)));
+  assert.equal(restored.locationId, "bc-victoria");
+  assert.equal(restored.provinceId, "bc");
+  assert.deepEqual(validateStep("contact", restored), {});
+});
+
+test("legacy saved location labels require reselection but keep the rest of the draft", () => {
+  const legacy = { ...good };
+  delete legacy.locationId;
+  delete legacy.provinceId;
+  const restored = normaliseDraft(legacy);
+  assert.equal(restored.location, good.location);
+  assert.equal(restored.title, good.title);
+  assert.equal(restored.locationId, "");
+  assert.equal(restored.provinceId, "");
+  assert.equal(
+    validateStep("contact", restored).location,
+    "Select a location from the suggestions.",
+  );
 });
 
 test("a missing images array is treated as none, not a crash", () => {
@@ -410,11 +486,28 @@ test("a non-string field is dropped to EMPTY_DRAFT's default rather than crashin
   assert.equal(draft.price, "");
 });
 
-test("a category the pills no longer offer falls back to the wizard's own default", () => {
+test("a legacy category label is retained and requires reselection, never a default", () => {
   const draft = normaliseDraft({
+    ...good,
     category: "A category from a long-gone build",
+    categoryId: undefined,
   });
-  assert.equal(draft.category, CREATE_CATEGORIES[0]);
+  assert.equal(draft.category, "A category from a long-gone build");
+  assert.equal(draft.categoryId, "");
+  assert.equal(validateStep("details", draft).category, "Select a category from the list.");
+});
+
+test("dynamic categories persist and edit using exact IDs even when labels match", () => {
+  for (const categoryId of ["new-category-one", "new-category-two"]) {
+    const stored = normaliseDraft({ ...good, category: "Custom category", categoryId });
+    assert.equal(stored.category, "Custom category");
+    assert.equal(stored.categoryId, categoryId);
+    assert.deepEqual(validateStep("details", stored), {});
+    const edited = draftFromListing({ categoryLabel: "Custom category", categoryId });
+    assert.equal(edited.category, "Custom category");
+    assert.equal(edited.categoryId, categoryId);
+    assert.equal(toListingWriteRequest(edited, { site: "MARKETPLACE" }).categoryId, categoryId);
+  }
 });
 
 test("an unrecognised top-level key is simply not carried over", () => {

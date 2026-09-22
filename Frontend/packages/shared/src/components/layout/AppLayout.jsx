@@ -147,50 +147,51 @@ function Shell({ children, navPreset }) {
   /**
    * Where the four steps actually go.
    *
-   * This used to be a `console.log` and a toast that claimed the ad had been
-   * submitted — the one flow in the app that wrote nothing at all. It calls
-   * the real backend now (`publishDraft`: create the draft, upload every
-   * photo, submit for review), so the ad is genuinely in review — visible
-   * under My Ads' "pending" tab via `GET /me/listings` — before the toast
-   * says so.
-   *
-   * The sheet closes optimistically (it already cleared its own local draft
-   * by the time `onPublish` is called) but the toast waits for the backend
-   * call to actually settle, so a failed submit is reported rather than
-   * silently swallowed while the sheet has already moved on.
+   * Submit the selected publication mode before requesting a verification
+   * code. The wizard keeps its saved draft until this submission succeeds.
+   * A later code-request failure is recoverable from My Ads and must not
+   * invite the seller to publish a duplicate listing.
    */
-  async function handlePublish(values, { requestVerification: wantVerification } = {}) {
+  async function handlePublish(
+    values,
+    { requestVerification: wantVerification = false } = {},
+  ) {
+    const listing = await publishDraft(values, {
+      requestVerification: wantVerification,
+    });
+    toast(
+      listing.status === "ACTIVE"
+        ? "Your ad is live — find it in My Ads under Active"
+        : listing.status === "PENDING_REVIEW"
+          ? listing.verificationRequested
+            ? "Your ad is private until verification is approved"
+            : "Your ad is in review — check My Ads for updates"
+          : "Ad saved — check its status in My Ads",
+    );
     setPostOpen(false);
-    let listing;
-    try {
-      listing = await publishDraft(values);
-      toast("Ad submitted — it's in My Ads under In review");
-    } catch (error) {
-      toast(
-        error instanceof ApiError
-          ? error.message || "Couldn't submit your ad — try again"
-          : "Couldn't submit your ad — try again",
-      );
-      return;
-    }
 
     // The listing is real now, which is the earliest a verification request
     // can exist (it's `POST /listings/{listingId}/verification`) — so this
     // runs as its own follow-up rather than inside the try above, and a
     // failure here doesn't touch the "ad submitted" outcome that already
     // happened.
-    if (wantVerification) {
+    if (listing.verificationRequested && listing.status === "PENDING_REVIEW") {
       try {
         const request = await requestVerification(listing.id);
-        setVerification({ listingId: listing.id, request });
+        setVerification({
+          listingId: listing.id,
+          request,
+          publicationPending: true,
+        });
       } catch (error) {
         toast(
           error instanceof ApiError
-            ? error.message || "Couldn't start verification — try again from My Ads"
-            : "Couldn't start verification — try again from My Ads",
+            ? `${error.message || "Couldn't start verification"}. Your ad is private; continue verification from My Ads.`
+            : "Couldn't start verification. Your ad is private; continue verification from My Ads.",
         );
       }
     }
+    return listing;
   }
 
   return (
@@ -247,6 +248,7 @@ function Shell({ children, navPreset }) {
               open={Boolean(verification)}
               listingId={verification?.listingId}
               initial={verification?.request}
+              publicationPending={verification?.publicationPending}
               onClose={() => setVerification(null)}
             />
           </main>

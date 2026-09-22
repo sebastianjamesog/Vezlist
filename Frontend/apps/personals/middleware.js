@@ -87,17 +87,19 @@ function securityHeaders() {
     `script-src 'self' 'unsafe-inline'${DEV ? " 'unsafe-eval'" : ""}`,
     "style-src 'self' 'unsafe-inline'",
     // picsum.photos redirects to fastly.picsum.photos for the actual bytes;
-    // basemaps.cartocdn.com is Leaflet's OSM/CARTO tile source (a/b/c/d
-    // subdomains). blob: covers local photo-upload previews (createObjectURL
+    // OpenFreeMap serves the basemap sprites and raster imagery.
+    // blob: covers local photo-upload previews (createObjectURL
     // in StepPhotos.jsx / CreateAdSheet.jsx and the CSV export in lib/csv.js).
     // STORAGE_ORIGIN: real listing/verification photos render as plain
     // <img src> pointing straight at object storage (next.config.mjs sets
     // `images.unoptimized: true`, so there's no same-origin optimizer proxy
     // to hide behind) — without it every real uploaded photo is a browser-
     // blocked image, indistinguishable from a broken URL.
-    `img-src 'self' data: blob: https://picsum.photos https://*.picsum.photos https://*.basemaps.cartocdn.com${STORAGE_ORIGIN ? ` ${STORAGE_ORIGIN}` : ""}`,
+    `img-src 'self' data: blob: https://picsum.photos https://*.picsum.photos https://tiles.openfreemap.org${STORAGE_ORIGIN ? ` ${STORAGE_ORIGIN}` : ""}`,
     "font-src 'self' data:",
-    `connect-src 'self'${API_ORIGIN ? ` ${API_ORIGIN}` : ""}${STORAGE_ORIGIN ? ` ${STORAGE_ORIGIN}` : ""}`,
+    // MapLibre fetches styles, vector tiles, sprites, and glyphs from this host.
+    `connect-src 'self' https://tiles.openfreemap.org${API_ORIGIN ? ` ${API_ORIGIN}` : ""}${STORAGE_ORIGIN ? ` ${STORAGE_ORIGIN}` : ""}`,
+    "worker-src 'self' blob:",
     "form-action 'self'",
     // Fixes the clickjackable age gate (AgeGate.jsx): no third-party origin
     // may frame this site. Same-origin embeds only.

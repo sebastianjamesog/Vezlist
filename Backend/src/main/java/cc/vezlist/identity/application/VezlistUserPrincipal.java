@@ -47,7 +47,7 @@ public record VezlistUserPrincipal(
     public String getUsername() {
         return email;
     }
-
+    
     @Override
     public boolean isEnabled() {
         return enabled;

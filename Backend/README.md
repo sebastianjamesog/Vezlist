@@ -63,15 +63,22 @@ Account deletion returns HTTP 202 and records a pending request; it does not imm
 
 ## Category and location endpoints (Module 3)
 
-These endpoints are public and return cacheable reference data. The category query is site-scoped, so Marketplace never receives the Personals category and Personals never receives Marketplace categories.
+These endpoints are public. The category query is site-scoped, so Marketplace never receives the Personals category and Personals never receives Marketplace categories. Category responses use `Cache-Control: no-cache` so new requests reflect admin changes; the location tree remains cacheable for one hour.
 
 ```text
 GET /api/v1/categories?site=MARKETPLACE
 GET /api/v1/categories?site=PERSONALS
 GET /api/v1/locations
+GET /api/v1/locations/search?q=Vancouver&limit=20
 ```
 
-The frontend loads these values automatically and retains a bundled read-only fallback for temporary API outages. Restart the backend once after pulling Module 3 so Flyway can apply V5.
+Location search reads enabled areas with enabled parent provinces from the database.
+An empty query returns suggestions, with popular areas first. `q` matches area or
+province names (up to 120 characters); `limit` defaults to 20 and accepts 1-50.
+Responses contain area and province IDs and labels and require cache revalidation
+so catalog edits appear on subsequent requests. The create/edit picker uses this
+endpoint without a mock fallback. Restart the backend after updating the code;
+this search endpoint requires no new migration or seed data.
 
 ## Listing endpoints (Module 4)
 
@@ -83,10 +90,30 @@ PATCH  /api/v1/listings/{listingId}
 POST   /api/v1/listings/{listingId}/submit
 GET    /api/v1/listings/{listingId}?site=MARKETPLACE
 GET    /api/v1/me/listings?site=MARKETPLACE
+GET    /api/v1/me/listings/summary?site=MARKETPLACE
 DELETE /api/v1/listings/{listingId}
 ```
 
 The Create Ad, My Ads, edit/delete, and listing-detail frontend flows use these endpoints.
+
+The authenticated summary returns `{ "activeAds": 0 }` (the actual count), scoped
+to the session owner and requested site. It excludes non-active and expired ads
+and disabled owners. The profile card uses this count rather than downloading
+every owned listing. Restart the backend after adding this route; no schema
+migration or reseeding is required for the summary.
+
+Submission accepts an optional JSON body `{ "requestVerification": true }`.
+Without it (or with `false`), a valid ad becomes `ACTIVE` immediately on either
+site, with publication time and a 30-day expiry. All attached images must be
+`READY`; ownership and enabled category/location checks still apply. Selecting
+verification sets `verificationRequested: true` and keeps the ad `PENDING_REVIEW`
+and private until staff approve its code/photo verification. Approval publishes
+it with the Verified badge; rejection keeps it private. The existing verification
+API supplies the code and upload flow, which can be resumed from My Ads.
+
+Flyway V16 adds this policy and runs on backend startup. No reseeding is needed.
+Existing pending ads are not automatically published. Direct publication emits
+`LISTING_PUBLISHED`; staff verification publication emits `LISTING_APPROVED`.
 
 ## Media endpoints (Module 5)
 
@@ -129,10 +156,12 @@ Saving and removing are idempotent. Only another user's active, unexpired listin
 
 ## Moderation and safety (Module 9)
 
-Flyway V11 queues pending listings for staff review and adds reporting, owner
-appeals, media verdicts, and append-only audit history. Marketplace needs one
-reviewer; Personals needs two independent reviewers. New reporting and appeal
-forms are shared by both frontends.
+Flyway V11 added reporting, owner appeals, media verdicts, and append-only audit
+history. Under V16, new regular submissions publish directly; verification-requested
+ads use the verification queue, not a duplicate submission case. Existing pending
+submission and appeal cases retain the original moderation policy (one Marketplace
+reviewer, two Personals reviewers). Reporting and removal of active ads remain
+available on both sites. A moderation approval cannot bypass pending verification.
 
 See [the moderation workflow](docs/moderation.md) for staff endpoints, privacy,
 quotas, manual media/eligibility requirements, and rollout limitations, and

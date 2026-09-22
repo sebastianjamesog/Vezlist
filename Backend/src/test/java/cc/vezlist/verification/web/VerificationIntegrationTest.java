@@ -11,6 +11,7 @@ import java.io.ByteArrayInputStream;
 import java.net.URI;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.Set;
@@ -23,6 +24,8 @@ import cc.vezlist.media.storage.ObjectStorage;
 import cc.vezlist.verification.application.VerificationPhotoProcessor;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -108,6 +111,8 @@ class VerificationIntegrationTest {
         var moderator = account(Role.MODERATOR);
         UUID listingA = listing(owner, "ACTIVE");
         UUID listingB = listing(owner, "ACTIVE");
+        Instant publishedBefore = jdbc.queryForObject("SELECT published_at FROM listings WHERE id = ?", java.sql.Timestamp.class, listingA).toInstant();
+        Instant expiresBefore = jdbc.queryForObject("SELECT expires_at FROM listings WHERE id = ?", java.sql.Timestamp.class, listingA).toInstant();
         UUID requestId = requestVerification(owner, listingA);
         String code = json.readTree(getBody(owner, "/api/v1/listings/" + listingA + "/verification"))
                 .get("code").asText();
@@ -155,6 +160,9 @@ class VerificationIntegrationTest {
         }
         assertThat(aVerified).isTrue();
         assertThat(bVerified).isFalse();
+        assertThat(jdbc.queryForObject("SELECT published_at FROM listings WHERE id = ?", java.sql.Timestamp.class, listingA).toInstant()).isEqualTo(publishedBefore);
+        assertThat(jdbc.queryForObject("SELECT expires_at FROM listings WHERE id = ?", java.sql.Timestamp.class, listingA).toInstant()).isEqualTo(expiresBefore);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_events WHERE listing_id = ?", Long.class, listingA)).isZero();
 
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM admin_audit_log WHERE action = 'VERIFICATION_APPROVED' AND target_id = ?",
@@ -201,6 +209,214 @@ class VerificationIntegrationTest {
         post(owner, "/api/v1/listings/" + listing + "/verification", null).andExpect(status().isCreated());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"MARKETPLACE", "PERSONALS"})
+    void verificationApprovalPublishesOnlyThePrivateRequestedListing(String site) throws Exception {
+        var owner = account(Role.USER);
+        var moderator = account(Role.MODERATOR);
+        UUID listing = listing(owner, "PENDING_REVIEW", site, true);
+        readyMedia(listing, "READY", 0);
+        UUID requestId = readyRequest(owner, listing);
+        given(storage.authorizeDownload(anyString())).willAnswer(i -> URI.create("https://cdn.test/" + i.getArgument(0)));
+
+        mvc.perform(get("/api/v1/listings/" + listing + "?site=" + site)).andExpect(status().isNotFound());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM moderation_cases WHERE listing_id = ?", Long.class, listing)).isZero();
+        post(moderator, decisionPath(requestId), Map.of("decision", "APPROVE"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("APPROVED"));
+
+        mvc.perform(get("/api/v1/listings/" + listing + "?site=" + site))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.verified").value(true));
+        Instant published = jdbc.queryForObject("SELECT published_at FROM listings WHERE id = ?", java.sql.Timestamp.class, listing).toInstant();
+        Instant expires = jdbc.queryForObject("SELECT expires_at FROM listings WHERE id = ?", java.sql.Timestamp.class, listing).toInstant();
+        assertThat(expires).isEqualTo(published.plus(30, ChronoUnit.DAYS));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_events WHERE listing_id = ? AND event_type = 'LISTING_APPROVED'", Long.class, listing)).isEqualTo(1);
+        post(moderator, decisionPath(requestId), Map.of("decision", "APPROVE")).andExpect(status().isConflict());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"MARKETPLACE", "PERSONALS"})
+    void rejectedVerificationStaysPrivateAndCanBeResubmittedWithFreshProof(String site) throws Exception {
+        var owner = account(Role.USER);
+        var moderator = account(Role.MODERATOR);
+        UUID listing = listing(owner, "PENDING_REVIEW", site, true);
+        readyMedia(listing, "READY", 0);
+        UUID requestId = readyRequest(owner, listing);
+        given(storage.authorizeDownload(anyString())).willAnswer(i -> URI.create("https://cdn.test/" + i.getArgument(0)));
+
+        post(moderator, decisionPath(requestId), Map.of("decision", "REJECT", "reason", "The proof code is unreadable."))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.rejectionReason").value("The proof code is unreadable."));
+        var row = jdbc.queryForMap("SELECT status, verified, published_at, expires_at, moderation_reason FROM listings WHERE id = ?", listing);
+        assertThat(row.get("status")).isEqualTo("REJECTED");
+        assertThat(row.get("verified")).isEqualTo(false);
+        assertThat(row.get("published_at")).isNull();
+        assertThat(row.get("expires_at")).isNull();
+        assertThat(row.get("moderation_reason")).isEqualTo("ELIGIBILITY_NOT_CONFIRMED");
+        mvc.perform(get("/api/v1/listings/" + listing + "?site=" + site)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/me/listings/" + listing + "/moderation?site=" + site).with(user(owner)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.publicReason").isNotEmpty())
+                .andExpect(jsonPath("$.appealAllowed").value(false));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_events WHERE listing_id = ? AND event_type = 'LISTING_REJECTED'", Long.class, listing)).isEqualTo(1);
+
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/listings/" + listing + "/submit")
+                .with(user(owner)).with(csrf()).header("Idempotency-Key", UUID.randomUUID().toString())
+                .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsBytes(Map.of("requestVerification", true))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("PENDING_REVIEW"));
+        UUID fresh = requestVerification(owner, listing);
+        assertThat(fresh).isNotEqualTo(requestId);
+        assertThat(jdbc.queryForObject("SELECT status FROM listing_verification_requests WHERE id = ?", String.class, requestId)).isEqualTo("REJECTED");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM moderation_cases WHERE listing_id = ? AND status = 'OPEN'", Long.class, listing)).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"REMOVED", "REJECTED", "EXPIRED", "DELETED", "PAST_EXPIRY", "RESUBMITTED"})
+    void staleVerificationDecisionsCannotChangeOrRepublishListings(String change) throws Exception {
+        var owner = account(Role.USER);
+        var moderator = account(Role.MODERATOR);
+        UUID listing = listing(owner, "ACTIVE");
+        UUID requestId = readyRequest(owner, listing);
+        if (change.equals("PAST_EXPIRY")) {
+            jdbc.update("UPDATE listings SET expires_at = now() - interval '1 minute' WHERE id = ?", listing);
+        } else if (change.equals("RESUBMITTED")) {
+            jdbc.update("UPDATE listings SET submitted_at = now() + interval '1 second' WHERE id = ?", listing);
+        } else {
+            jdbc.update("UPDATE listings SET status = ? WHERE id = ?", change, listing);
+        }
+        for (String decision : new String[]{"APPROVE", "REJECT"}) {
+            post(moderator, decisionPath(requestId), Map.of("decision", decision, "reason", "Stale review"))
+                    .andExpect(change.equals("DELETED") ? status().isNotFound() : status().isConflict());
+        }
+        assertThat(jdbc.queryForObject("SELECT verified FROM listings WHERE id = ?", Boolean.class, listing)).isFalse();
+        assertThat(getBody(moderator, "/api/v1/moderation/verification-requests?site=MARKETPLACE")).doesNotContain(requestId.toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"AWAITING_PHOTO", "PROCESSING", "PENDING_REVIEW", "APPROVED", "REJECTED"})
+    void resubmittingLegacyListingRequiresNewProofAndPreservesItsHistory(String oldStatus) throws Exception {
+        given(storage.authorizeDownload(anyString())).willAnswer(i -> URI.create("https://cdn.test/" + i.getArgument(0)));
+        var owner = account(Role.USER);
+        var moderator = account(Role.MODERATOR);
+        UUID listing = listing(owner, "PENDING_REVIEW");
+        readyMedia(listing, "READY", 0);
+        UUID oldRequest = oldStatus.equals("AWAITING_PHOTO") || oldStatus.equals("PROCESSING")
+                ? requestVerification(owner, listing) : readyRequest(owner, listing);
+        if (oldStatus.equals("PROCESSING")) {
+            jdbc.update("UPDATE listing_verification_requests SET photo_status = 'PROCESSING', photo_object_key = ? WHERE id = ?",
+                    "verification/" + oldRequest + ".jpg", oldRequest);
+        }
+        if (oldStatus.equals("APPROVED") || oldStatus.equals("REJECTED")) {
+            post(moderator, decisionPath(oldRequest), Map.of(
+                    "decision", oldStatus.equals("APPROVED") ? "APPROVE" : "REJECT", "reason", "Historical decision"))
+                    .andExpect(status().isOk());
+        }
+        Object oldPhotoKey = jdbc.queryForMap("SELECT photo_object_key FROM listing_verification_requests WHERE id = ?", oldRequest).get("photo_object_key");
+        jdbc.update("UPDATE listings SET status = 'REJECTED' WHERE id = ?", listing);
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/listings/" + listing + "/submit")
+                .with(user(owner)).with(csrf()).header("Idempotency-Key", UUID.randomUUID().toString())
+                .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsBytes(Map.of("requestVerification", true))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("PENDING_REVIEW"))
+                .andExpect(jsonPath("$.verified").value(false));
+
+        mvc.perform(get("/api/v1/listings/" + listing + "/verification").with(user(owner)))
+                .andExpect(status().isNotFound());
+        assertThat(getBody(moderator, "/api/v1/moderation/verification-requests?site=MARKETPLACE"))
+                .doesNotContain(oldRequest.toString());
+        post(moderator, decisionPath(oldRequest), Map.of("decision", "APPROVE")).andExpect(status().isConflict());
+
+        UUID fresh = requestVerification(owner, listing);
+        assertThat(fresh).isNotEqualTo(oldRequest);
+        processor.process(oldRequest);
+        mvc.perform(get("/api/v1/listings/" + listing + "/verification").with(user(owner)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(fresh.toString()))
+                .andExpect(jsonPath("$.status").value("AWAITING_PHOTO"));
+        var historical = jdbc.queryForMap("SELECT status, decided_at, decided_by, rejection_reason, photo_object_key FROM listing_verification_requests WHERE id = ?", oldRequest);
+        if (oldStatus.equals("AWAITING_PHOTO") || oldStatus.equals("PROCESSING") || oldStatus.equals("PENDING_REVIEW")) {
+            assertThat(historical.get("status")).isEqualTo("REJECTED");
+            assertThat(historical.get("decided_by")).isNull();
+            assertThat(historical.get("rejection_reason").toString()).contains("Superseded", "resubmitted");
+        } else {
+            assertThat(historical.get("status")).isEqualTo(oldStatus);
+            assertThat(historical.get("decided_by")).isEqualTo(moderator.id());
+        }
+        assertThat(historical.get("decided_at")).isNotNull();
+        assertThat(historical.get("photo_object_key")).isEqualTo(oldPhotoKey);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_verification_requests WHERE listing_id = ?", Long.class, listing)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_verification_requests WHERE listing_id = ? AND status IN ('AWAITING_PHOTO', 'PENDING_REVIEW')", Long.class, listing)).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"CATEGORY", "LOCATION", "PROVINCE", "NO_IMAGES", "UNREADY_IMAGE", "OWNER"})
+    void publicationRechecksEligibilityAndAllImages(String invalid) throws Exception {
+        var owner = account(Role.USER);
+        var moderator = account(Role.MODERATOR);
+        UUID listing = listing(owner, "PENDING_REVIEW", "MARKETPLACE", true);
+        if (!invalid.equals("NO_IMAGES")) readyMedia(listing, "READY", 0);
+        if (invalid.equals("UNREADY_IMAGE")) readyMedia(listing, "PROCESSING", 1);
+        UUID requestId = readyRequest(owner, listing);
+        String disabledTable = invalid.equals("CATEGORY") ? "categories"
+                : (invalid.equals("LOCATION") || invalid.equals("PROVINCE")) ? "locations" : "app_users";
+        Object disabledId = switch (invalid) {
+            case "CATEGORY" -> "services";
+            case "LOCATION" -> "bc-1";
+            case "PROVINCE" -> "bc";
+            default -> owner.id();
+        };
+        boolean disableRecord = !invalid.equals("NO_IMAGES") && !invalid.equals("UNREADY_IMAGE");
+        try {
+            if (disableRecord) jdbc.update("UPDATE " + disabledTable + " SET enabled = false WHERE id = ?", disabledId);
+            post(moderator, decisionPath(requestId), Map.of("decision", "APPROVE"))
+                    .andExpect(invalid.equals("OWNER") ? status().isConflict() : status().isBadRequest());
+            assertThat(jdbc.queryForObject("SELECT status FROM listings WHERE id = ?", String.class, listing)).isEqualTo("PENDING_REVIEW");
+            assertThat(jdbc.queryForObject("SELECT status FROM listing_verification_requests WHERE id = ?", String.class, requestId)).isEqualTo("PENDING_REVIEW");
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_events WHERE listing_id = ?", Long.class, listing)).isZero();
+        } finally {
+            if (disableRecord) jdbc.update("UPDATE " + disabledTable + " SET enabled = true WHERE id = ?", disabledId);
+        }
+    }
+
+    @Test void verificationCannotSelfApproveOrUseRevokedStaffPrivileges() throws Exception {
+        var owner = account(Role.ADMIN);
+        var moderator = account(Role.MODERATOR);
+        UUID listing = listing(owner, "PENDING_REVIEW", "MARKETPLACE", true);
+        readyMedia(listing, "READY", 0);
+        UUID requestId = readyRequest(owner, listing);
+        post(owner, decisionPath(requestId), Map.of("decision", "APPROVE")).andExpect(status().isForbidden());
+        jdbc.update("DELETE FROM user_roles WHERE user_id = ?", moderator.id());
+        post(moderator, decisionPath(requestId), Map.of("decision", "APPROVE")).andExpect(status().isForbidden());
+        assertThat(jdbc.queryForObject("SELECT status FROM listings WHERE id = ?", String.class, listing)).isEqualTo("PENDING_REVIEW");
+    }
+
+    @Test void verifyingLegacyPendingListingDoesNotSkipItsOriginalModeration() throws Exception {
+        var owner = account(Role.USER);
+        var moderator = account(Role.MODERATOR);
+        UUID listing = listing(owner, "PENDING_REVIEW");
+        UUID requestId = readyRequest(owner, listing);
+        post(moderator, decisionPath(requestId), Map.of("decision", "APPROVE")).andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT status FROM listings WHERE id = ?", String.class, listing)).isEqualTo("PENDING_REVIEW");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM moderation_cases WHERE listing_id = ? AND status = 'OPEN'", Long.class, listing)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_events WHERE listing_id = ?", Long.class, listing)).isZero();
+    }
+
+    private String decisionPath(UUID request) {
+        return "/api/v1/moderation/verification-requests/" + request + "/decisions";
+    }
+
+    private UUID readyRequest(VezlistUserPrincipal owner, UUID listing) throws Exception {
+        UUID request = requestVerification(owner, listing);
+        jdbc.update("UPDATE listing_verification_requests SET status = 'PENDING_REVIEW', photo_status = 'READY', photo_object_key = ?, submitted_at = now() WHERE id = ?",
+                "verification/" + request + ".jpg", request);
+        return request;
+    }
+
+    private void readyMedia(UUID listing, String status, int position) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO listing_media(id, listing_id, object_key, original_filename, content_type, size_bytes,
+                    checksum_sha256, status, position, upload_expires_at, ready_at)
+                VALUES (?, ?, ?, 'photo.jpg', 'image/jpeg', 3, ?, ?, ?, now(), now())
+                """, id, listing, "test/" + id + ".jpg", "a".repeat(64), status, position);
+    }
+
     private UUID requestVerification(VezlistUserPrincipal owner, UUID listing) throws Exception {
         var response = post(owner, "/api/v1/listings/" + listing + "/verification", null)
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
@@ -224,15 +440,22 @@ class VerificationIntegrationTest {
     }
 
     private UUID listing(VezlistUserPrincipal owner, String status) {
+        return listing(owner, status, "MARKETPLACE", false);
+    }
+
+    private UUID listing(VezlistUserPrincipal owner, String status, String site, boolean verificationRequested) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO listings(id, owner_id, site_scope, status, title, business_name, description,
-                    category_id, province_id, location_id, contact_email, contact_phone, submitted_at, published_at)
-                VALUES (?, ?, 'MARKETPLACE', ?, 'Verification test listing', 'Business', 'Listing description',
-                    'services', 'bc', 'bc-1', 'seller@example.test', '+12505550100',
+                    category_id, province_id, location_id, contact_email, contact_phone, submitted_at, published_at,
+                    expires_at, verification_requested)
+                VALUES (?, ?, ?, ?, 'Verification test listing', 'Business', 'Listing description',
+                    ?, 'bc', 'bc-1', 'seller@example.test', '+12505550100',
                     CASE WHEN ? IN ('PENDING_REVIEW','ACTIVE') THEN now() ELSE NULL END,
-                    CASE WHEN ? = 'ACTIVE' THEN now() ELSE NULL END)
-                """, id, owner.id(), status, status, status);
+                    CASE WHEN ? = 'ACTIVE' THEN now() ELSE NULL END,
+                    CASE WHEN ? = 'ACTIVE' THEN now() + interval '30 days' ELSE NULL END, ?)
+                """, id, owner.id(), site, status, site.equals("PERSONALS") ? "personals" : "services",
+                status, status, status, verificationRequested);
         return id;
     }
 

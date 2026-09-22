@@ -6,12 +6,8 @@ const CI = Boolean(process.env.CI);
  * End-to-end, on the three flows a regression is expensive in: posting an ad,
  * spending credits to promote one, and moderating a listing in the console.
  *
- * Two of the three apps, not three. Personals shares its shell, its stores and
- * its wizard with the marketplace — what it does not share is the age gate and
- * the copy — so a third server would triple the slowest part of CI to re-test
- * the same code paths. The personals-specific branches are covered instead by
- * `pages.personals.test.jsx`, which builds the whole shared package as that
- * board in about two seconds.
+ * Include Personals startup: shared component tests cannot catch failures in
+ * its separate root layout, font compilation, or age-gate hydration.
  *
  * `next dev` rather than `next build && next start`: these specs assert on
  * behaviour, none of it dependent on a production bundle, and a dev server
@@ -23,7 +19,7 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: CI,
   retries: CI ? 1 : 0,
-  // One worker: both projects drive the same two dev servers, and the stores
+  // One worker: projects share dev servers, and the stores
   // under test are per-origin browser storage rather than per-tab.
   workers: 1,
   reporter: CI ? [["github"], ["list"]] : [["list"]],
@@ -40,8 +36,13 @@ export default defineConfig({
   projects: [
     {
       name: "marketplace",
-      testMatch: /marketplace\..*\.spec\.js/,
+      testMatch: /(?:marketplace|public)\..*\.spec\.js/,
       use: { baseURL: "http://localhost:3000" },
+    },
+    {
+      name: "personals",
+      testMatch: /(?:personals|public)\..*\.spec\.js/,
+      use: { baseURL: "http://localhost:3001" },
     },
     {
       name: "admin",
@@ -54,6 +55,13 @@ export default defineConfig({
     {
       command: "npm run dev",
       url: "http://localhost:3000",
+      reuseExistingServer: !CI,
+      timeout: 180_000,
+      stdout: "ignore",
+    },
+    {
+      command: "npm run dev:personals",
+      url: "http://localhost:3001/login",
       reuseExistingServer: !CI,
       timeout: 180_000,
       stdout: "ignore",

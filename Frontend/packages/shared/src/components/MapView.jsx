@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   MapContainer,
   Marker,
-  TileLayer,
   useMap,
   useMapEvents,
 } from "react-leaflet";
@@ -13,6 +12,7 @@ import { ChevronRight, LocateFixed, Minus, Plus, X } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import { clusterPoints, pointsInView } from "./map/geo.js";
 import { MARKER_CSS, clusterIcon, pinIcon } from "./map/icons.js";
+import OpenFreeMapLayer from "./map/OpenFreeMapLayer.jsx";
 import SearchBar from "./ui/SearchBar";
 import MediaImage from "./media/MediaImage.jsx";
 
@@ -52,6 +52,8 @@ export default function MapView({ className = "", items = [], center = VICTORIA,
   // object — the chrome has to re-render once the map exists.
   const [map, setMap] = useState(null);
   const [selected, setSelected] = useState(null);
+  const [mapUnavailable, setMapUnavailable] = useState(false);
+  const [mapAttempt, setMapAttempt] = useState(0);
 
   /**
    * Leaflet caches the container's size and only re-reads it when the *window*
@@ -163,6 +165,13 @@ export default function MapView({ className = "", items = [], center = VICTORIA,
         ref={setMap}
         center={center}
         zoom={12}
+        minZoom={1}
+        maxZoom={20}
+        maxBounds={[
+          [-85.051129, -Infinity],
+          [85.051129, Infinity],
+        ]}
+        maxBoundsViscosity={1}
         // Leaflet's own zoom control is a pair of grey squares in the top-left
         // corner that belong to no design system; ours is below.
         zoomControl={false}
@@ -177,16 +186,7 @@ export default function MapView({ className = "", items = [], center = VICTORIA,
         keyboard
         className="size-full"
       >
-        <TileLayer
-          // A near-monochrome basemap: the pins are photographs, and a map that
-          // is also full of colour turns them into noise. Positron is free and
-          // needs no key. Both attributions are a licence condition of using
-          // the data and the tiles — they are not ornament and do not come out.
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-          subdomains="abcd"
-          maxZoom={20}
-        />
+        <OpenFreeMapLayer key={mapAttempt} onUnavailable={setMapUnavailable} />
 
         <PinLayer
           points={points}
@@ -194,6 +194,25 @@ export default function MapView({ className = "", items = [], center = VICTORIA,
           onSelect={setSelected}
         />
       </MapContainer>
+
+      {mapUnavailable && (
+        <div
+          role="status"
+          className="absolute inset-x-4 top-24 z-[500] rounded-xl bg-surface p-3 text-sm text-ink shadow-card"
+        >
+          <p>
+            Some map imagery couldn't load. You can still browse nearby listings
+            in the list.
+          </p>
+          <button
+            type="button"
+            className="mt-2 min-h-11 rounded-lg px-3 font-semibold text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            onClick={() => setMapAttempt((attempt) => attempt + 1)}
+          >
+            Retry map
+          </button>
+        </div>
+      )}
 
       {/* The reference design puts a small "My Map" account chip up here beside
           the search field. It is not here: there is no saved-places feature and
@@ -265,6 +284,18 @@ export default function MapView({ className = "", items = [], center = VICTORIA,
  * Leaflet already builds a marker's HTML (photo included) only once that
  * marker is inside the viewport, via `pointsInView` above.
  */
+function markerEvents(activate) {
+  return {
+    click: activate,
+    keydown: ({ originalEvent }) => {
+      if (originalEvent.key !== "Enter" && originalEvent.key !== " ") return;
+      originalEvent.preventDefault();
+      originalEvent.stopPropagation();
+      activate();
+    },
+  };
+}
+
 function PinLayer({ points, selectedId, onSelect }) {
   const map = useMap();
 
@@ -311,7 +342,7 @@ function PinLayer({ points, selectedId, onSelect }) {
           // icons, and the two should not drift if this ever stops being a div.
           title={`${title}, ${distanceKm.toFixed(1)} km away`}
           alt={`${title}, ${distanceKm.toFixed(1)} km away`}
-          eventHandlers={{ click: () => onSelect(point.listing) }}
+          eventHandlers={markerEvents(() => onSelect(point.listing))}
         />
       );
     }
@@ -332,8 +363,8 @@ function PinLayer({ points, selectedId, onSelect }) {
         alt={`${cluster.members.length} listings here: ${names}${
           cluster.members.length > 3 ? " and more" : ""
         }`}
-        eventHandlers={{
-          click: () =>
+        eventHandlers={markerEvents(
+          () =>
             // Expanding a cluster means zooming to what is inside it. `maxZoom`
             // stops a pair of ads a few metres apart from throwing the map to
             // street level.
@@ -341,7 +372,7 @@ function PinLayer({ points, selectedId, onSelect }) {
               cluster.members.map((m) => [m.lat, m.lng]),
               { padding: [64, 64], maxZoom: 17 },
             ),
-        }}
+        )}
       />
     );
   });

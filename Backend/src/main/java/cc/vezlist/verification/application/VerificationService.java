@@ -7,13 +7,20 @@ import java.util.Locale;
 import java.util.UUID;
 
 import cc.vezlist.admin.application.AdminAuditService;
+import cc.vezlist.catalog.application.CatalogService;
 import cc.vezlist.identity.application.VezlistUserPrincipal;
+import cc.vezlist.identity.domain.Role;
+import cc.vezlist.identity.persistence.UserRepository;
 import cc.vezlist.listings.application.ListingNotFoundException;
 import cc.vezlist.listings.domain.Listing;
+import cc.vezlist.listings.domain.ListingEvent;
 import cc.vezlist.listings.domain.ListingStatus;
 import cc.vezlist.listings.persistence.ListingRepository;
+import cc.vezlist.listings.persistence.ListingEventRepository;
+import cc.vezlist.media.application.ListingMediaService;
 import cc.vezlist.media.storage.ObjectStorage;
 import cc.vezlist.media.storage.StorageProperties;
+import cc.vezlist.moderation.domain.ModerationPolicy.PublicReason;
 import cc.vezlist.shared.domain.SiteScope;
 import cc.vezlist.verification.domain.VerificationPhotoStatus;
 import cc.vezlist.verification.domain.VerificationRequest;
@@ -46,6 +53,10 @@ public class VerificationService {
     private final StorageProperties properties;
     private final ApplicationEventPublisher events;
     private final AdminAuditService audit;
+    private final CatalogService catalog;
+    private final ListingMediaService media;
+    private final UserRepository users;
+    private final ListingEventRepository listingEvents;
     private final SecureRandom random = new SecureRandom();
 
     public VerificationService(
@@ -55,7 +66,11 @@ public class VerificationService {
             ObjectStorage storage,
             StorageProperties properties,
             ApplicationEventPublisher events,
-            AdminAuditService audit) {
+            AdminAuditService audit,
+            CatalogService catalog,
+            ListingMediaService media,
+            UserRepository users,
+            ListingEventRepository listingEvents) {
         this.listings = listings;
         this.requests = requests;
         this.queries = queries;
@@ -63,6 +78,10 @@ public class VerificationService {
         this.properties = properties;
         this.events = events;
         this.audit = audit;
+        this.catalog = catalog;
+        this.media = media;
+        this.users = users;
+        this.listingEvents = listingEvents;
     }
 
     @Transactional
@@ -73,12 +92,16 @@ public class VerificationService {
         Listing listing = listings.findDetailedByIdForUpdate(listingId, ListingStatus.DELETED)
                 .orElseThrow(ListingNotFoundException::new);
         if (!listing.getOwnerId().equals(ownerId)) throw new ListingNotFoundException();
-        if (!ELIGIBLE_LISTING_STATUSES.contains(listing.getStatus())) {
-            throw new VerificationStateException(
-                    "Only a pending or active listing can request verification.");
-        }
-        if (requests.findOpenForUpdate(listingId, OPEN_STATUSES).isPresent()) {
-            throw new VerificationStateException("A verification request is already open for this listing.");
+        requireReviewableListing(listing);
+        VerificationRequest open = requests.findOpenForUpdate(listingId, OPEN_STATUSES).orElse(null);
+        if (open != null) {
+            if (!predatesSubmission(listing, open)) {
+                throw new VerificationStateException("A verification request is already open for this listing.");
+            }
+            open.supersede();
+            // Hibernate inserts before updates; release the partial unique index
+            // before inserting the replacement request, in this same transaction.
+            requests.flush();
         }
         try {
             VerificationRequest saved = requests.save(new VerificationRequest(listingId, ownerId, generateCode()));
@@ -149,6 +172,7 @@ public class VerificationService {
         if (!listing.getOwnerId().equals(ownerId)) throw new ListingNotFoundException();
         VerificationRequest verification = requests.findFirstByListingIdOrderByCreatedAtDesc(listingId)
                 .orElseThrow(VerificationNotFoundException::new);
+        if (predatesSubmission(listing, verification)) throw new VerificationNotFoundException();
         return VerificationRequestResponse.from(verification);
     }
 
@@ -179,10 +203,15 @@ public class VerificationService {
 
     @Transactional
     public VerificationRequestResponse decide(VezlistUserPrincipal staff, UUID requestId, VerificationDecisionRequest request) {
-        VerificationRequest verification = requests.findById(requestId)
+        requireStaff(staff.id());
+        UUID listingId = requests.findListingIdById(requestId)
                 .orElseThrow(VerificationNotFoundException::new);
-        Listing listing = listings.findDetailedByIdForUpdate(verification.getListingId(), ListingStatus.DELETED)
+        Listing listing = listings.findDetailedByIdForUpdate(listingId, ListingStatus.DELETED)
                 .orElseThrow(ListingNotFoundException::new);
+        // Read the request only after acquiring the listing lock. Concurrent
+        // reviewers must see a committed decision, not an earlier JPA snapshot.
+        VerificationRequest verification = requests.findByIdForUpdate(requestId)
+                .orElseThrow(VerificationNotFoundException::new);
         if (listing.getOwnerId().equals(staff.id())) {
             throw new AccessDeniedException("You cannot review verification for your own listing.");
         }
@@ -192,10 +221,26 @@ public class VerificationService {
         if (verification.getPhotoStatus() != VerificationPhotoStatus.READY) {
             throw new VerificationStateException("The verification photo has not finished processing.");
         }
+        requireReviewableListing(listing);
+        if (predatesSubmission(listing, verification)) {
+            throw new VerificationStateException("The listing was resubmitted after this verification request.");
+        }
+        boolean publishAfterVerification = listing.getStatus() == ListingStatus.PENDING_REVIEW
+                && listing.isVerificationRequested();
         switch (request.decision()) {
             case APPROVE -> {
+                if (publishAfterVerification) {
+                    catalog.requireEnabledCategory(listing.getSiteScope(), listing.getCategory().getId());
+                    catalog.requireEnabledLocation(listing.getProvinceId(), listing.getLocation().getId());
+                    media.requireReadyImage(listing.getId());
+                    listing.approveVerification();
+                    listingEvents.save(new ListingEvent(listing.getId(), "LISTING_APPROVED"));
+                } else {
+                    // Existing ACTIVE badge requests and legacy pending listings
+                    // do not gain a new publication or expiry date here.
+                    listing.setVerified(true);
+                }
                 verification.approve(staff.id());
-                listing.setVerified(true);
                 audit.record(staff.id(), "VERIFICATION_APPROVED", "LISTING", listing.getId().toString(),
                         "Verification request " + requestId);
             }
@@ -204,11 +249,38 @@ public class VerificationService {
                     throw new VerificationValidationException("A rejection reason is required.");
                 }
                 verification.reject(staff.id(), request.reason());
+                if (publishAfterVerification) {
+                    listing.rejectVerification(PublicReason.ELIGIBILITY_NOT_CONFIRMED);
+                    listingEvents.save(new ListingEvent(listing.getId(), "LISTING_REJECTED"));
+                } else {
+                    listing.setVerified(false);
+                }
                 audit.record(staff.id(), "VERIFICATION_REJECTED", "LISTING", listing.getId().toString(),
                         request.reason());
             }
         }
         return VerificationRequestResponse.from(verification);
+    }
+
+    private boolean predatesSubmission(Listing listing, VerificationRequest verification) {
+        return listing.getSubmittedAt() != null
+                && verification.getCreatedAt().isBefore(listing.getSubmittedAt());
+    }
+
+    private void requireReviewableListing(Listing listing) {
+        if (!ELIGIBLE_LISTING_STATUSES.contains(listing.getStatus())
+                || (listing.getStatus() == ListingStatus.ACTIVE && listing.getExpiresAt() != null
+                    && !listing.getExpiresAt().isAfter(Instant.now()))
+                || users.findById(listing.getOwnerId()).filter(user -> user.isEnabled()).isEmpty()) {
+            throw new VerificationStateException("This listing is no longer available for verification.");
+        }
+    }
+
+    private void requireStaff(UUID staffId) {
+        if (users.findById(staffId).filter(user -> user.isEnabled()
+                && (user.getRoles().contains(Role.MODERATOR) || user.getRoles().contains(Role.ADMIN))).isEmpty()) {
+            throw new AccessDeniedException("Staff access is required.");
+        }
     }
 
     private VerificationRequest ownedRequest(UUID ownerId, UUID listingId, UUID requestId) {
