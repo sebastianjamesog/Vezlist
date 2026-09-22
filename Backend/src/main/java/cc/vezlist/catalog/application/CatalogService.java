@@ -1,6 +1,7 @@
 package cc.vezlist.catalog.application;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -14,6 +15,7 @@ import cc.vezlist.catalog.web.LocationResponse;
 import cc.vezlist.catalog.web.LocationsResponse;
 import cc.vezlist.catalog.web.ProvinceResponse;
 import cc.vezlist.shared.domain.SiteScope;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -55,6 +57,13 @@ public class CatalogService {
                 .map(LocationResponse::from)
                 .toList();
         return new LocationsResponse(provinces, popularAreas);
+    }
+
+    public List<LocationResponse> searchLocations(String query, int limit) {
+        String normalizedQuery = query == null ? "" : query.strip().toLowerCase(Locale.ROOT);
+        return locationRepository.searchEnabledAreas(normalizedQuery, PageRequest.of(0, limit)).stream()
+                .map(LocationResponse::from)
+                .toList();
     }
 
     public void requireEnabledCategory(SiteScope site, String categoryId) {

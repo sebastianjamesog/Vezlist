@@ -41,7 +41,8 @@ public record ListingResponse(
         Instant submittedAt,
         Instant publishedAt,
         Instant expiresAt,
-        boolean verified) {
+        boolean verified,
+        boolean verificationRequested) {
 
     public static ListingResponse from(Listing listing, List<ListingMediaResponse> media) {
         Location location = listing.getLocation();
@@ -54,6 +55,6 @@ public record ListingResponse(
                 listing.getContactEmail(), listing.getContactPhone(), listing.getLatitude(), listing.getLongitude(),
                 listing.getAttributes(), listing.getVersion(), 0, listing.getSaveCount(), media,
                 listing.getCreatedAt(), listing.getUpdatedAt(), listing.getSubmittedAt(),
-                listing.getPublishedAt(), listing.getExpiresAt(), listing.isVerified());
+                listing.getPublishedAt(), listing.getExpiresAt(), listing.isVerified(), listing.isVerificationRequested());
     }
 }

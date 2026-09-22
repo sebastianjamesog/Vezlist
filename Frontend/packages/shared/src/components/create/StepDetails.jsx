@@ -2,8 +2,8 @@
 
 import Field, { FIELD, border } from "./Field";
 import { availabilityOptions, ethnicities } from "../../data/mock";
-import { CREATE_CATEGORIES, isPersonalsCategory } from "../../lib/adDraft";
-import { subsFor } from "../../lib/taxonomy";
+import { isPersonalsCategory } from "../../lib/adDraft";
+import CategoryPicker from "./CategoryPicker";
 
 const PILL =
   "rounded-full border px-4 py-2 text-[14px] font-semibold transition-colors";
@@ -36,7 +36,6 @@ const PERSONAL_FIELDS = [
 ];
 
 export default function StepDetails({ draft, errors, onPatch }) {
-  const subs = subsFor(draft.category);
   const personals = isPersonalsCategory(draft.category);
 
   return (
@@ -64,70 +63,7 @@ export default function StepDetails({ draft, errors, onPatch }) {
         />
       </Field>
 
-      <Field label="Category" error={errors.category}>
-        <div className="flex flex-wrap gap-2">
-          {CREATE_CATEGORIES.map((c) => (
-            <button
-              key={c}
-              type="button"
-              aria-pressed={draft.category === c}
-              /*
-                The sub-category rides along in the same patch rather than being
-                cleared by an effect watching `draft.category`. An effect would
-                run a render *after* the switch, so there is a frame in which the
-                draft says "Property › Motorcycles" — and that frame is exactly
-                the one a validation or an auto-advance could read. Clearing it
-                in the same state update means the illegal pair never exists.
-              */
-              onClick={() => onPatch({ category: c, subcategory: "" })}
-              className={`${PILL} ${pill(draft.category === c)}`}
-            >
-              {c}
-            </button>
-          ))}
-        </div>
-      </Field>
-
-      {/*
-        Nothing to ask until there is a category, and nothing to ask for the
-        handful of categories that carry no `subs`. An empty or disabled picker
-        would still read as a question the poster has failed to answer, so the
-        field is absent instead of inert.
-      */}
-      {subs.length > 0 && (
-        <Field label="Sub-category" hint="Optional" error={errors.subcategory}>
-          <div className="flex flex-wrap gap-2">
-            {/*
-              "None" is its own pill rather than a second press on the chosen one
-              toggling it off. Toggle-off is invisible: nothing on the screen says
-              a pressed pill can be un-pressed, and a keyboard user tabbing the
-              row would never find it. With an explicit pill, "they did not want
-              one" is a state that is selected, announced and reachable by Tab
-              like every other option — and the row starts out visibly answered
-              rather than looking like a question left hanging.
-            */}
-            <button
-              type="button"
-              aria-pressed={!draft.subcategory}
-              onClick={() => onPatch({ subcategory: "" })}
-              className={`${PILL} ${pill(!draft.subcategory)}`}
-            >
-              None
-            </button>
-            {subs.map((s) => (
-              <button
-                key={s}
-                type="button"
-                aria-pressed={draft.subcategory === s}
-                onClick={() => onPatch({ subcategory: s })}
-                className={`${PILL} ${pill(draft.subcategory === s)}`}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        </Field>
-      )}
+      <CategoryPicker draft={draft} error={errors.category} onPatch={onPatch} />
 
       <Field label="Price" hint="Optional" error={errors.price}>
         <div className="relative">
@@ -161,10 +97,10 @@ export default function StepDetails({ draft, errors, onPatch }) {
       </Field>
 
       {/*
-        The personals group, and only for a category that is about a person.
+        The personals group belongs to the Personals board, including categories
+        added or renamed by an administrator, and Marketplace's Dating category.
         Someone selling a dining table is never shown a field for their eye
-        colour — not disabled, not greyed, absent, the same way the
-        sub-category picker is absent for a category that has no subs.
+        colour.
 
         It sits behind its own border and after the description rather than
         being mixed in above, because these answers are the long tail of the

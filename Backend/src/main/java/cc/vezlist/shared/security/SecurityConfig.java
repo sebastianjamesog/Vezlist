@@ -46,6 +46,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/listings").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/listings/*").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/sellers/*").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/locations/search").permitAll()
                         .requestMatchers(
                                 "/api/v1",
                                 "/api/v1/auth/csrf",

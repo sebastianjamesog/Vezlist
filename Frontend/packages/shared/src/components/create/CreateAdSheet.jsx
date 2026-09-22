@@ -11,7 +11,6 @@ import {
   X,
 } from "lucide-react";
 import {
-  CREATE_CATEGORIES,
   DRAFT_KEY,
   EMPTY_DRAFT,
   MAX_IMAGES,
@@ -75,10 +74,7 @@ function Stepper({ step, onJump }) {
  */
 export default function CreateAdSheet({ open, onClose, onPublish }) {
   const [step, setStep] = useState(0);
-  const [draft, setDraft] = useState({
-    ...EMPTY_DRAFT,
-    category: CREATE_CATEGORIES[0],
-  });
+  const [draft, setDraft] = useState({ ...EMPTY_DRAFT });
   const [errors, setErrors] = useState({});
   // True while a just-picked photo is being downscaled and stripped of EXIF
   // (see `lib/media.js`) — a `<input disabled>`/`aria-live` state in
@@ -92,6 +88,8 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
   // don't exist until a real listing does, so there is nothing here worth
   // restoring across a reload.
   const [wantVerification, setWantVerification] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const publishLock = useRef(false);
   const idSeq = useRef(0);
   const toast = useToast();
   const { can } = useAccount();
@@ -140,7 +138,7 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
 
   function reset() {
     setStep(0);
-    setDraft({ ...EMPTY_DRAFT, category: CREATE_CATEGORIES[0] });
+    setDraft({ ...EMPTY_DRAFT });
     setErrors({});
     setWantVerification(false);
     // The write-back effect above clears storage on its own the next time it
@@ -179,10 +177,10 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e) => e.key === "Escape" && onClose();
+    const onKey = (e) => e.key === "Escape" && !publishing && onClose();
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, onClose, publishing]);
 
   // The shell's `openPost` is still the only thing that sets `open`, and it
   // still refuses a browsing account before it gets here — the tab bar offers
@@ -271,12 +269,28 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
     patch({ images: draft.images.filter((i) => i.id !== id) });
   }
 
-  function next() {
+  async function next() {
+    if (publishLock.current) return;
     const found = validateStep(current.id, draft);
     if (Object.keys(found).length) return setErrors(found);
     if (step < STEPS.length - 1) return setStep(step + 1);
-    onPublish(draft, { requestVerification: wantVerification });
-    reset();
+    publishLock.current = true;
+    setPublishing(true);
+    setErrors({});
+    try {
+      await onPublish(draft, { requestVerification: wantVerification });
+      reset();
+      onClose();
+    } catch (error) {
+      setErrors({
+        publish:
+          error?.message ||
+          "Couldn't publish your ad. Your draft is saved; please try again.",
+      });
+    } finally {
+      publishLock.current = false;
+      setPublishing(false);
+    }
   }
 
   function discard() {
@@ -294,7 +308,9 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
     <div className="absolute inset-0 z-[1000] flex flex-col justify-end pb-nav lg:fixed lg:items-center lg:justify-center lg:p-8 lg:pb-8">
       <div
         className="absolute inset-0 bg-slate-900/50 backdrop-blur-[3px]"
-        onClick={onClose}
+        onClick={() => {
+          if (!publishing) onClose();
+        }}
       />
 
       <div
@@ -307,6 +323,7 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
           <div className="flex items-center gap-2 px-2 pt-2">
             <button
               onClick={back}
+              disabled={publishing}
               aria-label={step === 0 ? "Close" : "Back"}
               className="grid size-10 shrink-0 place-items-center rounded-full text-ink transition-colors hover:bg-canvas active:scale-95"
             >
@@ -325,6 +342,7 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
               {dirty && (
                 <button
                   onClick={discard}
+                  disabled={publishing}
                   aria-label="Discard this draft"
                   className="grid size-8 place-items-center rounded-full text-muted transition-colors hover:bg-canvas hover:text-red-600"
                 >
@@ -337,7 +355,12 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
             </div>
           </div>
 
-          <Stepper step={step} onJump={setStep} />
+          <Stepper
+            step={step}
+            onJump={(index) => {
+              if (!publishing) setStep(index);
+            }}
+          />
         </header>
 
         <div
@@ -353,39 +376,51 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
             </p>
           </div>
 
-          {current.id === "photos" && (
-            <StepPhotos
-              images={draft.images}
-              error={errors.images}
-              busy={addingPhotos}
-              onAdd={addImages}
-              onRemove={removeImage}
-              onReorder={reorderImage}
-            />
-          )}
-          {current.id === "details" && (
-            <StepDetails draft={draft} errors={errors} onPatch={patch} />
-          )}
-          {current.id === "contact" && (
-            <StepContact draft={draft} errors={errors} onPatch={patch} />
-          )}
-          {current.id === "review" && (
-            <StepReview
-              draft={draft}
-              onEdit={setStep}
-              verified={wantVerification}
-              onToggleVerified={setWantVerification}
-            />
-          )}
+          <fieldset disabled={publishing} className="min-w-0">
+            {current.id === "photos" && (
+              <StepPhotos
+                images={draft.images}
+                error={errors.images}
+                busy={addingPhotos}
+                onAdd={addImages}
+                onRemove={removeImage}
+                onReorder={reorderImage}
+              />
+            )}
+            {current.id === "details" && (
+              <StepDetails draft={draft} errors={errors} onPatch={patch} />
+            )}
+            {current.id === "contact" && (
+              <StepContact draft={draft} errors={errors} onPatch={patch} />
+            )}
+            {current.id === "review" && (
+              <StepReview
+                draft={draft}
+                onEdit={setStep}
+                verified={wantVerification}
+                onToggleVerified={setWantVerification}
+              />
+            )}
+          </fieldset>
         </div>
 
         <footer className="shrink-0 border-t border-line bg-surface px-4 pb-4 pt-3 lg:px-8">
+          {errors.publish && (
+            <p role="alert" className="mb-3 text-[13px] text-red-600">
+              {errors.publish}
+            </p>
+          )}
           <button
             onClick={next}
+            disabled={publishing || addingPhotos}
             className="brand-gradient flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-[16px] font-bold text-on-brand shadow-pop transition-transform duration-150 hover:brightness-110 active:scale-[0.98]"
           >
             {last && <Sparkles className="size-5" />}
-            {current.cta}
+            {publishing
+              ? "Submitting..."
+              : last && wantVerification
+                ? "Submit for verification"
+                : current.cta}
             {!last && <ArrowRight className="size-5" strokeWidth={2.5} />}
           </button>
         </footer>

@@ -1,6 +1,7 @@
-@import "tailwindcss";
-/* Each app builds from its own directory, so Tailwind's automatic source
-   detection never reaches this package. Point it at both sides by hand. */
+@import "tailwindcss" source(none);
+@import "@fontsource-variable/inter/index.css";
+/* Scan only application source: automatic detection can pick up binary classes
+   from alternate Next.js build caches. Include shared components and all apps. */
 @source "./**/*.{js,jsx}";
 @source "../../../apps/*/app/**/*.{js,jsx}";
 /* ---------------------------------------------------------------------------
@@ -28,10 +29,10 @@
   --color-danger-soft: var(--danger-soft);
 }
 @theme {
-  /* next/font self-hosts Inter and hands back a class that sets --font-inter,
-     so the family is never a blocking request to a third-party origin. */
+  /* Bundle Inter locally: builds and error screens must not depend on the
+     Google-font download/virtual-module pipeline. Fontsource uses swap. */
   --font-sans:
-    var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
     Roboto, sans-serif;
   /* One step softer than Tailwind's defaults, and rounder: the whole UI is
      built from stacked cards, so corners carry a lot of the character. */

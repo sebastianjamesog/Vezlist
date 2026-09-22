@@ -4,12 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useNavigate } from "../lib/nav";
 import {
-  BadgeCheck,
   Camera,
   ChevronRight,
   LogOut,
   MapPin,
   Plus,
+  UserRound,
 } from "lucide-react";
 import TopBar from "../components/layout/TopBar";
 import PageBody from "../components/layout/PageBody";
@@ -17,14 +17,18 @@ import { useShell } from "../components/layout/AppLayout";
 import Icon from "../components/ui/Icon";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import MediaImage from "../components/media/MediaImage.jsx";
-import { useSaved } from "../context/SavedContext";
 import { useStatus } from "../context/StatusContext";
 import { useToast } from "../context/ToastContext";
 import { useAuth } from "../context/AuthContext";
 import { useAccount } from "../context/AccountContext";
 import { IS_PERSONALS } from "../lib/sites";
 import { getUnreadCount } from "../lib/api/notifications";
-import { creatorStats, profile, profileMenu } from "../data/mock";
+import { getProfile } from "../lib/api/users";
+import { ownedListingSummary } from "../lib/api/listings";
+import { listSavedListings } from "../lib/api/saved";
+import { SITE_SCOPE } from "../lib/api/client";
+import { useProfileResource } from "../lib/useProfileResource";
+import { profileMenu } from "../data/profileMenu";
 
 const tones = {
   brand: "brand-gradient text-on-brand",
@@ -32,28 +36,73 @@ const tones = {
   grey: "bg-canvas text-ink",
 };
 
-function Stat({ value, label }) {
+async function loadActiveAds() {
+  const response = await ownedListingSummary(SITE_SCOPE);
+  if (!Number.isSafeInteger(response?.activeAds) || response.activeAds < 0) {
+    throw new Error("Invalid active-ad count");
+  }
+  return response.activeAds;
+}
+
+async function loadSavedAds() {
+  // totalCount includes the full accessible list, not just a locally loaded page.
+  const response = await listSavedListings({ site: SITE_SCOPE, limit: 1 });
+  if (!Number.isSafeInteger(response?.totalCount) || response.totalCount < 0) {
+    throw new Error("Invalid saved-ad count");
+  }
+  return response.totalCount;
+}
+
+function Stat({ resource, label }) {
   return (
     <div className="flex-1 rounded-2xl bg-on-brand/15 px-2 py-2.5 text-center backdrop-blur-sm">
-      <p className="text-[20px] font-extrabold leading-none text-on-brand">
-        {value}
-      </p>
+      {resource.status === "success" ? (
+        <p className="text-[20px] font-extrabold leading-none text-on-brand">
+          {resource.data.toLocaleString()}
+        </p>
+      ) : resource.status === "error" ? (
+        <p className="text-[13px] font-semibold text-on-brand">Unavailable</p>
+      ) : (
+        <span
+          role="status"
+          aria-label={`Loading ${label.toLowerCase()}`}
+          className="mx-auto block h-5 w-10 rounded bg-on-brand/20"
+        />
+      )}
       <p className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-on-brand/75">
         {label}
       </p>
+      {resource.status === "error" && (
+        <button
+          type="button"
+          onClick={resource.retry}
+          aria-label={`Retry ${label.toLowerCase()}`}
+          className="mt-1 text-xs font-semibold text-on-brand underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+        >
+          Retry
+        </button>
+      )}
     </div>
   );
 }
 
 export default function Profile() {
-  const { count: savedCount } = useSaved();
-  const { seen, myUpdates } = useStatus();
+  const { myUpdates } = useStatus();
   const toast = useToast();
   const { user, signOut, signedIn } = useAuth();
   const { can, isCreator, roleMeta } = useAccount();
   const { openStory } = useShell();
   const navigate = useNavigate();
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const userId = signedIn ? user?.id : null;
+  const profile = useProfileResource(userId, getProfile);
+  const activeAds = useProfileResource(
+    isCreator ? userId : null,
+    loadActiveAds,
+  );
+  const savedAds = useProfileResource(userId, loadSavedAds);
+  const savedCount = savedAds.status === "success" ? savedAds.data : null;
+  const displayName = profile.data?.name || user?.name || "Your profile";
 
   // The menu is where the two account views actually diverge. A row that names
   // a capability exists only for the roles that hold it, so a browsing account
@@ -66,49 +115,30 @@ export default function Profile() {
   // Same endpoint the bell in TopBar reads (GET
   // /api/v1/me/notifications/unread-count) — one source for whether either
   // dot is allowed to show. Best-effort: a failed fetch just leaves it off.
-  const [hasUnread, setHasUnread] = useState(false);
+  const [unread, setUnread] = useState(null);
+  const hasUnread = unread?.userId === userId && unread?.count > 0;
   useEffect(() => {
-    if (!signedIn) {
-      setHasUnread(false);
-      return;
-    }
+    setUnread(null);
+    if (!userId) return;
     let cancelled = false;
     getUnreadCount()
       .then((count) => {
-        if (!cancelled) setHasUnread(count.count > 0);
+        if (!cancelled) setUnread({ userId, count: count.count });
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [signedIn]);
+  }, [userId]);
 
-  const viewsThisWeek = creatorStats.viewsByDay.reduce((n, v) => n + v, 0);
-
-  /**
-   * Two roles, two sets of numbers. The old trio — active ads, years active,
-   * saved — is a seller's scoreboard, and on a browsing account two thirds of
-   * it is either zero or a claim about ads that do not exist.
-   *
-   * The browsing set is deliberately a pair, not a trio. Saved is live out of
-   * SavedContext and Watched is the status updates this account has opened,
-   * live out of StatusContext — both count something the person actually did,
-   * out of the same per-origin storage the rest of the app reads. There is no
-   * honest third: nothing in this build measures a reader beyond those two, and
-   * a "profile views" tile with no profile-view data behind it is a number
-   * invented to fill a slot. Two stats that are true beat three where one is
-   * decoration.
-   */
+  // Weekly analytics and account verification have no backend contract yet.
+  // Only display supported, session-owned values, never demo stand-ins.
   const stats = isCreator
     ? [
-        { label: "Active ads", value: profile.activeAds },
-        { label: "Views this week", value: viewsThisWeek.toLocaleString() },
-        { label: "Saved", value: savedCount },
+        { label: "Active ads", resource: activeAds },
+        { label: "Saved", resource: savedAds },
       ]
-    : [
-        { label: "Saved", value: savedCount },
-        { label: "Watched", value: seen.length },
-      ];
+    : [{ label: "Saved", resource: savedAds }];
 
   return (
     <>
@@ -118,7 +148,10 @@ export default function Profile() {
         <div className="lg:grid lg:grid-cols-[380px_1fr] lg:items-start lg:gap-8">
           <div className="lg:sticky lg:top-6">
             {/* Gradient hero: identity first, numbers second. */}
-            <section className="brand-gradient relative overflow-hidden rounded-card p-5 shadow-lift lg:p-6">
+            <section
+              aria-label="Your profile"
+              className="brand-gradient relative overflow-hidden rounded-card p-5 shadow-lift lg:p-6"
+            >
               <span
                 aria-hidden="true"
                 className="absolute -right-10 -top-10 size-40 rounded-full bg-on-brand/15 blur-2xl"
@@ -126,26 +159,28 @@ export default function Profile() {
 
               <div className="relative flex items-center gap-4">
                 <span className="relative shrink-0">
-                  <MediaImage
-                    src={user?.avatar ?? profile.avatar}
-                    alt={user?.name ?? profile.name}
-                    width={80}
-                    height={80}
-                    className="size-20 rounded-3xl object-cover ring-4 ring-on-brand/30"
-                  />
-                  {profile.verified && (
-                    <span className="absolute -bottom-1.5 -right-1.5 grid size-7 place-items-center rounded-full bg-on-brand">
-                      <BadgeCheck
-                        className="size-5 text-brand"
-                        strokeWidth={2.6}
-                      />
+                  {profile.data?.avatarUrl ? (
+                    <MediaImage
+                      src={profile.data.avatarUrl}
+                      alt={displayName}
+                      width={80}
+                      height={80}
+                      className="size-20 rounded-3xl object-cover ring-4 ring-on-brand/30"
+                    />
+                  ) : (
+                    <span
+                      role="img"
+                      aria-label="No profile photo"
+                      className="grid size-20 place-items-center rounded-3xl bg-on-brand/15 text-on-brand ring-4 ring-on-brand/30"
+                    >
+                      <UserRound className="size-10" aria-hidden="true" />
                     </span>
                   )}
                 </span>
 
                 <div className="min-w-0">
                   <h1 className="truncate text-[24px] font-extrabold text-on-brand">
-                    {user?.name ?? profile.name}
+                    {displayName}
                   </h1>
 
                   {/* Which of the two views you are in, said out loud. The menu
@@ -162,18 +197,48 @@ export default function Profile() {
                     {roleMeta.label}
                   </p>
 
-                  <p className="mt-1.5 flex items-center gap-1 text-[13px] font-medium text-on-brand/80">
-                    <MapPin className="size-3.5" />
-                    {profile.location}
-                  </p>
+                  {profile.status === "success" && (
+                    <p className="mt-1.5 flex items-center gap-1 text-[13px] font-medium text-on-brand/80">
+                      <MapPin
+                        className="size-3.5 shrink-0"
+                        aria-hidden="true"
+                      />
+                      {profile.data.location || "Location not set"}
+                    </p>
+                  )}
+                  {profile.status === "loading" && (
+                    <p
+                      role="status"
+                      className="mt-1.5 text-[13px] text-on-brand/80"
+                    >
+                      Loading profile...
+                    </p>
+                  )}
+                  {profile.status === "error" && (
+                    <div
+                      role="alert"
+                      className="mt-1.5 text-[13px] text-on-brand"
+                    >
+                      <p>Profile details unavailable.</p>
+                      <button
+                        type="button"
+                        onClick={profile.retry}
+                        className="font-semibold underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                      >
+                        Retry profile
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="relative mt-5 flex gap-2">
-                {stats.map((s) => (
-                  <Stat key={s.label} value={s.value} label={s.label} />
-                ))}
-              </div>
+              {userId && (
+                <div className="relative mt-5 flex gap-2">
+                  {stats.map((s) => (
+                    <Stat key={s.label} resource={s.resource} label={s.label} />
+                  ))}
+                </div>
+              )}
             </section>
           </div>
 
@@ -284,7 +349,7 @@ export default function Profile() {
                     <span className="mt-0.5 block truncate text-[13px] text-muted">
                       {/* Two rows say more when they say the live number than
                           when they say what the screen is for. */}
-                      {item.id === "saved" && savedCount
+                      {item.id === "saved" && savedCount !== null
                         ? `${savedCount} saved ${savedCount === 1 ? "ad" : "ads"}`
                         : item.sub}
                     </span>

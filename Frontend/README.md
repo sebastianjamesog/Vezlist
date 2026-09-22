@@ -72,8 +72,8 @@ build reports success.
 **Known consequence:** browser storage is per-origin, so saved items
 (`vezlist:saved:v1`) and watched-status (`vezlist:status-seen:v1`) do **not**
 carry across the two sites. Sharing them needs a backend session or a cookie on the
-parent domain — neither exists yet. The create sheet is also still the
-marketplace's, so posting from the personals site offers marketplace categories.
+parent domain — neither exists yet. Both sites share the create sheet, but its
+category picker requests only the current site's backend categories.
 
 ## Rendering and caching
 
@@ -113,7 +113,7 @@ bucket write instead of a redeploy.
 
 ```
 app/
-  layout.jsx              <html>, next/font, metadata, Providers
+  layout.jsx              <html>, shared fonts/CSS, metadata, Providers
   providers.jsx           Saved / Status / Feed — mounted above every route
   not-found.jsx           unknown paths redirect to /
   icon.svg                the favicon, by Next's file convention
@@ -355,6 +355,32 @@ flag before freezing.
 
 ## Creating an ad
 
+Regular ads publish directly on Marketplace and Personals once every uploaded
+photo is processed. The final Review step is the seller's preview, not a staff
+approval queue. Selecting **Post as Verified** sends `requestVerification: true`
+on submission and keeps the ad private until staff approve the code/photo proof.
+The wizard opens the verification upload step after submission; My Ads can resume
+it later. The server's returned status determines the success message. Failed
+submission keeps the local draft, and the publish action is disabled while busy.
+
+The details step loads categories from `GET /api/v1/categories?site=MARKETPLACE`
+or `?site=PERSONALS`, depending on the app. It shows only the backend's enabled
+categories, including new or renamed ones, with loading/error/retry/empty states.
+The selected category ID is saved in drafts and submitted unchanged on create/edit;
+labels are display text and are never resolved to a fallback category. Old drafts
+with only a label require reselection. The API does not provide subcategories, so
+posting does not offer mock subcategory options; existing subcategory attributes
+are preserved unless the category changes. Personals' optional profile fields work
+with any backend category on that site.
+
+The contact step loads location suggestions from `GET /api/v1/locations/search`.
+At most two rows of suggested areas are shown; typing searches area and province
+names on the backend after a short debounce. Selecting a result stores its area
+and province IDs with the draft, and create/edit requests preserve those IDs.
+Free text must be resolved by selecting a result; it never falls back to a
+different popular location. Loading, unavailable, and empty results are shown
+explicitly, with retry when a request fails.
+
 Publishing is a four-step flow (`packages/shared/src/components/create/`) rather than one long
 form: **photos → details → contact → review**. Each step does one job. The
 header carries a story-style stepper — one segment per step, labelled, filled
@@ -445,16 +471,25 @@ empty result offers the full help centre or a ticket rather than a dead end.
 
 ## Account and auth
 
+The profile hero on both sites reads identity, avatar and location from
+`GET /api/v1/me/profile`, active ads from
+`GET /api/v1/me/listings/summary?site=...`, and the exact saved total from
+`GET /api/v1/me/saved-listings?site=...&limit=1`. Loading and failed reads do not
+invent zero counts; each failed section has its own retry. Missing photos and
+locations use neutral placeholders. Weekly views, a local watched count and the
+demo account-verification badge are not shown because no backend contract
+supports those profile metrics. Restart the backend to enable the summary route.
+
 `/login` renders outside `AppLayout` — no rail, no tab bar, since there is
 nothing to navigate to until you're in. It's one form in two modes; `lib/auth.js`
 owns `validateAuth(values, mode)` so sign-in and sign-up can't drift apart
 (5 tests). Desktop splits it: brand panel left, form right.
 
-There is no backend, so `AuthContext` is honest about what it is: signing in
-means the form validated and we recorded who you said you were. Verifying the
-password, issuing a token and expiring it are the server's job and are missing.
-What _is_ real is the shape — one session the whole app reads, it survives a
-reload, signing out clears it, and the account area is gated on it:
+`AuthContext` authenticates against the backend and restores identity from
+`GET /api/v1/auth/me` using the Spring Session cookie. Password verification and
+session lifetime are server responsibilities. The creator/browsing switch is a
+client preference, not a server authorization claim. The account area is gated
+on the authenticated session:
 
 - `RequireAuth` wraps `app/(shell)/profile/layout.jsx`, so everything under
   `/profile` needs a session. It renders nothing until the session has loaded
@@ -705,9 +740,10 @@ pastel had to be restated hue by hue — they live as `tone-*` utilities in
 `index.css` with a `[data-theme="personals"]` block, and `lib/tones.js` is the
 one map the three screens that use them share.
 
-The map is OpenStreetMap in both themes; personals inverts and hue-rotates the
-tile images rather than paying for a second tile provider. The filter is on
-`.leaflet-tile` alone, so the pins and controls stay as drawn.
+Both sites use OpenFreeMap's Positron vector style, rendered by MapLibre GL
+through its Leaflet adapter. Leaflet owns the photo pins, clustering, zoom,
+and location controls. No API key or account is required. OpenMapTiles and
+OpenStreetMap attribution remains visible on the map.
 
 ## The adult treatment
 
@@ -853,15 +889,17 @@ The server half of the app is `app/` and nothing else.
   Filtering runs client-side over that array — move it into the query when there's an API.
 - Images come from `picsum.photos`, so the feeds need network access to show
   photos. The host is allow-listed in each `next.config.mjs`.
-- The map is Leaflet on OpenStreetMap tiles — no API key needed. Leaflet reads
+- The map uses MapLibre + OpenFreeMap with a Leaflet interaction layer — no API key needed. Leaflet reads
   `window` while it is being imported, so `MapView` is pulled in with
   `next/dynamic` and `ssr: false`; the rest of Nearby still renders on the server.
 - The bottom-nav label reads "Support"; the mockup spells it "Sapport".
 - Map pins are inline SVG rather than emoji so they don't depend on an emoji font.
 - `.leaflet-container` gets `isolation: isolate` — Leaflet's panes go up to
   `z-index: 700` and would otherwise paint over any dialog opened on the map page.
-- Inter is self-hosted and subset by `next/font/google` in each root layout,
-  exposed to Tailwind as `--font-inter`; the stack falls back to the system UI
-  font. No render-blocking request to a third-party origin.
+- Inter is bundled through pinned `@fontsource-variable/inter` in the shared
+  stylesheet, including global error screens. No Google-font download or
+  Turbopack virtual-font module is needed at build time. Fonts use `swap`,
+  unicode subsets and a system UI fallback. After pulling dependency changes,
+  run `npm install` in `Frontend` and restart the dev runner.
 - The mockups' iOS status bar and home indicator are not reproduced — the device
   draws those. The bottom nav pads for `env(safe-area-inset-bottom)` instead.

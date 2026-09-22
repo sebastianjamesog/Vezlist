@@ -55,8 +55,10 @@ public class ListingController {
     ListingResponse submit(
             @AuthenticationPrincipal VezlistUserPrincipal principal,
             @PathVariable UUID listingId,
-            @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 160) String idempotencyKey) {
-        return listingService.submit(principal.id(), listingId, idempotencyKey);
+            @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 160) String idempotencyKey,
+            @RequestBody(required = false) ListingSubmitRequest request) {
+        return listingService.submit(principal.id(), listingId, idempotencyKey,
+                request != null && request.requestVerification());
     }
 
     @GetMapping("/listings/{listingId}")
@@ -72,6 +74,13 @@ public class ListingController {
             @AuthenticationPrincipal VezlistUserPrincipal principal,
             @RequestParam SiteScope site) {
         return listingService.owned(principal.id(), site);
+    }
+
+    @GetMapping("/me/listings/summary")
+    OwnedListingSummaryResponse summary(
+            @AuthenticationPrincipal VezlistUserPrincipal principal,
+            @RequestParam SiteScope site) {
+        return new OwnedListingSummaryResponse(listingService.activeOwnedCount(principal.id(), site));
     }
 
     @DeleteMapping("/listings/{listingId}")

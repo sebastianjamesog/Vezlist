@@ -5,7 +5,10 @@ import { Clock, RefreshCcw, ShieldCheck, Upload } from "lucide-react";
 import Modal from "../ui/Modal";
 import Button from "../ui/Button";
 import { ApiError } from "../../lib/api/client.js";
-import { currentVerification, uploadVerificationPhoto } from "../../lib/api/verification.js";
+import {
+  currentVerification,
+  uploadVerificationPhoto,
+} from "../../lib/api/verification.js";
 
 const POLL_INTERVAL_MS = 1500;
 const POLL_ATTEMPTS = 6;
@@ -39,12 +42,17 @@ function validateVerificationPhoto(file) {
  * rejection the seller can retry from).
  *
  * Closing at any point is safe — nothing here is undone by dismissing the
- * modal. The listing already published; the verification request keeps
- * whatever state it was in on the server, and the Verified badge shows up on
- * its own (discovery/search/ad-detail all read the listing's own column)
- * once staff approve it, whether or not this modal is still open then.
+ * modal. A verification-requested ad stays private until staff approve it.
+ * My Ads can resume the saved request; approval publishes the ad with its
+ * Verified badge whether or not this modal is still open then.
  */
-export default function VerificationRequestModal({ open, listingId, initial, onClose }) {
+export default function VerificationRequestModal({
+  open,
+  listingId,
+  initial,
+  onClose,
+  publicationPending = false,
+}) {
   const [request, setRequest] = useState(initial ?? null);
   const [file, setFile] = useState(null);
   const [fileError, setFileError] = useState(null);
@@ -53,26 +61,35 @@ export default function VerificationRequestModal({ open, listingId, initial, onC
   const [polling, setPolling] = useState(false);
   const [pollExhausted, setPollExhausted] = useState(false);
   const inputRef = useRef(null);
+  const generation = useRef(0);
 
   // Freshly opened for a new listing: start over from whatever the publish
   // flow just handed us, not whatever an earlier open left behind.
   useEffect(() => {
+    const current = ++generation.current;
     if (!open) return;
     setRequest(initial ?? null);
     setFile(null);
     setFileError(null);
     setUploadError(null);
+    setUploading(false);
     setPolling(false);
     setPollExhausted(false);
-  }, [open, initial]);
+    if (initial?.photoStatus === "PROCESSING") pollForOutcome(current);
+    return () => {
+      generation.current += 1;
+    };
+  }, [open, initial, listingId]);
 
-  async function pollForOutcome() {
+  async function pollForOutcome(current = generation.current) {
     setPolling(true);
     setPollExhausted(false);
     for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      if (current !== generation.current) return;
       try {
         const latest = await currentVerification(listingId);
+        if (current !== generation.current) return;
         setRequest(latest);
         if (latest.photoStatus !== "PROCESSING") {
           setPolling(false);
@@ -83,6 +100,7 @@ export default function VerificationRequestModal({ open, listingId, initial, onC
         // next tick, up to the same attempt cap.
       }
     }
+    if (current !== generation.current) return;
     setPolling(false);
     setPollExhausted(true);
   }
@@ -99,18 +117,28 @@ export default function VerificationRequestModal({ open, listingId, initial, onC
     if (problem) return setFileError(problem);
     setUploading(true);
     setUploadError(null);
+    const current = generation.current;
     try {
-      const afterComplete = await uploadVerificationPhoto(listingId, request.id, file, file.name);
+      const afterComplete = await uploadVerificationPhoto(
+        listingId,
+        request.id,
+        file,
+        file.name,
+      );
+      if (current !== generation.current) return;
       setRequest(afterComplete);
       setFile(null);
       if (inputRef.current) inputRef.current.value = "";
-      if (afterComplete.photoStatus === "PROCESSING") pollForOutcome();
+      if (afterComplete.photoStatus === "PROCESSING") pollForOutcome(current);
     } catch (error) {
+      if (current !== generation.current) return;
       setUploadError(
-        error instanceof ApiError ? error.message : "Couldn't upload that photo — try again.",
+        error instanceof ApiError
+          ? error.message
+          : "Couldn't upload that photo — try again.",
       );
     } finally {
-      setUploading(false);
+      if (current === generation.current) setUploading(false);
     }
   }
 
@@ -118,8 +146,7 @@ export default function VerificationRequestModal({ open, listingId, initial, onC
 
   const awaitingPhoto = request.status === "AWAITING_PHOTO";
   const photoRejected = awaitingPhoto && request.photoStatus === "REJECTED";
-  const processing =
-    polling || request.photoStatus === "PROCESSING" || request.photoStatus === "UPLOADING";
+  const processing = polling || request.photoStatus === "PROCESSING";
 
   let body;
   if (request.status === "APPROVED") {
@@ -128,7 +155,9 @@ export default function VerificationRequestModal({ open, listingId, initial, onC
         <ShieldCheck className="size-12 text-emerald-600" />
         <p className="text-[16px] font-bold text-ink">Verified</p>
         <p className="text-[14px] text-muted">
-          Your ad now shows the Verified badge everywhere it appears.
+          {publicationPending
+            ? "Your ad is live with the Verified badge."
+            : "Verification approved. The Verified badge is now attached to your ad."}
         </p>
       </div>
     );
@@ -136,7 +165,9 @@ export default function VerificationRequestModal({ open, listingId, initial, onC
     body = (
       <div className="flex flex-col gap-3">
         <p className="text-[14px] text-ink">
-          Staff reviewed your submission and didn&apos;t approve it.
+          {publicationPending
+            ? "Staff didn't approve your verification. Your ad stays private. Edit and resubmit it from My Ads to try again."
+            : "Staff didn't approve your verification. Your ad's publication status is unchanged."}
         </p>
         {request.rejectionReason && (
           <p className="rounded-xl bg-danger-soft px-3.5 py-2.5 text-[13.5px] font-medium text-danger">
@@ -151,9 +182,9 @@ export default function VerificationRequestModal({ open, listingId, initial, onC
         <Clock className="size-12 text-brand" />
         <p className="text-[16px] font-bold text-ink">Pending staff review</p>
         <p className="text-[14px] text-muted">
-          Your photo was accepted. A staff member will confirm the code and
-          approve it — you can close this and keep browsing; the Verified
-          badge appears on its own once it&apos;s approved.
+          {publicationPending
+            ? "Your photo was accepted. Your ad stays private while staff check the code. Approval publishes your ad with the Verified badge. You can close this and check back from My Ads."
+            : "Your photo was accepted. Staff will check the code and add the Verified badge after approval. Your ad's publication status is unchanged."}
         </p>
       </div>
     );
@@ -171,7 +202,7 @@ export default function VerificationRequestModal({ open, listingId, initial, onC
             : "This usually takes a few seconds."}
         </p>
         {pollExhausted && (
-          <Button variant="outline" size="sm" onClick={pollForOutcome}>
+          <Button variant="outline" size="sm" onClick={() => pollForOutcome()}>
             <RefreshCcw className="size-4" />
             Check again
           </Button>
@@ -191,21 +222,27 @@ export default function VerificationRequestModal({ open, listingId, initial, onC
           </p>
         </div>
         <p className="text-[14px] leading-relaxed text-muted">
-          Write this code on a piece of paper, take a photo of yourself
-          holding it clearly, and upload it below. Staff will check the code
-          against your listing before approving it.
+          Write this code on a piece of paper, take a photo of yourself holding
+          it clearly, and upload it below. Staff will check the code against
+          your listing before approving it.
+          {publicationPending &&
+            " Your ad stays private until approval. You can finish this step later from My Ads."}
         </p>
 
         {photoRejected && (
           <p className="rounded-xl bg-danger-soft px-3.5 py-2.5 text-[13.5px] font-medium text-danger">
             Your last photo wasn&apos;t accepted
-            {request.photoRejectionReason ? `: ${request.photoRejectionReason}` : "."} Try again
-            with a clearer photo.
+            {request.photoRejectionReason
+              ? `: ${request.photoRejectionReason}`
+              : "."}{" "}
+            Try again with a clearer photo.
           </p>
         )}
 
         <label className="block">
-          <span className="mb-1.5 block text-[14px] font-bold text-ink">Photo</span>
+          <span className="mb-1.5 block text-[14px] font-bold text-ink">
+            Photo
+          </span>
           <input
             ref={inputRef}
             type="file"

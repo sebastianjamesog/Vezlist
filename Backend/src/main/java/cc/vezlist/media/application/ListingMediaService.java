@@ -201,6 +201,9 @@ public class ListingMediaService {
         if (media.countByListingIdAndStatus(listingId, ListingMediaStatus.READY) == 0) {
             throw new MediaValidationException("Add at least one processed image before submitting.");
         }
+        if (media.countByListingIdAndStatusNot(listingId, ListingMediaStatus.READY) > 0) {
+            throw new MediaValidationException("Wait for every image to finish processing and remove rejected images before submitting.");
+        }
     }
 
     @Transactional(readOnly = true)

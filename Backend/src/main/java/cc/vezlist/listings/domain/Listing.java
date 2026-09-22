@@ -2,12 +2,14 @@ package cc.vezlist.listings.domain;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
 import cc.vezlist.catalog.domain.Category;
 import cc.vezlist.catalog.domain.Location;
+import cc.vezlist.moderation.domain.ModerationPolicy.PublicReason;
 import cc.vezlist.shared.domain.SiteScope;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
@@ -115,6 +117,9 @@ public class Listing {
     @Column(name = "verified", nullable = false)
     private boolean verified;
 
+    @Column(name = "verification_requested", nullable = false)
+    private boolean verificationRequested;
+
     protected Listing() {
     }
 
@@ -182,12 +187,49 @@ public class Listing {
         if (attributes != null) this.attributes.putAll(attributes);
     }
 
-    public void submit() {
+    public void submit(boolean requestVerification) {
         if (status != ListingStatus.DRAFT && status != ListingStatus.REJECTED) {
             throw new IllegalStateException("Only draft or rejected listings can be submitted.");
         }
-        status = ListingStatus.PENDING_REVIEW;
-        submittedAt = Instant.now();
+        verificationRequested = requestVerification;
+        verified = false;
+        moderationReason = null;
+        submittedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        if (requestVerification) {
+            status = ListingStatus.PENDING_REVIEW;
+            publishedAt = null;
+            expiresAt = null;
+        } else {
+            publish(false);
+        }
+    }
+
+    public void approveVerification() {
+        requirePendingVerification();
+        publish(true);
+    }
+
+    public void rejectVerification(PublicReason reason) {
+        requirePendingVerification();
+        status = ListingStatus.REJECTED;
+        verified = false;
+        moderationReason = reason.name();
+        publishedAt = null;
+        expiresAt = null;
+    }
+
+    private void requirePendingVerification() {
+        if (status != ListingStatus.PENDING_REVIEW || !verificationRequested) {
+            throw new IllegalStateException("Only listings awaiting verification can receive a verification decision.");
+        }
+    }
+
+    private void publish(boolean verified) {
+        status = ListingStatus.ACTIVE;
+        this.verified = verified;
+        moderationReason = null;
+        publishedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        expiresAt = publishedAt.plus(30, ChronoUnit.DAYS);
     }
 
     public void delete() {
@@ -247,4 +289,5 @@ public class Listing {
     public Instant getExpiresAt() { return expiresAt; }
     public String getModerationReason() { return moderationReason; }
     public boolean isVerified() { return verified; }
+    public boolean isVerificationRequested() { return verificationRequested; }
 }

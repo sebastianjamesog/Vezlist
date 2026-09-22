@@ -1,10 +1,17 @@
 # Module 9: moderation and safety
 
-All categories use mandatory human review. The initial policy is `marketplace-v1`
-(one independent reviewer) or `personals-v1` (two independent reviewers). There is
-no automatic approval and no category exemption. Personals reviewers must each
-record that they checked eligibility and consent. This is a staff attestation;
-automated age verification and a third-party content scanner are not configured.
+Since V16, new regular ads publish directly on both sites after ownership, catalog,
+and image-processing checks. `POST /listings/{id}/submit` accepts optional
+`{requestVerification:true}` to keep the ad private for code/photo verification;
+staff verification approval publishes it with its badge. These ads use the separate
+verification queue and do not also create an ordinary submission case. Rejection
+keeps them private, and an ordinary moderation approval cannot bypass verification.
+
+Existing pending submissions are not auto-published. Their original policy remains
+`marketplace-v1` (one independent reviewer) or `personals-v1` (two independent
+reviewers), as does the policy for eligible appeals. Personals moderation reviewers
+record eligibility and consent checks. Automated age verification and a third-party
+content scanner are not configured. Post-publication reporting and removal still apply.
 
 ## Public and owner flows
 
@@ -82,8 +89,9 @@ for Module 10, not delivered emails or push messages.
 ## Persistence and verification
 
 Flyway V11 creates reports, cases, actions, audit events, and image reviews. A
-submission trigger queues existing and new PENDING_REVIEW listings within the
-listing transaction. Case changes, listing transitions, immutable actions, audit
+submission trigger originally queued all PENDING_REVIEW listings. V16 excludes
+verification-requested submissions, preserves existing rows, and adds the direct
+publication event. Case changes, listing transitions, immutable actions, audit
 entries, and listing outbox events commit or roll back together. PostgreSQL
 triggers reject UPDATE/DELETE of action/audit history; no API mutates that history.
 Hard deletion/retention work must explicitly account for this audit policy.

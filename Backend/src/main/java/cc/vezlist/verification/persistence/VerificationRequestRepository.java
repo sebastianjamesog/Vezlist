@@ -17,6 +17,13 @@ public interface VerificationRequestRepository extends JpaRepository<Verificatio
 
     List<VerificationRequest> findAllByListingIdOrderByCreatedAtDesc(UUID listingId);
 
+    @Query("select r.listingId from VerificationRequest r where r.id = :id")
+    Optional<UUID> findListingIdById(@Param("id") UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from VerificationRequest r where r.id = :id")
+    Optional<VerificationRequest> findByIdForUpdate(@Param("id") UUID id);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from VerificationRequest r where r.listingId = :listingId "
             + "and r.status in :openStatuses")

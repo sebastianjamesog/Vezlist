@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
+  act,
   renderApp,
   screen,
   signIn,
@@ -7,8 +8,17 @@ import {
   waitFor,
 } from "../../../../../testing/render.jsx";
 import CreateAdSheet from "./CreateAdSheet.jsx";
-import { DRAFT_KEY, MAX_IMAGES } from "../../lib/adDraft.js";
+import { DRAFT_KEY, EMPTY_DRAFT, MAX_IMAGES } from "../../lib/adDraft.js";
 import { MAX_PHOTO_BYTES, QUALITY } from "../../lib/media.js";
+
+vi.mock("../../lib/api/catalog.js", async () => ({
+  ...(await vi.importActual("../../lib/api/catalog.js")),
+  getCategories: vi.fn().mockResolvedValue([
+    { id: "property", label: "Property" },
+    { id: "db-added-services", label: "New services" },
+  ]),
+  searchLocations: vi.fn().mockResolvedValue([]),
+}));
 
 /**
  * The create-ad photo pipeline and the two things #12's frontend half
@@ -51,6 +61,100 @@ beforeEach(() => {
 
   HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ drawImage }));
   HTMLCanvasElement.prototype.toDataURL = toDataURL;
+});
+
+describe("CreateAdSheet — publication", () => {
+  async function review(props = {}) {
+    localStorage.setItem(
+      DRAFT_KEY,
+      JSON.stringify({
+        ...EMPTY_DRAFT,
+        images: [
+          { id: "photo", name: "photo.jpg", url: "data:image/jpeg;base64,AAA" },
+        ],
+        title: "Useful household items",
+        business: "Local seller",
+        description: "Several household items in excellent condition.",
+        category: "Property",
+        categoryId: "property",
+        location: "Nelson",
+        locationId: "nelson",
+        provinceId: "bc",
+        email: "seller@example.com",
+        phone: "2505551234",
+      }),
+    );
+    open(props);
+    await screen.findByAltText("photo.jpg");
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("button", { name: "Property" });
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Check it over")).toBeTruthy();
+  }
+
+  test("waits for submission, blocks duplicate clicks, then clears the saved draft", async () => {
+    let resolve;
+    const onPublish = vi.fn(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    const onClose = vi.fn();
+    await review({ onPublish, onClose });
+    await userEvent.click(screen.getByRole("button", { name: "Publish" }));
+    expect(onPublish).toHaveBeenCalledWith(
+      expect.objectContaining({ categoryId: "property", locationId: "nelson" }),
+      { requestVerification: false },
+    );
+    expect(screen.getByRole("button", { name: "Submitting..." }).disabled).toBe(
+      true,
+    );
+    expect(localStorage.getItem(DRAFT_KEY)).not.toBe(null);
+    expect(onClose).not.toHaveBeenCalled();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Submitting..." }),
+    );
+    expect(onPublish).toHaveBeenCalledTimes(1);
+    await act(async () => resolve({ status: "ACTIVE" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(DRAFT_KEY)).toBe(null);
+  });
+
+  test("failed verified submission keeps the draft and choice for retry", async () => {
+    const onPublish = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Photos are still processing"))
+      .mockResolvedValueOnce({ status: "PENDING_REVIEW" });
+    const onClose = vi.fn();
+    await review({ onPublish, onClose });
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: /Post as Verified/ }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Submit for verification" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      "Photos are still processing",
+    );
+    expect(JSON.parse(localStorage.getItem(DRAFT_KEY)).title).toBe(
+      "Useful household items",
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("checkbox", { name: /Post as Verified/ }).checked,
+    ).toBe(true);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Submit for verification" }),
+    );
+    expect(onPublish).toHaveBeenLastCalledWith(expect.any(Object), {
+      requestVerification: true,
+    });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(localStorage.getItem(DRAFT_KEY)).toBe(null);
+  });
 });
 
 afterEach(() => {
@@ -305,7 +409,7 @@ describe("CreateAdSheet — draft persistence", () => {
     expect(screen.queryByAltText("beach.jpg")).toBe(null);
   });
 
-  test("a draft with only the pre-filled category — nothing actually entered — leaves nothing to restore", async () => {
+  test("a fresh draft with no category chosen leaves nothing to restore", async () => {
     const first = open();
     // Sheet mounted, nothing picked or typed.
     await waitFor(() => expect(localStorage.getItem(DRAFT_KEY)).toBe(null));
@@ -315,5 +419,45 @@ describe("CreateAdSheet — draft persistence", () => {
     expect(
       await screen.findByRole("button", { name: /Add your photos/ }),
     ).toBeTruthy();
+  });
+});
+
+describe("CreateAdSheet — catalog category selection", () => {
+  test("a fresh draft does not silently choose the first category", async () => {
+    open();
+    await userEvent.upload(fileInput(), png("photo.jpg"));
+    await screen.findByAltText("photo.jpg");
+    await waitFor(() => {
+      const saved = JSON.parse(localStorage.getItem(DRAFT_KEY));
+      expect(saved.category).toBe("");
+      expect(saved.categoryId).toBe("");
+    });
+  });
+
+  test("a restored label-only category must be selected before leaving Details", async () => {
+    localStorage.setItem(
+      DRAFT_KEY,
+      JSON.stringify({
+        ...EMPTY_DRAFT,
+        images: [
+          { id: "photo", name: "photo.jpg", url: "data:image/jpeg;base64,AAA" },
+        ],
+        title: "Useful household items",
+        business: "Local seller",
+        description: "Several household items in excellent condition.",
+        category: "A legacy category",
+      }),
+    );
+    const onPublish = vi.fn();
+    open({ onPublish });
+    await screen.findByAltText("photo.jpg");
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(screen.getByText("Select a category from the list.")).toBeTruthy();
+    expect(onPublish).not.toHaveBeenCalled();
+    const saved = JSON.parse(localStorage.getItem(DRAFT_KEY));
+    expect(saved.category).toBe("A legacy category");
+    expect(saved.categoryId).toBe("");
   });
 });

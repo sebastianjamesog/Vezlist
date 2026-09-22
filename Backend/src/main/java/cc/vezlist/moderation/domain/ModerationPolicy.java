@@ -2,7 +2,7 @@ package cc.vezlist.moderation.domain;
 
 import cc.vezlist.shared.domain.SiteScope;
 
-/** Versioned conservative baseline for every enabled category; no category bypasses review. */
+/** Review policy for legacy submission cases and eligible appeals; new regular ads publish directly. */
 public record ModerationPolicy(String version, int approvalsRequired, boolean eligibilityRequired) {
     public static ModerationPolicy forListing(SiteScope site, String categoryId) {
         if (categoryId == null || categoryId.isBlank()) throw new IllegalArgumentException("Category is required.");

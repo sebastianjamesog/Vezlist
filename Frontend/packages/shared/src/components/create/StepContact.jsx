@@ -1,35 +1,12 @@
 "use client";
 
 import Field, { FIELD, border } from "./Field";
-import { popularAreas } from "../../data/mock";
+import LocationPicker from "./LocationPicker";
 
 export default function StepContact({ draft, errors, onPatch }) {
   return (
     <div className="space-y-4">
-      <Field label="Location" error={errors.location}>
-        <input
-          value={draft.location}
-          onChange={(e) => onPatch({ location: e.target.value })}
-          placeholder="e.g. Metro Vancouver"
-          className={`${FIELD} ${border(errors.location)}`}
-        />
-        <span className="mt-2 flex flex-wrap gap-2">
-          {popularAreas.map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => onPatch({ location: c })}
-              className={`rounded-full border px-3 py-1.5 text-[13px] font-semibold transition-colors ${
-                draft.location === c
-                  ? "border-brand bg-brand text-on-brand"
-                  : "border-line text-ink hover:bg-canvas"
-              }`}
-            >
-              {c}
-            </button>
-          ))}
-        </span>
-      </Field>
+      <LocationPicker draft={draft} error={errors.location} onPatch={onPatch} />
 
       <Field label="Email" error={errors.email}>
         <input

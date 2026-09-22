@@ -7,6 +7,7 @@ import cc.vezlist.media.storage.ObjectStorage;
 import cc.vezlist.media.storage.StorageProperties;
 import cc.vezlist.verification.domain.VerificationPhotoStatus;
 import cc.vezlist.verification.domain.VerificationRequest;
+import cc.vezlist.verification.domain.VerificationRequestStatus;
 import cc.vezlist.verification.persistence.VerificationRequestRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,8 +41,11 @@ public class VerificationPhotoProcessor {
 
     @Transactional
     public void process(java.util.UUID requestId) {
-        VerificationRequest request = requests.findById(requestId).orElse(null);
-        if (request == null || request.getPhotoStatus() != VerificationPhotoStatus.PROCESSING) return;
+        VerificationRequest request = requests.findByIdForUpdate(requestId).orElse(null);
+        // Serialize with superseding an obsolete request after listing resubmission.
+        // An asynchronous photo job must not reopen its terminal request.
+        if (request == null || request.getStatus() != VerificationRequestStatus.AWAITING_PHOTO
+                || request.getPhotoStatus() != VerificationPhotoStatus.PROCESSING) return;
 
         try {
             ObjectStorage.StoredObject stored = storage.describe(request.getPhotoObjectKey());

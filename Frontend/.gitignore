@@ -36,10 +36,12 @@ dist-ssr
 
 # Next / OpenNext
 .next
+.next-*/
 .open-next
 
 # Playwright
 /test-results
+/test-results-*/
 /playwright-report
 /blob-report
 /playwright/.cache

@@ -1,4 +1,3 @@
-import { Inter } from "next/font/google";
 import Script from "next/script";
 import "@vezlist/shared/index.css";
 import { PERSONALS_URL } from "@vezlist/shared/lib/sites.js";
@@ -66,15 +65,6 @@ const AGE_GATE_INIT_SCRIPT = `(function(){
 // is the id AgeGate.jsx puts on the dialog itself.
 const AGE_GATE_CSS = `html[data-age-gate="ok"] #age-gate-overlay{display:none}`;
 
-// Self-hosted and subset by next/font: no render-blocking request to a
-// third-party origin, and no layout shift when the face swaps in.
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-  variable: "--font-inter",
-  display: "swap",
-});
-
 const DESCRIPTION = "Adults-only personals board. 18+.";
 
 export const metadata = {
@@ -116,12 +106,7 @@ export default function RootLayout({ children }) {
     // client DOM does. That is the documented Next pattern for a
     // flash-preventing init script, and the warning it silences is scoped to
     // this one element's attributes — children still diff normally.
-    <html
-      lang="en"
-      data-theme="personals"
-      className={inter.variable}
-      suppressHydrationWarning
-    >
+    <html lang="en" data-theme="personals" suppressHydrationWarning>
       <body>
         <Script id="discreet-init" strategy="beforeInteractive">
           {DISCREET_INIT_SCRIPT}

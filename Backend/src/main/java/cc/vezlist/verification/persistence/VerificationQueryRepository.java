@@ -37,6 +37,9 @@ public class VerificationQueryRepository {
                 JOIN listings l ON l.id = r.listing_id
                 JOIN app_users u ON u.id = r.owner_id
                 WHERE r.status = 'PENDING_REVIEW' AND l.site_scope = ?
+                  AND u.enabled = true AND l.status IN ('PENDING_REVIEW', 'ACTIVE')
+                  AND (l.status <> 'ACTIVE' OR l.expires_at IS NULL OR l.expires_at > now())
+                  AND (l.submitted_at IS NULL OR r.created_at >= l.submitted_at)
                 ORDER BY r.submitted_at ASC, r.id ASC
                 LIMIT ? OFFSET ?
                 """, (rs, n) -> new QueueRow(

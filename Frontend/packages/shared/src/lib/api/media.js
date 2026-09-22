@@ -1,4 +1,38 @@
-import { api } from "./client.js";
+import { api, ApiError, SITE_SCOPE } from "./client.js";
+
+const PROCESSING_POLLS = 30;
+const PROCESSING_POLL_MS = 1000;
+
+function requireUsableMedia(media) {
+  if (media?.status === "REJECTED") {
+    throw new ApiError({
+      status: 400,
+      code: "MEDIA_REJECTED",
+      message:
+        media.rejectionReason ||
+        "A photo was rejected. Replace it before publishing.",
+    });
+  }
+  return media?.status === "READY";
+}
+
+async function waitForReadyMedia(listingId, mediaId, initial) {
+  if (requireUsableMedia(initial)) return initial;
+  for (let attempt = 0; attempt < PROCESSING_POLLS; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, PROCESSING_POLL_MS));
+    const listing = await api.get(`/api/v1/listings/${listingId}`, {
+      site: SITE_SCOPE,
+    });
+    const media = listing.media?.find((image) => image.id === mediaId);
+    if (requireUsableMedia(media)) return media;
+  }
+  throw new ApiError({
+    status: 408,
+    code: "MEDIA_PROCESSING_TIMEOUT",
+    message:
+      "Photos are still processing. Your ad is saved as a draft in My Ads; try publishing it there shortly.",
+  });
+}
 
 /**
  * Listing photo upload: get a presigned URL, PUT the bytes straight to
@@ -36,7 +70,8 @@ export function deleteMedia(listingId, mediaId) {
 /** A `data:` URI (what `adDraft`'s images already are) as a `Blob`. */
 export function dataUriToBlob(dataUri) {
   const [header, base64] = dataUri.split(",");
-  const contentType = header.match(/data:(.*?)(;base64)?$/)?.[1] || "image/jpeg";
+  const contentType =
+    header.match(/data:(.*?)(;base64)?$/)?.[1] || "image/jpeg";
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -52,8 +87,8 @@ export async function sha256Hex(buffer) {
 }
 
 /**
- * The whole photo-upload flow for one image, from bytes to a READY (or
- * PROCESSING) `ListingMediaResponse`: checksum, authorize, PUT the bytes to
+ * The whole photo-upload flow for one image, from bytes to a READY
+ * `ListingMediaResponse`: checksum, authorize, PUT the bytes to
  * storage (skipped when the backend already has this exact upload —
  * `alreadyUploaded`, its dedupe-by-checksum path), then mark it complete.
  */
@@ -79,5 +114,7 @@ export async function uploadListingImage(listingId, blob, fileName) {
     }
   }
 
-  return completeUpload(listingId, auth.mediaId);
+  // Direct publication must wait for the asynchronous image processor.
+  const completed = await completeUpload(listingId, auth.mediaId);
+  return waitForReadyMedia(listingId, auth.mediaId, completed);
 }

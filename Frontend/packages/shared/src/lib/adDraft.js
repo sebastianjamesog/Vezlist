@@ -1,9 +1,4 @@
-import { isSubOf } from "./taxonomy.js";
-import {
-  ethnicities,
-  personalsCategories,
-  postCategories,
-} from "../data/mock.js";
+import { ethnicities } from "../data/mock.js";
 import { IS_PERSONALS } from "./sites.js";
 import { arrayOf, isNonEmptyString, isObject, isString } from "./guards.js";
 
@@ -49,6 +44,7 @@ export const EMPTY_DRAFT = {
   title: "",
   business: "",
   category: "",
+  categoryId: "",
   // "" and not null, so the empty sub-category is the same falsy empty string
   // every other unanswered field in this draft uses — the pills, the review
   // step and `dirty` in the sheet can all keep asking one question of it.
@@ -58,8 +54,8 @@ export const EMPTY_DRAFT = {
   /*
     The personals group.
 
-    Asked for on the details step, and only when the chosen category is one of
-    `personalsCategories` — a dining table has no eye colour. Every one of them
+    Asked for on the Personals board, or for Marketplace's Dating category.
+    A dining table has no eye colour. Every one of these fields
     is empty-string-optional, in the same sense and for the same reason as the
     sub-category above it: a required second choice turns a thirty-second post
     into a taxonomy quiz, and the posts that lose are the ones nobody could be
@@ -81,6 +77,8 @@ export const EMPTY_DRAFT = {
   hairColour: "",
   eyeColour: "",
   location: "",
+  locationId: "",
+  provinceId: "",
   email: "",
   phone: "",
 };
@@ -134,25 +132,18 @@ const WEIGHT = /^\d{2,3}(\.\d+)?\s*(kg|kgs|lb|lbs|pounds)?$/i;
  * alone fix.
  */
 export const isPersonalsCategory = (category) =>
-  personalsCategories.includes(category);
+  IS_PERSONALS || category === "Dating";
 
-/**
- * What the create form offers as a category, and what a fresh draft opens on.
- *
- * The form used to offer the marketplace tree on both builds. On personals
- * that is the wrong list twice over: none of the nineteen categories describes
- * a person, and the two lists overlap on exactly one label -- Dating -- so the
- * personals questions further down this form only ever appeared if the poster
- * happened to press that one pill. A board that lists people has to offer the
- * categories people post under.
- *
- * Derived from the build rather than passed in as a prop, because it is the
- * same answer for every call site on a given origin, and a prop would let the
- * sheet and the step it renders disagree about which list they are on.
- */
-export const CREATE_CATEGORIES = IS_PERSONALS
-  ? personalsCategories
-  : postCategories;
+export const SELECT_CATEGORY_MESSAGE = "Select a category from the list.";
+
+export const hasSelectedCategory = (draft) =>
+  [draft.category, draft.categoryId].every(isNonEmptyString);
+
+export const SELECT_LOCATION_MESSAGE = "Select a location from the suggestions.";
+
+/** Labels are display text; only a catalog selection identifies the location. */
+export const hasSelectedLocation = (draft) =>
+  [draft.location, draft.locationId, draft.provinceId].every(isNonEmptyString);
 
 /**
  * Per-step validation. Returns a { field: message } map; empty means the step
@@ -173,22 +164,7 @@ export function validateStep(stepId, draft) {
       errors.title = "Give your ad a title of at least 4 characters.";
     if (!draft.business.trim())
       errors.business = "Add the business or seller name.";
-    if (!draft.category) errors.category = "Pick a category.";
-    /*
-      Never "you must pick one" — a sub-category is optional and `isSubOf` says
-      yes to an absent one. This is a consistency check: the only way to reach it
-      is a sub-category that no longer belongs to the category beside it, which
-      the pills cannot produce because switching category clears the sub in the
-      same patch. What can produce it is a draft that outlived a rename in
-      `categories`, or a future restore of a draft written by an older build. The
-      cheap alternative — trusting the UI and posting whatever is on the draft —
-      files the ad under a sub-category that no screen can filter for, and it is
-      invisible until someone goes looking for it.
-    */
-    if (draft.subcategory && !isSubOf(draft.category, draft.subcategory))
-      errors.subcategory = draft.category
-        ? `"${draft.subcategory}" isn't a sub-category of ${draft.category}. Pick another, or None.`
-        : "Pick a category before a sub-category.";
+    if (!hasSelectedCategory(draft)) errors.category = SELECT_CATEGORY_MESSAGE;
     if (draft.price !== "" && !(Number(draft.price) >= 0))
       errors.price = "Price must be a positive number.";
     if (draft.description.trim().length < 20)
@@ -200,9 +176,7 @@ export function validateStep(stepId, draft) {
       Nothing in here is ever "you must answer this". These are the three
       answers that can be given and still be wrong: an age under the board's own
       18+ line, a weight with no number in it, and an ethnicity that is not one
-      of the eight offered — which the pills cannot produce, and which therefore
-      means the same thing the sub-category check means, a draft that outlived a
-      rename or came back from an older build.
+      of the eight offered, including a draft restored from an older build.
 
       Every read is truthiness rather than `!== ""`, so a draft restored from
       before this group existed — no `age` key at all — is the valid-and-absent
@@ -222,7 +196,7 @@ export function validateStep(stepId, draft) {
   }
 
   if (stepId === "contact") {
-    if (!draft.location.trim()) errors.location = "Add a location.";
+    if (!hasSelectedLocation(draft)) errors.location = SELECT_LOCATION_MESSAGE;
     if (!EMAIL.test(draft.email.trim()))
       errors.email = "Enter a valid email address.";
     const digits = draft.phone.replace(/\D/g, "");
@@ -256,10 +230,8 @@ const PERSONAL_ATTRIBUTE_KEYS = [
  * that function states — the steps read `draft.title.length` and
  * `draft.phone.replace` with no guard.
  *
- * `categoryLabel`/`locationLabel` (not the ids) are what the pills need to
- * highlight the right button; saving an edit resolves labels back to ids the
- * same way publishing a new draft does (`resolveCategoryId`/
- * `resolveLocationId` in `lib/api/listings.js`).
+ * Labels are for display: keep the exact category, location and province ids
+ * so editing cannot move an ad to a different catalog entry with the same name.
  */
 export function draftFromListing(listing) {
   const attributes = listing.attributes ?? {};
@@ -271,10 +243,13 @@ export function draftFromListing(listing) {
     title: listing.title ?? "",
     business: listing.businessName ?? "",
     category: listing.categoryLabel ?? "",
+    categoryId: listing.categoryId ?? "",
     subcategory: attributes.subcategory ?? "",
     price: listing.price == null ? "" : String(listing.price),
     description: listing.description ?? "",
     location: listing.locationLabel ?? "",
+    locationId: listing.locationId ?? "",
+    provinceId: listing.provinceId ?? "",
     email: listing.contactEmail ?? "",
     phone: listing.contactPhone ?? "",
   };
@@ -284,13 +259,9 @@ export function draftFromListing(listing) {
 
 /**
  * A validated draft -> the backend's `ListingWriteRequest` shape (see
- * Backend's `ListingWriteRequest.java`). Pure and synchronous on purpose:
- * the only part of mapping a draft onto the wire that needs a network round
- * trip is turning the category pill's label and the free-text location into
- * catalog ids, and that resolution happens in `lib/api/listings.js`
- * (`resolveCategoryId`/`resolveLocationId`) *before* this is called — this
- * function just assembles the request once every id is already in hand, so
- * it stays as easy to unit-test as every other function in this file.
+ * Backend's `ListingWriteRequest.java`). Category and location pickers store
+ * exact catalog ids on the draft, so no label matching or network lookups
+ * are needed when assembling the request.
  *
  * The sub-category and (when the category is a personals one) the eight
  * personals fields have no dedicated column on the backend — they ride
@@ -299,10 +270,7 @@ export function draftFromListing(listing) {
  * unanswered question stays unanswered instead of becoming an attribute a
  * moderator or a future filter has to learn to ignore.
  */
-export function toListingWriteRequest(
-  draft,
-  { site, categoryId, provinceId, locationId },
-) {
+export function toListingWriteRequest(draft, { site }) {
   const attributes = {};
   if (draft.subcategory) attributes.subcategory = draft.subcategory;
   if (isPersonalsCategory(draft.category)) {
@@ -317,9 +285,9 @@ export function toListingWriteRequest(
     businessName: draft.business.trim(),
     description: draft.description.trim(),
     price: draft.price === "" || draft.price == null ? null : Number(draft.price),
-    categoryId,
-    provinceId,
-    locationId,
+    categoryId: draft.categoryId,
+    provinceId: draft.provinceId,
+    locationId: draft.locationId,
     contactEmail: draft.email.trim(),
     contactPhone: draft.phone.trim(),
     latitude: null,
@@ -350,15 +318,14 @@ export const DRAFT_KEY = "vezlist:ad-draft:v1";
  * sheet already needed answered for its own "Discard" button and its
  * "come back and the draft is still here" toast, so this is that logic,
  * named and exported rather than re-derived wherever the answer is needed
- * next. Category is excluded because the wizard pre-fills it before a poster
- * has done anything at all; a fresh draft that only ever had its default
- * category set has nothing a reload could lose.
+ * next. A category selection is intentional and worth restoring, just like
+ * a typed title. A fresh draft has no preselected category.
  */
 export function isDraftWorthSaving(draft) {
   return (
     draft.images.length > 0 ||
     Object.entries(draft).some(
-      ([k, v]) => k !== "images" && k !== "category" && v !== "",
+      ([k, v]) => k !== "images" && v !== "",
     )
   );
 }
@@ -401,13 +368,5 @@ export function normaliseDraft(value) {
     if (key === "images") continue;
     if (isString(value[key])) draft[key] = value[key];
   }
-  // A category the pills no longer offer (a rename since the draft was
-  // saved) would otherwise sit on the draft answering neither list's
-  // question — the wizard's own default is exactly what a fresh draft opens
-  // on, so a restored one that fails this falls back to the same place.
-  if (!CREATE_CATEGORIES.includes(draft.category)) {
-    draft.category = CREATE_CATEGORIES[0];
-  }
-
   return draft;
 }

@@ -179,6 +179,17 @@ public class VerificationRequest {
         rejectionReason = reason;
     }
 
+    public void supersede() {
+        if (status != VerificationRequestStatus.AWAITING_PHOTO
+                && status != VerificationRequestStatus.PENDING_REVIEW) {
+            throw new IllegalStateException("Only an open request can be superseded.");
+        }
+        status = VerificationRequestStatus.REJECTED;
+        decidedAt = Instant.now();
+        decidedBy = null;
+        rejectionReason = "Superseded because the listing was resubmitted. A new verification code is required.";
+    }
+
     public UUID getId() { return id; }
     public UUID getListingId() { return listingId; }
     public UUID getOwnerId() { return ownerId; }

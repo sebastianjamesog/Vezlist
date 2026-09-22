@@ -1,6 +1,6 @@
 "use client";
 
-import { BadgeCheck, Check, MapPin, Pencil } from "lucide-react";
+import { BadgeCheck, MapPin, Pencil } from "lucide-react";
 import { isPersonalsCategory, stepIndex } from "../../lib/adDraft";
 import { categoryPath } from "../../lib/taxonomy";
 import MediaImage from "../media/MediaImage.jsx";
@@ -45,7 +45,12 @@ function Row({ label, value, onEdit }) {
   );
 }
 
-export default function StepReview({ draft, onEdit, verified, onToggleVerified }) {
+export default function StepReview({
+  draft,
+  onEdit,
+  verified,
+  onToggleVerified,
+}) {
   // One string for both places it appears below, because the preview chip and
   // the summary row are describing the same single decision — if one of them
   // ever showed "Vehicles" while the other showed "Vehicles › Boats" the poster
@@ -111,9 +116,6 @@ export default function StepReview({ draft, onEdit, verified, onToggleVerified }
               )}
             </div>
           </div>
-          <span className="absolute right-3 top-3 grid size-6 place-items-center rounded-full bg-emerald-500">
-            <Check className="size-4 text-white" strokeWidth={3.5} />
-          </span>
         </div>
       </div>
 
@@ -160,16 +162,17 @@ export default function StepReview({ draft, onEdit, verified, onToggleVerified }
             Post as Verified
           </span>
           <span className="mt-0.5 block text-[13px] leading-relaxed text-muted">
-            After publishing, we&apos;ll give you a 6-digit code — photograph
-            yourself holding it and a staff member will review it and add the
-            Verified badge to this ad.
+            Keep this ad private while you verify it. We&apos;ll give you a
+            6-digit code to photograph yourself holding. Staff approval
+            publishes the ad with its Verified badge.
           </span>
         </span>
       </label>
 
       <p className="text-[13px] leading-relaxed text-muted">
-        Ads are reviewed before they go live. Most are approved within a couple
-        of hours.
+        {verified
+          ? "Your ad stays private until staff approve your verification. You can finish the photo step later from My Ads."
+          : "A regular ad goes public after its photos finish processing, without staff approval. Check your details above before publishing."}
       </p>
     </div>
   );

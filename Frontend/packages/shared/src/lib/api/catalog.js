@@ -1,10 +1,11 @@
-import { api } from "./client.js";
+import { api, ApiError } from "./client.js";
+import { isNonEmptyString, isObject } from "../guards.js";
 
 /**
  * GET /api/v1/categories?site= -> CategoryResponse[].
  * (cc.vezlist.catalog.web.CatalogController#categories)
  *
- * Public, cacheable (1h) and does not require a session. `site` defaults to
+ * Public, revalidated on each request and does not require a session. `site` defaults to
  * MARKETPLACE server-side, but every caller here passes `SITE_SCOPE`
  * explicitly rather than relying on that default.
  *
@@ -14,8 +15,30 @@ import { api } from "./client.js";
  * sub-category" check answer "no", which is the correct degrade rather than
  * a special case.
  */
-export function getCategories(site) {
-  return api.get("/api/v1/categories", { site });
+export async function getCategories(site) {
+  const categories = await api.get("/api/v1/categories", { site });
+  const ids = new Set();
+  const valid =
+    Array.isArray(categories) &&
+    categories.every((category) => {
+      if (
+        !isObject(category) ||
+        !isNonEmptyString(category.id) ||
+        !isNonEmptyString(category.label) ||
+        ids.has(category.id)
+      )
+        return false;
+      ids.add(category.id);
+      return true;
+    });
+  if (!valid) {
+    throw new ApiError({
+      status: 502,
+      code: "INVALID_CATEGORY_CATALOG",
+      message: "Could not load categories. Please try again.",
+    });
+  }
+  return categories;
 }
 
 /**
@@ -33,4 +56,9 @@ export function getCategories(site) {
  */
 export function getLocations() {
   return api.get("/api/v1/locations");
+}
+
+/** Search enabled locations by area or province; an empty query returns suggestions. */
+export function searchLocations(query = "", limit = 20) {
+  return api.get("/api/v1/locations/search", { q: query.trim(), limit });
 }

@@ -1,16 +1,6 @@
-import { Inter } from "next/font/google";
 import "@vezlist/shared/index.css";
 import { ADMIN_URL } from "@vezlist/shared/lib/sites.js";
 import Providers from "./providers";
-
-// Self-hosted and subset by next/font: no render-blocking request to a
-// third-party origin, and no layout shift when the face swaps in.
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-  variable: "--font-inter",
-  display: "swap",
-});
 
 const DESCRIPTION = "Moderation and configuration for both Vezlist boards.";
 
@@ -47,7 +37,7 @@ export const viewport = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en">
       {/* The public sites float a phone mockup on a neutral desk below lg; a
           console is a desktop app at every width, so it paints the canvas
           itself rather than inheriting that backdrop. */}

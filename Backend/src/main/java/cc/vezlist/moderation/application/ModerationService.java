@@ -55,6 +55,7 @@ public class ModerationService {
         requireEnabledActor(actor, false);
         Listing listing = owned(actor, id, site, false);
         boolean appeal = List.of("REJECTED", "REMOVED").contains(listing.status())
+                && !(listing.verificationRequested() && !listing.verified())
                 && repository.count("SELECT count(*) FROM moderation_cases WHERE listing_id = ? AND kind = 'APPEAL' AND review_version = ?",
                     id, listing.version()) == 0;
         String reason = listing.reason() == null ? null : PublicReason.valueOf(listing.reason()).message();
@@ -67,6 +68,8 @@ public class ModerationService {
         Listing listing = owned(actor, id, request.site(), true);
         if (!List.of("REJECTED", "REMOVED").contains(listing.status()))
             throw new ModerationException(CONFLICT, "Only rejected or removed listings can be appealed.");
+        if (listing.verificationRequested() && !listing.verified())
+            throw new ModerationException(CONFLICT, "Edit and resubmit this listing for verification instead of appealing.");
         var previous = repository.query("SELECT id FROM moderation_cases WHERE listing_id = ? AND kind = 'APPEAL' AND review_version = ?",
                 id, listing.version());
         if (!previous.isEmpty()) return new Receipt((UUID) previous.getFirst().get("id"));
@@ -190,6 +193,8 @@ public class ModerationService {
     }
 
     private void approve(UUID actor, Case review, Listing listing, DecisionRequest request) {
+        if (listing.verificationRequested() && !listing.verified())
+            throw new ModerationException(CONFLICT, "Complete verification review before publishing this listing.");
         if (!listing.status().equals("PENDING_REVIEW") && !review.kind().equals("APPEAL"))
             throw new ModerationException(CONFLICT, "Only pending submissions or appeals may be approved.");
         ModerationPolicy policy = ModerationPolicy.forListing(listing.site(), listing.category());

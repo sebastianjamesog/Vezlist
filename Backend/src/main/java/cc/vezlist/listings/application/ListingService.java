@@ -3,6 +3,7 @@ package cc.vezlist.listings.application;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
@@ -102,24 +103,30 @@ public class ListingService {
     }
 
     @Transactional
-    public ListingResponse submit(UUID ownerId, UUID listingId, String idempotencyKey) {
-        String fingerprint = fingerprint(listingId.toString());
+    public ListingResponse submit(UUID ownerId, UUID listingId, String idempotencyKey, boolean requestVerification) {
+        Listing listing = listings.findDetailedByIdForUpdate(listingId, ListingStatus.DELETED)
+                .orElseThrow(ListingNotFoundException::new);
+        if (!listing.getOwnerId().equals(ownerId)) throw new ListingNotFoundException();
+        // Preserve legacy no-body retries while distinguishing an explicit verification submission.
+        String fingerprint = fingerprint(requestVerification
+                ? List.of(listingId.toString(), "VERIFICATION") : listingId.toString());
         ListingIdempotencyKey previous = idempotencyKeys
                 .findByOwnerIdAndOperationAndIdempotencyKey(ownerId, SUBMIT, idempotencyKey)
                 .orElse(null);
         if (previous != null) {
             requireSameFingerprint(previous, fingerprint);
-            return response(requireOwned(ownerId, previous.getListingId()), true);
+            return response(listing, true);
         }
 
-        Listing listing = requireOwned(ownerId, listingId);
+        catalog.requireEnabledCategory(listing.getSiteScope(), listing.getCategory().getId());
+        catalog.requireEnabledLocation(listing.getProvinceId(), listing.getLocation().getId());
         media.requireReadyImage(listingId);
         try {
-            listing.submit();
+            listing.submit(requestVerification);
         } catch (IllegalStateException exception) {
             throw new ListingStateException(exception.getMessage());
         }
-        events.save(new ListingEvent(listingId, "LISTING_SUBMITTED"));
+        events.save(new ListingEvent(listingId, requestVerification ? "LISTING_SUBMITTED" : "LISTING_PUBLISHED"));
         idempotencyKeys.save(new ListingIdempotencyKey(
                 ownerId, SUBMIT, idempotencyKey, fingerprint, listingId));
         return response(listing, true);
@@ -140,6 +147,11 @@ public class ListingService {
         boolean owner = requesterId != null && requesterId.equals(listing.getOwnerId());
         if (listing.getStatus() != ListingStatus.ACTIVE && !owner) throw new ListingNotFoundException();
         return response(listing, owner);
+    }
+
+    @Transactional(readOnly = true)
+    public long activeOwnedCount(UUID ownerId, SiteScope site) {
+        return listings.countActiveOwned(ownerId, site.name(), Instant.now());
     }
 
     @Transactional(readOnly = true)

@@ -10,6 +10,14 @@ import {
 import MyAds from "./MyAds";
 import * as listingsApi from "../lib/api/listings.js";
 import * as moderationApi from "../lib/api/moderation.js";
+import * as verificationApi from "../lib/api/verification.js";
+import { ApiError } from "../lib/api/client.js";
+
+vi.mock("../lib/api/verification.js", () => ({
+  currentVerification: vi.fn(),
+  requestVerification: vi.fn(),
+  uploadVerificationPhoto: vi.fn(),
+}));
 
 /**
  * My Ads, over the real backend now: `GET /me/listings`, `DELETE
@@ -28,14 +36,21 @@ vi.mock("../lib/api/listings.js", async () => {
     deleteListing: vi.fn(),
     updateListing: vi.fn(),
     submitListing: vi.fn(),
-    resolveCategoryId: vi.fn(),
-    resolveLocationId: vi.fn(),
   };
 });
 
 vi.mock("../lib/api/moderation.js", () => ({
   ownerStatus: vi.fn(),
   appeal: vi.fn(),
+}));
+
+vi.mock("../lib/api/catalog.js", async () => ({
+  ...(await vi.importActual("../lib/api/catalog.js")),
+  getCategories: vi.fn().mockResolvedValue([
+    { id: "property", label: "Property" },
+    { id: "db-added-services", label: "New services" },
+  ]),
+  searchLocations: vi.fn().mockResolvedValue([]),
 }));
 
 const media = (id, url = `https://cdn.example/${id}.jpg`) => ({
@@ -57,6 +72,7 @@ function listing(overrides) {
     ownerId: "owner-1",
     site: "MARKETPLACE",
     status: "ACTIVE",
+    verificationRequested: false,
     title: "2 Bedroom Apartment",
     businessName: "Modern City Apartments",
     description: "Bright two bedroom with parking.",
@@ -87,6 +103,14 @@ function listing(overrides) {
 
 const tab = (name) =>
   screen.getByRole("button", { name: new RegExp(`^${name}`) });
+
+const verificationRequest = (overrides = {}) => ({
+  id: "verification-1",
+  status: "AWAITING_PHOTO",
+  photoStatus: "NONE",
+  code: "123456",
+  ...overrides,
+});
 
 describe("MyAds", () => {
   beforeEach(() => {
@@ -199,6 +223,12 @@ describe("MyAds", () => {
       id: "r1",
       title: "Rejected ad",
       status: "REJECTED",
+      locationLabel: "Richmond",
+      locationId: "on-richmond",
+      provinceId: "on",
+      categoryLabel: "New services",
+      categoryId: "db-added-services",
+      attributes: { subcategory: "Legacy selection" },
     });
     listingsApi.ownedListings.mockResolvedValue([rejected]);
     moderationApi.ownerStatus.mockResolvedValue({
@@ -209,7 +239,9 @@ describe("MyAds", () => {
     });
     renderApp(<MyAds />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /^Needs attention/ }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^Needs attention/ }),
+    );
     await userEvent.click(
       await screen.findByRole("button", { name: "Edit Rejected ad" }),
     );
@@ -229,11 +261,6 @@ describe("MyAds", () => {
     await userEvent.clear(title);
     await userEvent.type(title, "A perfectly good title");
 
-    listingsApi.resolveCategoryId.mockResolvedValue("property");
-    listingsApi.resolveLocationId.mockResolvedValue({
-      locationId: "bc-1",
-      provinceId: "bc",
-    });
     listingsApi.updateListing.mockResolvedValue({
       ...rejected,
       title: "A perfectly good title",
@@ -241,7 +268,7 @@ describe("MyAds", () => {
     listingsApi.submitListing.mockResolvedValue({
       ...rejected,
       title: "A perfectly good title",
-      status: "PENDING_REVIEW",
+      status: "ACTIVE",
     });
 
     await userEvent.click(
@@ -249,10 +276,73 @@ describe("MyAds", () => {
     );
 
     await waitFor(() => expect(listingsApi.updateListing).toHaveBeenCalled());
+    expect(listingsApi.updateListing).toHaveBeenCalledWith(
+      "r1",
+      expect.objectContaining({
+        locationId: "on-richmond",
+        provinceId: "on",
+        categoryId: "db-added-services",
+        attributes: { subcategory: "Legacy selection" },
+      }),
+    );
     await waitFor(() => expect(listingsApi.submitListing).toHaveBeenCalled());
+    expect(listingsApi.submitListing).toHaveBeenCalledWith(
+      "r1",
+      expect.any(String),
+      { requestVerification: false },
+    );
     expect(
-      screen.queryByRole("dialog", { name: "Edit this ad" }),
-    ).toBe(null);
+      await screen.findByText("Your ad is live — changes saved"),
+    ).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Edit this ad" })).toBe(null);
+  });
+
+  test("editing an old label-only location requires reselection before saving", async () => {
+    listingsApi.ownedListings.mockResolvedValue([
+      listing({ status: "DRAFT", locationId: null, provinceId: null }),
+    ]);
+    renderApp(<MyAds />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^Drafts/ }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Edit 2 Bedroom Apartment" }),
+    );
+    const sheet = screen.getByRole("dialog", { name: "Edit this ad" });
+    await userEvent.click(
+      within(sheet).getByRole("button", { name: "Save changes" }),
+    );
+
+    expect(
+      within(sheet).getByText("Select a location from the suggestions."),
+    ).toBeTruthy();
+    expect(listingsApi.updateListing).not.toHaveBeenCalled();
+    expect(listingsApi.submitListing).not.toHaveBeenCalled();
+  });
+
+  test("editing an old label-only category requires reselection before saving", async () => {
+    listingsApi.ownedListings.mockResolvedValue([
+      listing({ status: "DRAFT", categoryId: null }),
+    ]);
+    renderApp(<MyAds />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^Drafts/ }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Edit 2 Bedroom Apartment" }),
+    );
+    const sheet = screen.getByRole("dialog", { name: "Edit this ad" });
+    await userEvent.click(
+      within(sheet).getByRole("button", { name: "Save changes" }),
+    );
+
+    expect(
+      within(sheet).getByText("Select a category from the list."),
+    ).toBeTruthy();
+    expect(listingsApi.updateListing).not.toHaveBeenCalled();
+    expect(listingsApi.submitListing).not.toHaveBeenCalled();
   });
 
   test("a rejected ad with a reason and an open appeal shows both", async () => {
@@ -267,11 +357,15 @@ describe("MyAds", () => {
     });
     renderApp(<MyAds />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /^Needs attention/ }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^Needs attention/ }),
+    );
     expect(await screen.findByText("Photos were unclear.")).toBeTruthy();
 
     await userEvent.click(
-      screen.getByRole("button", { name: "Appeal the decision on Rejected ad" }),
+      screen.getByRole("button", {
+        name: "Appeal the decision on Rejected ad",
+      }),
     );
     const sheet = screen.getByRole("dialog", { name: "Appeal this decision" });
     await userEvent.type(
@@ -297,5 +391,125 @@ describe("MyAds", () => {
         }),
       ).toBe(null),
     );
+  });
+
+  test("a private verified ad resumes its existing code without creating another request", async () => {
+    listingsApi.ownedListings.mockResolvedValue([
+      listing({ status: "PENDING_REVIEW", verificationRequested: true }),
+    ]);
+    verificationApi.currentVerification.mockResolvedValue(
+      verificationRequest(),
+    );
+    renderApp(<MyAds />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^In review/ }),
+    );
+    expect(screen.queryByRole("link", { name: "2 Bedroom Apartment" })).toBe(
+      null,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Continue verification for/ }),
+    );
+    expect(await screen.findByText("123456")).toBeTruthy();
+    expect(verificationApi.currentVerification).toHaveBeenCalledWith(
+      "listing-1",
+    );
+    expect(verificationApi.requestVerification).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(/Your ad stays private until approval/),
+    ).toBeTruthy();
+  });
+
+  test("a failed initial verification request can be retried from My Ads", async () => {
+    listingsApi.ownedListings.mockResolvedValue([
+      listing({ status: "PENDING_REVIEW", verificationRequested: true }),
+    ]);
+    verificationApi.currentVerification.mockRejectedValue(
+      new ApiError({ status: 404, code: "VERIFICATION_REQUEST_NOT_FOUND" }),
+    );
+    verificationApi.requestVerification
+      .mockRejectedValueOnce(new Error("Offline"))
+      .mockResolvedValueOnce(verificationRequest());
+    renderApp(<MyAds />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^In review/ }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Continue verification for/ }),
+    );
+    await screen.findByText(
+      "Couldn't start verification. Your ad stays private; try again.",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Continue verification for/ }),
+    );
+    expect(await screen.findByText("123456")).toBeTruthy();
+    expect(verificationApi.requestVerification).toHaveBeenCalledTimes(2);
+    expect(listingsApi.submitListing).not.toHaveBeenCalled();
+  });
+
+  test("a verification lookup error does not create a second request", async () => {
+    listingsApi.ownedListings.mockResolvedValue([
+      listing({ status: "PENDING_REVIEW", verificationRequested: true }),
+    ]);
+    verificationApi.currentVerification.mockRejectedValue(
+      new ApiError({ status: 500, message: "Try again later" }),
+    );
+    renderApp(<MyAds />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^In review/ }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Continue verification for/ }),
+    );
+    expect(await screen.findByText("Try again later")).toBeTruthy();
+    expect(verificationApi.requestVerification).not.toHaveBeenCalled();
+  });
+
+  test("resubmitting a rejected verified ad keeps it private and starts a fresh verification", async () => {
+    const rejected = listing({
+      status: "REJECTED",
+      verificationRequested: true,
+    });
+    listingsApi.ownedListings.mockResolvedValue([rejected]);
+    listingsApi.updateListing.mockResolvedValue(rejected);
+    listingsApi.submitListing.mockResolvedValue({
+      ...rejected,
+      status: "PENDING_REVIEW",
+    });
+    verificationApi.currentVerification.mockResolvedValue(
+      verificationRequest({ status: "REJECTED" }),
+    );
+    verificationApi.requestVerification.mockResolvedValue(
+      verificationRequest({ id: "verification-2", code: "654321" }),
+    );
+    moderationApi.ownerStatus.mockResolvedValue({ appealAllowed: true });
+    renderApp(<MyAds />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^Needs attention/ }),
+    );
+    expect(
+      screen.queryByRole("button", { name: /Appeal the decision on/ }),
+    ).toBe(null);
+    expect(
+      screen.getByText(
+        "This ad is private. Edit and resubmit to try verification again.",
+      ),
+    ).toBeTruthy();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Edit 2 Bedroom Apartment" }),
+    );
+    await screen.findByRole("button", { name: "Property" });
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(await screen.findByText("654321")).toBeTruthy();
+    expect(listingsApi.submitListing).toHaveBeenCalledWith(
+      "listing-1",
+      expect.any(String),
+      { requestVerification: true },
+    );
+    expect(
+      screen.getByText("Your ad stays private until verification is approved"),
+    ).toBeTruthy();
+    expect(screen.queryByText("Your ad is live — changes saved")).toBe(null);
   });
 });

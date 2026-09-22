@@ -16,7 +16,8 @@ public class ModerationRepository {
     public ModerationRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
     public record Listing(UUID id, UUID owner, SiteScope site, String category, String status,
-                          long version, Instant expiresAt, boolean enabled, String reason) { }
+                          long version, Instant expiresAt, boolean enabled, String reason,
+                          boolean verificationRequested, boolean verified) { }
     public record Case(UUID id, UUID listingId, String kind, String status, UUID assignee, long reviewVersion) { }
 
     public Listing listing(UUID id, boolean lock) {
@@ -27,7 +28,8 @@ public class ModerationRepository {
                 id, rs.getObject("owner_id", UUID.class), SiteScope.valueOf(rs.getString("site_scope")),
                 rs.getString("category_id"), rs.getString("status"), rs.getLong("version"),
                 rs.getTimestamp("expires_at") == null ? null : rs.getTimestamp("expires_at").toInstant(),
-                rs.getBoolean("enabled"), rs.getString("moderation_reason")), id);
+                rs.getBoolean("enabled"), rs.getString("moderation_reason"),
+                rs.getBoolean("verification_requested"), rs.getBoolean("verified")), id);
         if (rows.isEmpty()) throw new ModerationException(NOT_FOUND, "Listing not found.");
         return rows.getFirst();
     }

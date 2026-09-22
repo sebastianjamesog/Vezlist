@@ -262,6 +262,53 @@ class ModerationIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM reports WHERE listing_id = ?", Long.class, listing)).isZero();
     }
 
+    @Test void ordinarySubmissionAndAppealApprovalCannotBypassRequestedVerification() throws Exception {
+        for (String site : List.of("MARKETPLACE", "PERSONALS")) {
+            for (String status : List.of("PENDING_REVIEW", "REJECTED")) {
+                var owner = account(Role.USER);
+                var moderator = account(Role.MODERATOR);
+                UUID listing = listing(owner, site, status);
+                jdbc.update("UPDATE listings SET verification_requested = true WHERE id = ?", listing);
+                if (status.equals("REJECTED")) {
+                    mvc.perform(get("/api/v1/me/listings/" + listing + "/moderation?site=" + site).with(user(owner)))
+                            .andExpect(status().isOk()).andExpect(jsonPath("$.appealAllowed").value(false));
+                    post(owner, "/api/v1/me/listings/" + listing + "/moderation/appeals",
+                            Map.of("site", site, "message", "Please reconsider this decision."))
+                            .andExpect(status().isConflict());
+                    // A pre-existing appeal must not bypass the same gate.
+                    jdbc.update("INSERT INTO moderation_cases(id, listing_id, kind, review_version) SELECT ?, id, 'APPEAL', version FROM listings WHERE id = ?",
+                            UUID.randomUUID(), listing);
+                }
+                UUID review = review(listing);
+                UUID image = media(listing);
+                claim(moderator, review);
+                checkMedia(moderator, review, image);
+                post(moderator, path(review, "decisions"), Map.of("decision", "APPROVE", "eligibilityChecked", true))
+                        .andExpect(status().isConflict());
+                assertThat(statusOf(listing)).isEqualTo(status);
+                assertThat(events(listing)).isZero();
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM moderation_actions WHERE case_id = ? AND action = 'APPROVE'", Long.class, review)).isZero();
+            }
+        }
+    }
+
+    @Test void anAlreadyVerifiedRemovedListingCanStillUseTheExistingAppealProcess() throws Exception {
+        var owner = account(Role.USER);
+        var moderator = account(Role.MODERATOR);
+        UUID listing = listing(owner, "MARKETPLACE", "REMOVED");
+        jdbc.update("UPDATE listings SET verification_requested = true, verified = true WHERE id = ?", listing);
+        post(owner, "/api/v1/me/listings/" + listing + "/moderation/appeals",
+                Map.of("site", "MARKETPLACE", "message", "Please reconsider the removal."))
+                .andExpect(status().isOk());
+        UUID review = review(listing);
+        UUID image = media(listing);
+        claim(moderator, review);
+        checkMedia(moderator, review, image);
+        post(moderator, path(review, "decisions"), Map.of("decision", "APPROVE"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.listingStatus").value("ACTIVE"));
+        assertThat(jdbc.queryForObject("SELECT verified FROM listings WHERE id = ?", Boolean.class, listing)).isTrue();
+    }
+
     @Test void migrationUpgradesExistingPendingListingsWithoutLosingData() throws Exception {
         jdbc.execute("CREATE DATABASE moderation_upgrade");
         String upgradeUrl = "jdbc:postgresql://" + POSTGRES.getHost() + ":" + POSTGRES.getMappedPort(5432) + "/moderation_upgrade";

@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Eye, Heart, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  BadgeCheck,
+  Eye,
+  Heart,
+  Pencil,
+  RotateCcw,
+  Trash2,
+} from "lucide-react";
 import SubPageBar from "../components/layout/SubPageBar";
 import PageBody from "../components/layout/PageBody";
 import EmptyState from "../components/ui/EmptyState";
@@ -14,6 +22,7 @@ import MediaImage from "../components/media/MediaImage.jsx";
 import StepPhotos from "../components/create/StepPhotos";
 import StepDetails from "../components/create/StepDetails";
 import StepContact from "../components/create/StepContact";
+import VerificationRequestModal from "../components/create/VerificationRequestModal";
 import { useToast } from "../context/ToastContext";
 import { useAccount } from "../context/AccountContext";
 import {
@@ -28,8 +37,6 @@ import { ApiError, SITE_SCOPE } from "../lib/api/client.js";
 import {
   deleteListing,
   ownedListings,
-  resolveCategoryId,
-  resolveLocationId,
   submitListing,
   updateListing,
 } from "../lib/api/listings.js";
@@ -39,20 +46,25 @@ import {
   uploadListingImage,
 } from "../lib/api/media.js";
 import { appeal as appealListing, ownerStatus } from "../lib/api/moderation.js";
+import {
+  currentVerification,
+  requestVerification,
+} from "../lib/api/verification.js";
 
 /**
  * The tabs this screen offers, and which backend `ListingStatus` values file
- * under each one. `DRAFT` rides with "In review" rather than getting a tab
- * of its own: every draft this screen can produce (the wizard submits
- * immediately — see `publishDraft`) is created and submitted in the same
- * breath, so the only way to see one here is an edit that hasn't been saved
- * yet, which is exactly the "still being worked on" bucket "In review"
- * already describes to a poster who doesn't know the backend's state names.
+ * under each one. Unsubmitted drafts are separate from private ads awaiting
+ * verification, so a partially completed regular post never claims staff review.
  */
 const TABS = [
   { value: "active", label: "Active", statuses: ["ACTIVE"] },
-  { value: "pending", label: "In review", statuses: ["DRAFT", "PENDING_REVIEW"] },
-  { value: "attention", label: "Needs attention", statuses: ["REJECTED", "REMOVED"] },
+  { value: "pending", label: "In review", statuses: ["PENDING_REVIEW"] },
+  { value: "drafts", label: "Drafts", statuses: ["DRAFT"] },
+  {
+    value: "attention",
+    label: "Needs attention",
+    statuses: ["REJECTED", "REMOVED"],
+  },
   { value: "expired", label: "Expired", statuses: ["EXPIRED"] },
 ];
 
@@ -67,7 +79,7 @@ const statusTone = {
 
 const statusLabel = {
   ACTIVE: "Active",
-  DRAFT: "In review",
+  DRAFT: "Draft",
   PENDING_REVIEW: "In review",
   REJECTED: "Rejected",
   REMOVED: "Removed",
@@ -91,9 +103,13 @@ function daysUntil(iso) {
 
 /** The card's link to the ad — only a published (or once-published) listing has a public detail page. */
 function AdLink({ listing, className, children }) {
-  if (listing.status !== "ACTIVE") return <span className={className}>{children}</span>;
+  if (listing.status !== "ACTIVE")
+    return <span className={className}>{children}</span>;
   return (
-    <Link href={`/ad/${listing.id}`} className={`${className} hover:text-brand`}>
+    <Link
+      href={`/ad/${listing.id}`}
+      className={`${className} hover:text-brand`}
+    >
       {children}
     </Link>
   );
@@ -117,6 +133,8 @@ export default function MyAds() {
   const [saving, setSaving] = useState(false);
   const previews = useRef([]);
   const [addingPhotos, setAddingPhotos] = useState(false);
+  const [verification, setVerification] = useState(null);
+  const [requestingVerification, setRequestingVerification] = useState(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -173,6 +191,36 @@ export default function MyAds() {
 
   /* ---- moderation / appeal ---- */
 
+  async function continueVerification(listing) {
+    if (requestingVerification) return;
+    setRequestingVerification(listing.id);
+    try {
+      let request;
+      try {
+        request = await currentVerification(listing.id);
+      } catch (error) {
+        if (error?.status !== 404) throw error;
+      }
+      if (!request || request.status === "REJECTED") {
+        request = await requestVerification(listing.id);
+      }
+      setVerification({
+        listingId: listing.id,
+        request,
+        publicationPending:
+          listing.status === "PENDING_REVIEW" && listing.verificationRequested,
+      });
+    } catch (error) {
+      toast(
+        error instanceof ApiError
+          ? error.message
+          : "Couldn't start verification. Your ad stays private; try again.",
+      );
+    } finally {
+      setRequestingVerification(null);
+    }
+  }
+
   function openAppeal(listing) {
     setAppealMessage("");
     setAppealing(listing);
@@ -193,7 +241,9 @@ export default function MyAds() {
       toast("Appeal submitted for review");
       setAppealing(null);
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Couldn't submit the appeal");
+      toast(
+        err instanceof ApiError ? err.message : "Couldn't submit the appeal",
+      );
     } finally {
       setAppealSubmitting(false);
     }
@@ -257,9 +307,11 @@ export default function MyAds() {
 
     const messages = [];
     if (refused.length) messages.push(refused[0]);
-    if (refused.length > 1) messages.push(`${refused.length - 1} more skipped.`);
+    if (refused.length > 1)
+      messages.push(`${refused.length - 1} more skipped.`);
     if (overflow) messages.push(`Only ${MAX_IMAGES} photos per ad.`);
-    if (messages.length) setErrors((e) => ({ ...e, images: messages.join(" ") }));
+    if (messages.length)
+      setErrors((e) => ({ ...e, images: messages.join(" ") }));
   }
 
   function removeImage(id) {
@@ -277,15 +329,8 @@ export default function MyAds() {
 
     setSaving(true);
     try {
-      const [categoryId, location] = await Promise.all([
-        resolveCategoryId(draft.category, SITE_SCOPE),
-        resolveLocationId(draft.location),
-      ]);
       const request = toListingWriteRequest(draft, {
         site: SITE_SCOPE,
-        categoryId,
-        provinceId: location.provinceId,
-        locationId: location.locationId,
       });
 
       let listing = await updateListing(editing.id, request);
@@ -309,20 +354,37 @@ export default function MyAds() {
       }
 
       if (EDITABLE_STATUSES.has(editing.status)) {
-        listing = await submitListing(editing.id, crypto.randomUUID());
+        listing = await submitListing(editing.id, crypto.randomUUID(), {
+          requestVerification: editing.verificationRequested === true,
+        });
       }
 
-      setListings((rows) => rows.map((r) => (r.id === listing.id ? listing : r)));
+      setListings((rows) =>
+        rows.map((r) => (r.id === listing.id ? listing : r)),
+      );
       setSaving(false);
       closeEdit();
+      setTab(tabFor(listing.status) ?? "active");
       toast(
-        EDITABLE_STATUSES.has(editing.status)
-          ? "Saved — back in review"
-          : "Changes saved",
+        listing.status === "ACTIVE"
+          ? "Your ad is live — changes saved"
+          : listing.status === "PENDING_REVIEW"
+            ? listing.verificationRequested
+              ? "Your ad stays private until verification is approved"
+              : "Your ad is in review — check My Ads for updates"
+            : "Changes saved",
       );
+      if (
+        listing.status === "PENDING_REVIEW" &&
+        listing.verificationRequested
+      ) {
+        await continueVerification(listing);
+      }
     } catch (err) {
       setSaving(false);
-      toast(err instanceof ApiError ? err.message : "Couldn't save your changes");
+      toast(
+        err instanceof ApiError ? err.message : "Couldn't save your changes",
+      );
     }
   }
 
@@ -336,7 +398,11 @@ export default function MyAds() {
           <EmptyState
             icon="ShieldAlert"
             title="Couldn't load your ads"
-            body={error instanceof ApiError ? error.message : "Something went wrong."}
+            body={
+              error instanceof ApiError
+                ? error.message
+                : "Something went wrong."
+            }
             action={<Button onClick={load}>Try again</Button>}
           />
         </PageBody>
@@ -372,7 +438,7 @@ export default function MyAds() {
         />
 
         <PageBody className="px-4 pb-6 pt-3 lg:px-8 lg:py-6">
-          <div className="mb-4 flex gap-1 rounded-2xl bg-canvas p-1 ring-1 ring-line lg:max-w-xl">
+          <div className="mb-4 flex flex-wrap gap-1 rounded-2xl bg-canvas p-1 ring-1 ring-line lg:max-w-xl">
             {TABS.map((s) => (
               <button
                 key={s.value}
@@ -421,7 +487,10 @@ export default function MyAds() {
                           <span
                             className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusTone[row.status] ?? "bg-canvas text-muted"}`}
                           >
-                            {statusLabel[row.status] ?? row.status}
+                            {row.status === "PENDING_REVIEW" &&
+                            row.verificationRequested
+                              ? "Verification pending"
+                              : (statusLabel[row.status] ?? row.status)}
                           </span>
                         </div>
 
@@ -435,10 +504,20 @@ export default function MyAds() {
                             {row.saveCount}
                           </span>
                           {row.status === "ACTIVE" && row.expiresAt && (
-                            <span>Expires in {daysUntil(row.expiresAt)} days</span>
+                            <span>
+                              Expires in {daysUntil(row.expiresAt)} days
+                            </span>
                           )}
                         </div>
 
+                        {row.status === "REJECTED" &&
+                          row.verificationRequested &&
+                          !row.verified && (
+                            <p className="mt-2 text-[13px] text-muted">
+                              This ad is private. Edit and resubmit to try
+                              verification again.
+                            </p>
+                          )}
                         {mod?.publicReason && (
                           <p className="mt-2 flex items-start gap-1.5 rounded-xl bg-red-50 px-2.5 py-1.5 text-[12.5px] leading-snug text-red-700">
                             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
@@ -449,6 +528,21 @@ export default function MyAds() {
                     </div>
 
                     <div className="mt-3 flex gap-2 border-t border-line pt-3">
+                      {row.status === "PENDING_REVIEW" &&
+                        row.verificationRequested && (
+                          <button
+                            type="button"
+                            onClick={() => continueVerification(row)}
+                            disabled={Boolean(requestingVerification)}
+                            aria-label={`Continue verification for ${row.title}`}
+                            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-line px-2 py-2.5 text-[14px] font-semibold text-ink transition-colors hover:bg-canvas disabled:opacity-60"
+                          >
+                            <BadgeCheck className="size-4" />
+                            {requestingVerification === row.id
+                              ? "Loading..."
+                              : "Continue verification"}
+                          </button>
+                        )}
                       {editable && (
                         <button
                           onClick={() => openEdit(row)}
@@ -460,16 +554,17 @@ export default function MyAds() {
                         </button>
                       )}
 
-                      {mod?.appealAllowed && (
-                        <button
-                          onClick={() => openAppeal(row)}
-                          aria-label={`Appeal the decision on ${row.title}`}
-                          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-brand-soft py-2.5 text-[14px] font-semibold text-brand transition-colors hover:bg-brand hover:text-on-brand"
-                        >
-                          <RotateCcw className="size-4" />
-                          Appeal
-                        </button>
-                      )}
+                      {mod?.appealAllowed &&
+                        (!row.verificationRequested || row.verified) && (
+                          <button
+                            onClick={() => openAppeal(row)}
+                            aria-label={`Appeal the decision on ${row.title}`}
+                            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-brand-soft py-2.5 text-[14px] font-semibold text-brand transition-colors hover:bg-brand hover:text-on-brand"
+                          >
+                            <RotateCcw className="size-4" />
+                            Appeal
+                          </button>
+                        )}
 
                       <button
                         onClick={() => setPendingDelete(row)}
@@ -502,11 +597,15 @@ export default function MyAds() {
             editing && (
               <div className="flex items-center gap-3">
                 <p className="min-w-0 flex-1 text-[13px] leading-snug text-muted">
-                  {EDITABLE_STATUSES.has(editing.status)
-                    ? "Saving sends this ad back for review."
-                    : "Changes saved."}
+                  {editing.verificationRequested
+                    ? "Saving keeps this ad private until verification is approved."
+                    : "Saving publishes this regular ad after its photos finish processing."}
                 </p>
-                <Button onClick={saveEdit} disabled={saving} className="shrink-0">
+                <Button
+                  onClick={saveEdit}
+                  disabled={saving}
+                  className="shrink-0"
+                >
                   {saving ? "Saving…" : "Save changes"}
                 </Button>
               </div>
@@ -542,10 +641,18 @@ export default function MyAds() {
                       />
                     )}
                     {id === "details" && (
-                      <StepDetails draft={draft} errors={errors} onPatch={patch} />
+                      <StepDetails
+                        draft={draft}
+                        errors={errors}
+                        onPatch={patch}
+                      />
                     )}
                     {id === "contact" && (
-                      <StepContact draft={draft} errors={errors} onPatch={patch} />
+                      <StepContact
+                        draft={draft}
+                        errors={errors}
+                        onPatch={patch}
+                      />
                     )}
                   </section>
                 );
@@ -584,6 +691,17 @@ export default function MyAds() {
             />
           </label>
         </Modal>
+
+        <VerificationRequestModal
+          open={Boolean(verification)}
+          listingId={verification?.listingId}
+          initial={verification?.request}
+          publicationPending={verification?.publicationPending}
+          onClose={() => {
+            setVerification(null);
+            load();
+          }}
+        />
 
         <ConfirmDialog
           open={Boolean(pendingDelete)}

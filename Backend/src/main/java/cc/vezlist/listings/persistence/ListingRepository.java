@@ -1,5 +1,6 @@
 package cc.vezlist.listings.persistence;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -16,6 +17,19 @@ import jakarta.persistence.LockModeType;
 
 public interface ListingRepository extends JpaRepository<Listing, UUID> {
 
+    @Query(value = """
+            select count(*) from listings listing
+            join app_users owner on owner.id = listing.owner_id and owner.enabled = true
+            where listing.owner_id = :ownerId
+              and listing.site_scope = :site
+              and listing.status = 'ACTIVE'
+              and (listing.expires_at is null or listing.expires_at > :asOf)
+            """, nativeQuery = true)
+    long countActiveOwned(
+            @Param("ownerId") UUID ownerId,
+            @Param("site") String site,
+            @Param("asOf") Instant asOf);
+
     @EntityGraph(attributePaths = {"category", "location", "location.parent", "attributes"})
     @Query("select listing from Listing listing where listing.id = :id and listing.status <> :deleted")
     Optional<Listing> findDetailedById(
@@ -23,7 +37,8 @@ public interface ListingRepository extends JpaRepository<Listing, UUID> {
             @Param("deleted") ListingStatus deleted);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @EntityGraph(attributePaths = {"category", "location", "location.parent", "attributes"})
+    // Fetching collections here requires follow-on locking, which can expose a stale pre-lock snapshot.
+    // Callers run in transactions and initialize associations after acquiring the listing row lock.
     @Query("select listing from Listing listing where listing.id = :id and listing.status <> :deleted")
     Optional<Listing> findDetailedByIdForUpdate(
             @Param("id") UUID id,
