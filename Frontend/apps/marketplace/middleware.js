@@ -47,6 +47,29 @@ import { NextResponse } from "next/server";
  */
 const DEV = process.env.NODE_ENV === "development";
 
+/**
+ * The backend API origin — same resolution `lib/api/client.js`'s
+ * `API_BASE_URL` uses, kept in sync deliberately rather than imported,
+ * since this file runs in the Edge runtime and the shared package isn't
+ * guaranteed importable from it. `connect-src 'self'` alone silently
+ * blocked every `fetch` this app makes to the backend: CSP treats
+ * `localhost:8080` as a different origin than `localhost:3000` even
+ * though they're the same machine, and unlike CORS, a CSP violation never
+ * reaches the network layer at all — no request, no CORS error, just a
+ * browser-console-only "Refused to connect" that curl-based testing can
+ * never reproduce (curl doesn't enforce CSP).
+ */
+const API_ORIGIN = process.env.NEXT_PUBLIC_API_URL ?? (DEV ? "http://localhost:8080" : "");
+
+/**
+ * The object storage origin — `lib/api/media.js`/`verification.js` PUT
+ * photo bytes directly to a presigned URL the backend hands back
+ * (`VEZLIST_STORAGE_ENDPOINT`, MinIO in dev), a third origin distinct from
+ * both this app and the API. Same CSP gap as API_ORIGIN above; caught in
+ * the same real-browser test that found it.
+ */
+const STORAGE_ORIGIN = process.env.NEXT_PUBLIC_STORAGE_URL ?? (DEV ? "http://localhost:9000" : "");
+
 function securityHeaders() {
   const csp = [
     "default-src 'self'",
@@ -61,9 +84,14 @@ function securityHeaders() {
     // basemaps.cartocdn.com is Leaflet's OSM/CARTO tile source (a/b/c/d
     // subdomains). blob: covers local photo-upload previews (createObjectURL
     // in StepPhotos.jsx / CreateAdSheet.jsx and the CSV export in lib/csv.js).
-    "img-src 'self' data: blob: https://picsum.photos https://*.picsum.photos https://*.basemaps.cartocdn.com",
+    // STORAGE_ORIGIN: real listing/verification photos render as plain
+    // <img src> pointing straight at object storage (next.config.mjs sets
+    // `images.unoptimized: true`, so there's no same-origin optimizer proxy
+    // to hide behind) — without it every real uploaded photo is a browser-
+    // blocked image, indistinguishable from a broken URL.
+    `img-src 'self' data: blob: https://picsum.photos https://*.picsum.photos https://*.basemaps.cartocdn.com${STORAGE_ORIGIN ? ` ${STORAGE_ORIGIN}` : ""}`,
     "font-src 'self' data:",
-    "connect-src 'self'",
+    `connect-src 'self'${API_ORIGIN ? ` ${API_ORIGIN}` : ""}${STORAGE_ORIGIN ? ` ${STORAGE_ORIGIN}` : ""}`,
     "form-action 'self'",
     // Fixes the clickjackable personals age gate: no third-party origin may
     // frame this site. Same-origin embeds only.
