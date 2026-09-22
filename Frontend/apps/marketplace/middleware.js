@@ -84,11 +84,12 @@ function securityHeaders() {
   );
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-  // The app never calls the Geolocation API by design (see
-  // packages/shared/src/data/locations.js:325-353 — location is a manual
-  // picker, not device geolocation), so camera/mic/geolocation are all denied
-  // outright rather than merely restricted to self.
-  headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  // Nothing here uses camera/mic, so those stay denied outright. Nearby
+  // (packages/shared/src/pages/Nearby.jsx) calls the real Geolocation API
+  // for radius search, so that one is restricted to `self` rather than
+  // denied — matching the personals origin, which restricted it for the
+  // same reason before this site had a caller of its own.
+  headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)");
   return headers;
 }
 

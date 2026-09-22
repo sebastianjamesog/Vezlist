@@ -103,11 +103,13 @@ function securityHeaders() {
   //
   // `self` and not `*`: an embedded third party still gets nothing, which is
   // the part of the original denial that was actually load-bearing. The
-  // marketplace and admin origins keep `camera=(), microphone=()`, because
-  // neither has any use for either.
+  // admin origin keeps `camera=(), microphone=()`, because it has no use for
+  // either. Marketplace now matches this origin's `geolocation=(self)` too —
+  // Nearby (packages/shared/src/pages/Nearby.jsx) calls the real Geolocation
+  // API on both sites for radius search.
   headers.set(
     "Permissions-Policy",
-    "camera=(self), microphone=(self), geolocation=()",
+    "camera=(self), microphone=(self), geolocation=(self)",
   );
   return headers;
 }
