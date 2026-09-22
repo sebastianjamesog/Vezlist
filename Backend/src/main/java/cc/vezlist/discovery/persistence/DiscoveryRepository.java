@@ -81,7 +81,7 @@ public class DiscoveryRepository {
         StringBuilder sql = new StringBuilder("WITH candidates AS ( SELECT ")
                 .append("l.id, l.site_scope, l.title, l.business_name, l.price, ")
                 .append("l.category_id, l.province_id, l.location_id, l.latitude, l.longitude, ")
-                .append("u.seller_verified AS verified, ")
+                .append("l.verified AS verified, ")
                 .append("COALESCE(l.published_at, l.created_at) AS published_at, ")
                 .append("COALESCE(l.price, 0) AS sort_price, ")
                 .append(distance).append(" AS distance_km");
@@ -129,7 +129,7 @@ public class DiscoveryRepository {
             parameters.addValue("maxPrice", criteria.maxPrice());
         }
         if (criteria.verifiedOnly()) {
-            sql.append("AND u.seller_verified = TRUE ");
+            sql.append("AND l.verified = TRUE ");
         }
         if (criteria.postedAfter() != null) {
             sql.append("AND COALESCE(l.published_at, l.created_at) >= :postedAfter ");

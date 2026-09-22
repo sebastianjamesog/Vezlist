@@ -112,6 +112,9 @@ public class Listing {
     @Column(name = "moderation_reason", length = 80)
     private String moderationReason;
 
+    @Column(name = "verified", nullable = false)
+    private boolean verified;
+
     protected Listing() {
     }
 
@@ -209,6 +212,16 @@ public class Listing {
         moderationReason = reason;
     }
 
+    /**
+     * Flips the per-listing verification badge. Called only from
+     * {@code cc.vezlist.verification} when a staff member approves or a
+     * listing's verification is otherwise revoked; deliberately independent
+     * of {@code app_users.seller_verified}.
+     */
+    public void setVerified(boolean verified) {
+        this.verified = verified;
+    }
+
     public UUID getId() { return id; }
     public UUID getOwnerId() { return ownerId; }
     public SiteScope getSiteScope() { return siteScope; }
@@ -233,4 +246,5 @@ public class Listing {
     public Instant getPublishedAt() { return publishedAt; }
     public Instant getExpiresAt() { return expiresAt; }
     public String getModerationReason() { return moderationReason; }
+    public boolean isVerified() { return verified; }
 }

@@ -148,7 +148,7 @@ public class SavedListingRepository {
                        province.label AS province_label,
                        listing.location_id,
                        area.label AS location_label,
-                       seller.seller_verified AS verified,
+                       listing.verified AS verified,
                        COALESCE(listing.published_at, listing.created_at) AS published_at,
                        saved.saved_at,
                        (SELECT media.object_key

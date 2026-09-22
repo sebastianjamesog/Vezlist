@@ -23,6 +23,9 @@ import cc.vezlist.saved.application.SavedListingQueryInvalidException;
 import cc.vezlist.users.application.AdminActionConflictException;
 import cc.vezlist.users.application.AdminUserNotFoundException;
 import cc.vezlist.users.application.CurrentPasswordInvalidException;
+import cc.vezlist.verification.application.VerificationNotFoundException;
+import cc.vezlist.verification.application.VerificationStateException;
+import cc.vezlist.verification.application.VerificationValidationException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.security.access.AccessDeniedException;
@@ -189,6 +192,27 @@ public class ApiExceptionHandler {
             CatalogAlreadyExistsException exception,
             HttpServletRequest request) {
         return error(HttpStatus.CONFLICT, "CATALOG_ENTRY_ALREADY_EXISTS", exception.getMessage(), List.of(), request);
+    }
+
+    @ExceptionHandler(VerificationNotFoundException.class)
+    ResponseEntity<ApiError> handleVerificationNotFound(
+            VerificationNotFoundException exception,
+            HttpServletRequest request) {
+        return error(HttpStatus.NOT_FOUND, "VERIFICATION_REQUEST_NOT_FOUND", exception.getMessage(), List.of(), request);
+    }
+
+    @ExceptionHandler(VerificationStateException.class)
+    ResponseEntity<ApiError> handleVerificationState(
+            VerificationStateException exception,
+            HttpServletRequest request) {
+        return error(HttpStatus.CONFLICT, "VERIFICATION_CONFLICT", exception.getMessage(), List.of(), request);
+    }
+
+    @ExceptionHandler(VerificationValidationException.class)
+    ResponseEntity<ApiError> handleVerificationValidation(
+            VerificationValidationException exception,
+            HttpServletRequest request) {
+        return error(HttpStatus.BAD_REQUEST, "VERIFICATION_VALIDATION_ERROR", exception.getMessage(), List.of(), request);
     }
 
     @ExceptionHandler(AdminUserNotFoundException.class)

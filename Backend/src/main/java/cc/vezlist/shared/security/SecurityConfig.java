@@ -42,6 +42,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/v1/moderation/**").hasAnyRole("MODERATOR", "ADMIN")
                         .requestMatchers("/api/v1/admin/**").hasAnyRole("MODERATOR", "ADMIN")
+                        .requestMatchers("/api/v1/listings/*/verification/**").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/listings").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/listings/*").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/sellers/*").permitAll()
