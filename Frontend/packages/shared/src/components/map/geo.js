@@ -1,74 +1,14 @@
 /**
  * Where the pins are, and which of them collapse into one.
  *
- * The feed rows in `data/mock.js` describe ads, not places — they carry a
- * `location` label and a `distanceKm`, and nothing else that a map can use.
- * Rather than add coordinates to the mock (that file is the shared data layer
- * and every screen reads it; widening it for one screen is the kind of change
- * that has to be argued for elsewhere), the map derives its own. Nothing here
- * touches Leaflet or the DOM, so it stays unit-testable and safe to import from
- * anywhere.
+ * Real listings from `lib/api/discovery.js` carry their own latitude and
+ * longitude, so there is no fabrication to do here any more — `MapView`
+ * reads coordinates straight off the row. What is left is projection-aware
+ * geometry (which pins are on screen, which overlap at this zoom), which
+ * has nothing to do with where the coordinates came from. Nothing here
+ * touches Leaflet or the DOM, so it stays unit-testable and safe to import
+ * from anywhere.
  */
-
-/**
- * FNV-1a, the same technique `mock.js` uses to pick a sub-category from a
- * title. `Math.random()` is the obvious alternative and the wrong one: this map
- * is client-only so hydration is not the hazard, but a pin whose latitude is
- * re-rolled on every render walks across the map whenever a filter chip is
- * tapped, and two renders of the same listing would disagree about where it is.
- * A hash of the id is the same number forever.
- */
-export function hashString(str) {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i += 1) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-/** Two independent 0..1 draws out of one hash — high bits and low bits. */
-const unitPair = (h) => [((h >>> 16) & 0xffff) / 0xffff, (h & 0xffff) / 0xffff];
-
-/** Degrees of latitude per kilometre. Close enough at city scale. */
-const KM_PER_DEG_LAT = 110.574;
-
-/**
- * Scatter a feed around a centre point.
- *
- * The bearing comes out of the hash, but the *radius* is the listing's real
- * `distanceKm`, so a pin sitting three rings out from the middle is the same ad
- * the sheet below describes as "3.2 km away". Deriving the radius from the hash
- * too would have been one line shorter and would have let the map contradict
- * the list it sits on top of, which is the sort of thing nobody notices in
- * review and everybody notices in use.
- *
- * A small hashed jitter is folded in so that two ads recorded at the same
- * distance do not land on the same circle at the same angle by coincidence.
- */
-export function scatterAround(items, [centerLat, centerLng]) {
-  const kmPerDegLng = KM_PER_DEG_LAT * Math.cos((centerLat * Math.PI) / 180);
-
-  return items.map((item) => {
-    const h = hashString(String(item.id ?? item.title ?? ""));
-    const [bearingSeed, jitterSeed] = unitPair(h);
-
-    const bearing = bearingSeed * Math.PI * 2;
-    // ±18% on the radius: enough to break up rings, small enough that the
-    // distance the card claims still reads as true.
-    const km = Math.max(
-      0.2,
-      (item.distanceKm ?? 2) * (0.82 + jitterSeed * 0.36),
-    );
-
-    return {
-      id: item.id,
-      listing: item,
-      lat: centerLat + (km * Math.cos(bearing)) / KM_PER_DEG_LAT,
-      lng: centerLng + (km * Math.sin(bearing)) / kmPerDegLng,
-    };
-  });
-}
 
 /**
  * Only draw what is on screen, plus a margin.

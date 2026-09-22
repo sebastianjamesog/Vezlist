@@ -11,17 +11,25 @@ import {
 } from "react-leaflet";
 import { ChevronRight, LocateFixed, Minus, Plus, X } from "lucide-react";
 import "leaflet/dist/leaflet.css";
-import { listings, personalsListings } from "../data/mock";
-import { IS_PERSONALS } from "../lib/sites";
-import { clusterPoints, pointsInView, scatterAround } from "./map/geo.js";
+import { clusterPoints, pointsInView } from "./map/geo.js";
 import { MARKER_CSS, clusterIcon, pinIcon } from "./map/icons.js";
 import SearchBar from "./ui/SearchBar";
 import MediaImage from "./media/MediaImage.jsx";
 
 const VICTORIA = [48.4284, -123.3656];
 
-/** Which board's ads this map plots. Same split the rest of the app makes. */
-const FEED = IS_PERSONALS ? personalsListings : listings;
+/**
+ * Real listings from `lib/api/discovery.js` carry their own `latitude`/
+ * `longitude` — no fabrication needed here the way the mock-era map had to
+ * invent one. A row with no coordinate on either side (rare, but a listing
+ * predating precise geocoding could lack one) is dropped rather than
+ * plotted at a fake position.
+ */
+function toPoints(items) {
+  return items
+    .filter((item) => Number.isFinite(item.latitude) && Number.isFinite(item.longitude))
+    .map((item) => ({ id: item.id, listing: item, lat: item.latitude, lng: item.longitude }));
+}
 
 /**
  * The map is never the only route to a listing.
@@ -33,12 +41,10 @@ const FEED = IS_PERSONALS ? personalsListings : listings;
  * flattened into an accessible-but-useless picture of a list. The pins are
  * still focusable and named, but they are an enhancement, not the fallback.
  */
-export default function MapView({ className = "", items, onTap }) {
-  // `Nearby` hands down its filtered feed so the pins and the list below always
-  // describe the same set of ads; on its own the map falls back to the whole
-  // board rather than rendering empty.
-  const feed = items ?? FEED;
-  const points = useMemo(() => scatterAround(feed, VICTORIA), [feed]);
+export default function MapView({ className = "", items = [], center = VICTORIA, onTap }) {
+  // `Nearby` hands down the same real, filtered feed the list below reads —
+  // the pins and the rows always describe the same set of ads.
+  const points = useMemo(() => toPoints(items), [items]);
 
   // The Leaflet instance, lifted out of the container so the chrome around the
   // map (zoom buttons, locate, the selection card) can drive it. react-leaflet
@@ -126,6 +132,20 @@ export default function MapView({ className = "", items, onTap }) {
     return () => map.off("click", clear);
   }, [map]);
 
+  /**
+   * `MapContainer`'s `center` prop only sets the *initial* view — Leaflet
+   * never re-reads it after mount. `Nearby` mounts this map before its own
+   * geolocation call resolves (so there's something to look at while it
+   * waits), then hands down the real `center` a tick later; without this,
+   * that update would silently do nothing and the map would stay parked on
+   * the fallback view forever.
+   */
+  useEffect(() => {
+    if (!map) return;
+    map.setView(center, map.getZoom());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, center[0], center[1]]);
+
   const locate = () => {
     // The button used to be decoration. It has the map now, so it does the
     // thing it looks like it does — and quietly stays put if permission is
@@ -141,7 +161,7 @@ export default function MapView({ className = "", items, onTap }) {
 
       <MapContainer
         ref={setMap}
-        center={VICTORIA}
+        center={center}
         zoom={12}
         // Leaflet's own zoom control is a pair of grey squares in the top-left
         // corner that belong to no design system; ours is below.
