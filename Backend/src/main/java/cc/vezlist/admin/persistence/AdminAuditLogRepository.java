@@ -32,9 +32,16 @@ public class AdminAuditLogRepository {
                 UUID.randomUUID(), actorId, action, targetType, targetId, details);
     }
 
+    /**
+     * {@code actorId}/{@code actorName} are nullable: a security event with
+     * no resolvable account (e.g. a login attempt against an email that
+     * doesn't exist) has neither. {@code ipAddress}/{@code userAgent} are
+     * populated only for security-event rows -- ordinary admin/moderation
+     * actions have no request to attribute one to.
+     */
     public record Entry(
             UUID id, UUID actorId, String actorName, String action, String targetType,
-            String targetId, String details, Instant createdAt) {
+            String targetId, String details, Instant createdAt, String ipAddress, String userAgent) {
     }
 
     public List<Entry> page(Instant beforeCreatedAt, UUID beforeId, int limit) {
@@ -67,7 +74,9 @@ public class AdminAuditLogRepository {
                     rs.getString("target_type"),
                     rs.getString("target_id"),
                     rs.getString("details"),
-                    rs.getTimestamp("created_at").toInstant());
+                    rs.getTimestamp("created_at").toInstant(),
+                    null,
+                    null);
         }
     }
 }

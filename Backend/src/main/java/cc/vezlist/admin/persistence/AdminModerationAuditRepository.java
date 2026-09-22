@@ -61,7 +61,9 @@ public class AdminModerationAuditRepository {
                     rs.getString("target_type"),
                     rs.getString("target_id"),
                     rs.getString("details"),
-                    rs.getTimestamp("created_at").toInstant());
+                    rs.getTimestamp("created_at").toInstant(),
+                    null,
+                    null);
         }
     }
 }

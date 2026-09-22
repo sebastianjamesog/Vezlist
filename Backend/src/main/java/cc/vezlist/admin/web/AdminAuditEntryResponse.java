@@ -11,5 +11,7 @@ public record AdminAuditEntryResponse(
         String targetType,
         String targetId,
         String details,
-        Instant createdAt) {
+        Instant createdAt,
+        String ipAddress,
+        String userAgent) {
 }

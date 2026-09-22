@@ -1,5 +1,7 @@
 package cc.vezlist.identity.web;
 
+import cc.vezlist.admin.application.SecurityEventService;
+import cc.vezlist.admin.domain.SecurityEventType;
 import cc.vezlist.identity.application.IdentityService;
 import cc.vezlist.identity.application.VezlistUserPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,10 +30,15 @@ public class AuthController {
 
     private final IdentityService identityService;
     private final AuthenticationManager authenticationManager;
+    private final SecurityEventService securityEvents;
 
-    public AuthController(IdentityService identityService, AuthenticationManager authenticationManager) {
+    public AuthController(
+            IdentityService identityService,
+            AuthenticationManager authenticationManager,
+            SecurityEventService securityEvents) {
         this.identityService = identityService;
         this.authenticationManager = authenticationManager;
+        this.securityEvents = securityEvents;
     }
 
     @GetMapping("/csrf")
@@ -46,6 +53,7 @@ public class AuthController {
             HttpServletResponse httpResponse) {
         VezlistUserPrincipal principal = identityService.register(request);
         authenticateSession(principal, httpRequest, httpResponse);
+        securityEvents.record(SecurityEventType.REGISTER, principal.id(), request.email(), httpRequest, null);
         return ResponseEntity.status(HttpStatus.CREATED).body(identityService.toResponse(principal));
     }
 
@@ -59,14 +67,20 @@ public class AuthController {
                     UsernamePasswordAuthenticationToken.unauthenticated(request.email(), request.password()));
             VezlistUserPrincipal principal = (VezlistUserPrincipal) authentication.getPrincipal();
             authenticateSession(principal, httpRequest, httpResponse);
+            securityEvents.record(SecurityEventType.LOGIN_SUCCESS, principal.id(), request.email(), httpRequest, null);
             return identityService.toResponse(principal);
         } catch (BadCredentialsException exception) {
+            securityEvents.record(SecurityEventType.LOGIN_FAILURE, null, request.email(), httpRequest, null);
             throw new InvalidCredentialsException();
         } catch (AccountStatusException exception) {
             // Covers DisabledException (suspended accounts) and the other
             // AccountStatusException subtypes DaoAuthenticationProvider's
             // pre-auth checks can throw - none of these are "unexpected", so
-            // they must not reach the generic 500 handler.
+            // they must not reach the generic 500 handler. Thrown by the
+            // provider's pre-authentication checks, which run before the
+            // password is even verified, so there's no principal here to
+            // attribute this to beyond the email that was typed.
+            securityEvents.record(SecurityEventType.LOGIN_BLOCKED_SUSPENDED, null, request.email(), httpRequest, null);
             throw new AccountSuspendedException();
         }
     }
@@ -77,7 +91,10 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
-    ResponseEntity<Void> logout(HttpServletRequest request, HttpServletResponse response) {
+    ResponseEntity<Void> logout(Authentication authentication, HttpServletRequest request, HttpServletResponse response) {
+        if (authentication != null && authentication.getPrincipal() instanceof VezlistUserPrincipal principal) {
+            securityEvents.record(SecurityEventType.LOGOUT, principal.id(), principal.email(), request, null);
+        }
         if (request.getSession(false) != null) {
             request.getSession(false).invalidate();
         }

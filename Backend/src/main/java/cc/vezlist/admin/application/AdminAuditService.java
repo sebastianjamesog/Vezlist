@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import cc.vezlist.admin.persistence.AdminAuditLogRepository;
 import cc.vezlist.admin.persistence.AdminAuditLogRepository.Entry;
 import cc.vezlist.admin.persistence.AdminModerationAuditRepository;
+import cc.vezlist.admin.persistence.SecurityEventRepository;
 import cc.vezlist.admin.web.AdminAuditEntryResponse;
 import cc.vezlist.admin.web.AdminAuditPageResponse;
 import cc.vezlist.shared.domain.SiteScope;
@@ -32,10 +33,15 @@ public class AdminAuditService {
 
     private final AdminAuditLogRepository auditLog;
     private final AdminModerationAuditRepository moderationAudit;
+    private final SecurityEventRepository securityEvents;
 
-    public AdminAuditService(AdminAuditLogRepository auditLog, AdminModerationAuditRepository moderationAudit) {
+    public AdminAuditService(
+            AdminAuditLogRepository auditLog,
+            AdminModerationAuditRepository moderationAudit,
+            SecurityEventRepository securityEvents) {
         this.auditLog = auditLog;
         this.moderationAudit = moderationAudit;
+        this.securityEvents = securityEvents;
     }
 
     @Transactional
@@ -56,10 +62,15 @@ public class AdminAuditService {
         List<Entry> moderationEntries = site == null
                 ? List.of()
                 : moderationAudit.page(site, before, limit + 1);
+        // Security events (login/logout/register/password-change) aren't
+        // site-scoped -- one account serves both boards -- so they're
+        // included regardless of the site filter, same as generalEntries.
+        List<Entry> securityEntries = securityEvents.page(before, cursor == null ? null : cursor.id(), limit + 1);
 
-        List<Entry> merged = new ArrayList<>(generalEntries.size() + moderationEntries.size());
+        List<Entry> merged = new ArrayList<>(generalEntries.size() + moderationEntries.size() + securityEntries.size());
         merged.addAll(generalEntries);
         merged.addAll(moderationEntries);
+        merged.addAll(securityEntries);
         merged.sort(Comparator.comparing(Entry::createdAt).reversed()
                 .thenComparing(Entry::id, Comparator.reverseOrder()));
 
@@ -76,6 +87,7 @@ public class AdminAuditService {
     private AdminAuditEntryResponse response(Entry entry) {
         return new AdminAuditEntryResponse(
                 entry.id(), entry.actorId(), entry.actorName(), entry.action(),
-                entry.targetType(), entry.targetId(), entry.details(), entry.createdAt());
+                entry.targetType(), entry.targetId(), entry.details(), entry.createdAt(),
+                entry.ipAddress(), entry.userAgent());
     }
 }
