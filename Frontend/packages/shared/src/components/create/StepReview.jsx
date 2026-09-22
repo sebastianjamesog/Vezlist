@@ -1,7 +1,27 @@
 "use client";
 
-import { Check, MapPin, Pencil } from "lucide-react";
-import { stepIndex } from "../../lib/adDraft";
+import { BadgeCheck, Check, MapPin, Pencil } from "lucide-react";
+import { isPersonalsCategory, stepIndex } from "../../lib/adDraft";
+import { categoryPath } from "../../lib/taxonomy";
+import MediaImage from "../media/MediaImage.jsx";
+
+/*
+  The personals group, in the order the ad detail page lists it, so the poster
+  reviewing the draft is reading the same sequence the reader will.
+
+  Name and city are not in it because they are not fields of their own — the
+  rows below already carry them as Title's neighbour and as Location.
+*/
+const PERSONAL_FIELDS = [
+  ["age", "Age"],
+  ["ethnicity", "Ethnicity"],
+  ["availability", "Availability"],
+  ["height", "Height"],
+  ["weight", "Weight"],
+  ["bodyStats", "Body stats"],
+  ["hairColour", "Hair colour"],
+  ["eyeColour", "Eye colour"],
+];
 
 function Row({ label, value, onEdit }) {
   return (
@@ -25,7 +45,24 @@ function Row({ label, value, onEdit }) {
   );
 }
 
-export default function StepReview({ draft, onEdit }) {
+export default function StepReview({ draft, onEdit, verified, onToggleVerified }) {
+  // One string for both places it appears below, because the preview chip and
+  // the summary row are describing the same single decision — if one of them
+  // ever showed "Vehicles" while the other showed "Vehicles › Boats" the poster
+  // would have to work out which one the ad is actually going to be filed under.
+  const path = categoryPath(draft.category, draft.subcategory);
+  /*
+    Only the ones that were filled in.
+
+    Every field in this group is optional, so eight rows of "—" is the most
+    likely outcome and the least useful one: it turns the summary into a list of
+    things the poster declined to do, buries the four rows that decide whether
+    the ad is right, and pushes Publish off the screen. A skipped optional field
+    is not an omission to be reported back — it is the poster having answered.
+  */
+  const personalRows = isPersonalsCategory(draft.category)
+    ? PERSONAL_FIELDS.filter(([key]) => draft[key])
+    : [];
   const toPhotos = () => onEdit(stepIndex("photos"));
   const toDetails = () => onEdit(stepIndex("details"));
   const toContact = () => onEdit(stepIndex("contact"));
@@ -39,9 +76,11 @@ export default function StepReview({ draft, onEdit }) {
         </p>
         <div className="relative flex gap-3 rounded-2xl bg-canvas p-3">
           {draft.images[0] ? (
-            <img
+            <MediaImage
               src={draft.images[0].url}
               alt=""
+              width={72}
+              height={72}
               className="size-[72px] shrink-0 rounded-xl object-cover"
             />
           ) : (
@@ -63,9 +102,7 @@ export default function StepReview({ draft, onEdit }) {
                   <span className="text-[12px] text-muted">·</span>
                 </>
               )}
-              <span className="text-[12px] font-medium text-muted">
-                {draft.category}
-              </span>
+              <span className="text-[12px] font-medium text-muted">{path}</span>
               {draft.location && (
                 <span className="flex items-center gap-0.5 rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-medium text-muted">
                   <MapPin className="size-3" />
@@ -87,11 +124,48 @@ export default function StepReview({ draft, onEdit }) {
           onEdit={toPhotos}
         />
         <Row label="Title" value={draft.title} onEdit={toDetails} />
+        {/*
+          One row, reading "Vehicles › Boats". A second "Sub-category" row would
+          split a single choice into two lines and give the skipped case its own
+          empty row to answer for — an em dash where the poster deliberately
+          chose nothing, which reads as something left undone.
+        */}
+        <Row label="Category" value={path} onEdit={toDetails} />
         <Row label="Description" value={draft.description} onEdit={toDetails} />
+        {personalRows.map(([key, label]) => (
+          <Row key={key} label={label} value={draft[key]} onEdit={toDetails} />
+        ))}
         <Row label="Location" value={draft.location} onEdit={toContact} />
         <Row label="Email" value={draft.email} onEdit={toContact} />
         <Row label="Phone" value={draft.phone} onEdit={toContact} />
       </div>
+
+      {/*
+        Optional, off by default: verification only makes sense once a real
+        listing exists (it is `POST /listings/{listingId}/verification`), so
+        checking this doesn't gather anything here — it just tells
+        `handlePublish` to request it, and the actual code + photo happens in
+        a follow-up step once the listing is real.
+      */}
+      <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line p-4">
+        <input
+          type="checkbox"
+          checked={verified}
+          onChange={(e) => onToggleVerified(e.target.checked)}
+          className="mt-0.5 size-5 shrink-0 accent-[var(--brand)]"
+        />
+        <span className="min-w-0">
+          <span className="flex items-center gap-1.5 text-[14px] font-bold text-ink">
+            <BadgeCheck className="size-4 text-brand" />
+            Post as Verified
+          </span>
+          <span className="mt-0.5 block text-[13px] leading-relaxed text-muted">
+            After publishing, we&apos;ll give you a 6-digit code — photograph
+            yourself holding it and a staff member will review it and add the
+            Verified badge to this ad.
+          </span>
+        </span>
+      </label>
 
       <p className="text-[13px] leading-relaxed text-muted">
         Ads are reviewed before they go live. Most are approved within a couple

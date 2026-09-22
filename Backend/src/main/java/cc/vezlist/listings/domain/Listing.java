@@ -109,6 +109,12 @@ public class Listing {
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
+    @Column(name = "moderation_reason", length = 80)
+    private String moderationReason;
+
+    @Column(name = "verified", nullable = false)
+    private boolean verified;
+
     protected Listing() {
     }
 
@@ -190,6 +196,32 @@ public class Listing {
         deletedAt = Instant.now();
     }
 
+    /**
+     * Admin force-takedown: a straightforward, direct status transition
+     * distinct from the multi-step moderation-decision workflow in
+     * {@code cc.vezlist.moderation}. Only an ACTIVE listing may be removed
+     * this way, the same precondition {@code ModerationService.decide}
+     * enforces for its own REMOVE decision, so this cannot be used to bypass
+     * or short-circuit any other part of the state machine.
+     */
+    public void adminRemove(String reason) {
+        if (status != ListingStatus.ACTIVE) {
+            throw new IllegalStateException("Only active listings can be force-removed.");
+        }
+        status = ListingStatus.REMOVED;
+        moderationReason = reason;
+    }
+
+    /**
+     * Flips the per-listing verification badge. Called only from
+     * {@code cc.vezlist.verification} when a staff member approves or a
+     * listing's verification is otherwise revoked; deliberately independent
+     * of {@code app_users.seller_verified}.
+     */
+    public void setVerified(boolean verified) {
+        this.verified = verified;
+    }
+
     public UUID getId() { return id; }
     public UUID getOwnerId() { return ownerId; }
     public SiteScope getSiteScope() { return siteScope; }
@@ -213,4 +245,6 @@ public class Listing {
     public Instant getSubmittedAt() { return submittedAt; }
     public Instant getPublishedAt() { return publishedAt; }
     public Instant getExpiresAt() { return expiresAt; }
+    public String getModerationReason() { return moderationReason; }
+    public boolean isVerified() { return verified; }
 }

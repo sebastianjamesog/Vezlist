@@ -8,7 +8,21 @@ import PageBody from "../components/layout/PageBody";
 import Button from "../components/ui/Button";
 import Field, { FIELD, border } from "../components/create/Field";
 import { useToast } from "../context/ToastContext";
-import { api } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
+import * as usersApi from "../lib/api/users";
+import { ApiError } from "../lib/api/client";
+
+function messageFor(error) {
+  if (error instanceof ApiError) {
+    if (error.status === 400 && error.code === "CURRENT_PASSWORD_INVALID") {
+      return { current: error.message };
+    }
+    const detail = error.details?.[0];
+    if (detail) return { [detail.field === "newPassword" ? "next" : "current"]: detail.message };
+    return { current: error.message };
+  }
+  return { current: "Something went wrong. Check your connection and try again." };
+}
 
 export const RULES = [
   { id: "length", label: "At least 8 characters", test: (v) => v.length >= 8 },
@@ -60,6 +74,7 @@ function Secret({ value, onChange, error, autoComplete, label }) {
 export default function PasswordSettings() {
   const toast = useToast();
   const navigate = useNavigate();
+  const { refreshUser } = useAuth();
   const [values, setValues] = useState({ current: "", next: "", confirm: "" });
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
@@ -80,19 +95,19 @@ export default function PasswordSettings() {
     if (Object.keys(found).length) return;
     setSaving(true);
     try {
-      await api("/me/password", {
-        method: "PATCH",
-        body: { currentPassword: values.current, newPassword: values.next },
+      await usersApi.changePassword({
+        currentPassword: values.current,
+        newPassword: values.next,
       });
-      toast("Password updated. Other devices were signed out.");
+      // Changing the password revokes this account's other sessions and
+      // replaces this session's principal server-side (see
+      // UserProfileController#changePassword), so the cached user is
+      // refreshed rather than trusted stale.
+      await refreshUser();
+      toast("Password updated");
       navigate("/profile/settings");
     } catch (error) {
-      const fieldMap = { currentPassword: "current", newPassword: "next" };
-      const fieldErrors = Object.fromEntries(
-        (error.details ?? []).map(({ field, message }) => [fieldMap[field] ?? field, message]),
-      );
-      setErrors(fieldErrors);
-      if (!error.details?.length) toast(error.message);
+      setErrors(messageFor(error));
     } finally {
       setSaving(false);
     }
@@ -100,11 +115,13 @@ export default function PasswordSettings() {
 
   return (
     <>
-      <SubPageBar
-        title="Password"
-        subtitle="Use a strong, unique password"
-        fallback="/profile/settings"
-      />
+      {/*
+        No "last changed" subtitle: the backend doesn't expose that date
+        (UserProfileDetails/UserPreferenceDetails carry no password
+        timestamp), and this used to be a fixed mock string unrelated to the
+        signed-in account.
+      */}
+      <SubPageBar title="Password" fallback="/profile/settings" />
 
       <PageBody className="px-4 pb-8 pt-3 lg:max-w-2xl lg:px-8 lg:py-6">
         <form onSubmit={save} noValidate>
@@ -167,8 +184,8 @@ export default function PasswordSettings() {
             </Field>
           </div>
 
-          <Button disabled={saving} type="submit" size="lg" className="mt-4 w-full">
-            {saving ? "Updating..." : "Update password"}
+          <Button type="submit" size="lg" className="mt-4 w-full" disabled={saving}>
+            {saving ? "Updating…" : "Update password"}
           </Button>
 
           <p className="mt-4 text-center text-[13px] leading-relaxed text-muted">

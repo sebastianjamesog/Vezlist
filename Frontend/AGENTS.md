@@ -16,35 +16,35 @@ On-demand expertise. Invoke a skill by name when its domain comes up; each also
 auto-activates on the trigger phrases shown.
 
 - **craft:architecture** — System and service/module boundaries, layering, scaling.
-  Say things like *"monolith vs microservices?"*, *"where's the boundary here?"*,
-  *"draft an ADR"*, *"this is too coupled"*.
+  Say things like _"monolith vs microservices?"_, _"where's the boundary here?"_,
+  _"draft an ADR"_, _"this is too coupled"_.
 - **craft:api-design** — REST/GraphQL/gRPC contracts, versioning, errors, auth.
-  Say things like *"design this endpoint"*, *"how do I version this API?"*,
-  *"paginate this list"*, *"add idempotency keys"*.
+  Say things like _"design this endpoint"_, _"how do I version this API?"_,
+  _"paginate this list"_, _"add idempotency keys"_.
 - **craft:database-design** — Schemas, keys, indexes, migrations, query tuning.
-  Say things like *"design this table"*, *"SQL or NoSQL?"*, *"zero-downtime migration"*,
-  *"why is this query slow?"*.
+  Say things like _"design this table"_, _"SQL or NoSQL?"_, _"zero-downtime migration"_,
+  _"why is this query slow?"_.
 - **craft:project-structure** — Repo layout, monorepo vs polyrepo, naming, scaffolding.
-  Say things like *"how should I lay out this repo?"*, *"feature or layer folders?"*,
-  *"where do tests/config go?"*, *"scaffold a Go service"*.
+  Say things like _"how should I lay out this repo?"_, _"feature or layer folders?"_,
+  _"where do tests/config go?"_, _"scaffold a Go service"_.
 - **craft:clean-code** — Naming, small functions, SOLID, DRY/KISS, refactoring smells.
-  Say things like *"clean up this function"*, *"is this a code smell?"*,
-  *"better name for this"*, *"too many arguments"*.
+  Say things like _"clean up this function"_, _"is this a code smell?"_,
+  _"better name for this"_, _"too many arguments"_.
 - **craft:testing-strategy** — Unit/integration/e2e/contract mix, TDD, flaky tests.
-  Say things like *"how should I test this?"*, *"unit or integration?"*,
-  *"this test is flaky"*, *"what coverage gate?"*.
+  Say things like _"how should I test this?"_, _"unit or integration?"_,
+  _"this test is flaky"_, _"what coverage gate?"_.
 - **craft:security-practices** — OWASP defenses, injection/SSRF, authn/z, secrets.
-  Say things like *"is this input safe?"*, *"how do I store this secret?"*,
-  *"prevent SQL injection"*, *"harden this auth flow"*.
+  Say things like _"is this input safe?"_, _"how do I store this secret?"_,
+  _"prevent SQL injection"_, _"harden this auth flow"_.
 - **craft:performance-optimization** — Profiling, caching, batching, N+1, Web Vitals.
-  Say things like *"this is slow"*, *"profile this"*, *"fix this N+1"*,
-  *"is this optimization worth it?"*, *"improve LCP/INP"*.
+  Say things like _"this is slow"_, _"profile this"_, _"fix this N+1"_,
+  _"is this optimization worth it?"_, _"improve LCP/INP"_.
 - **craft:git-workflow** — Branching, rebasing, conflicts, commit/changelog, releases.
-  Say things like *"name this branch"*, *"rebase or merge?"*, *"fix this conflict"*,
-  *"Conventional Commit for this"*, *"semver bump?"*.
+  Say things like _"name this branch"_, _"rebase or merge?"_, _"fix this conflict"_,
+  _"Conventional Commit for this"_, _"semver bump?"_.
 - **craft:code-review** — Reviewer checklists, severity tagging, PR size, kind feedback.
-  Say things like *"review this PR"*, *"block or nit?"*, *"how big is too big?"*,
-  *"write this review comment"*.
+  Say things like _"review this PR"_, _"block or nit?"_, _"how big is too big?"_,
+  _"write this review comment"_.
 
 ## Subagents available
 
@@ -73,6 +73,7 @@ and returned as a self-contained result (design doc, diff, or cited review).
 The 20-30 cross-cutting rules these skills enforce. Concrete and checkable.
 
 ### Architecture & boundaries
+
 - Dependencies point inward: domain/business logic never imports framework, I/O, or UI.
 - Start with a modular monolith; extract a service only when a real scaling, deploy, or
   team-ownership pressure justifies the operational cost.
@@ -82,6 +83,7 @@ The 20-30 cross-cutting rules these skills enforce. Concrete and checkable.
   consequences).
 
 ### APIs & contracts
+
 - Contract-first: agree the schema (OpenAPI/SDL/proto) before implementing; treat it as
   the source of truth.
 - Use correct HTTP semantics — nouns in paths, verbs as methods, accurate status codes;
@@ -90,6 +92,7 @@ The 20-30 cross-cutting rules these skills enforce. Concrete and checkable.
   new version. Paginate every unbounded list; make writes idempotent where retries occur.
 
 ### Data & migrations
+
 - Every table has a primary key; enforce invariants with NOT NULL, FK, UNIQUE, and CHECK
   constraints, not just application code.
 - Index for your actual query patterns; never ship an unbounded full-table scan on a hot
@@ -98,19 +101,22 @@ The 20-30 cross-cutting rules these skills enforce. Concrete and checkable.
   zero-downtime; never destructive in the same deploy that starts using the change.
 
 ### Project structure
+
 - Group by feature/domain, not by technical layer, once the repo is past trivial size.
 - One clear place for tests, config, scripts, and docs; predictable, consistent naming.
 - Never commit secrets; provide `.env.example`, keep real `.env` git-ignored. Commit
   lockfiles; keep dependencies pinned and pruned.
 
 ### Clean code
+
 - Names reveal intent; functions are small and do one thing; prefer guard clauses over
   nested conditionals.
-- Comments explain *why*, not *what*; delete dead and commented-out code.
+- Comments explain _why_, not _what_; delete dead and commented-out code.
 - No duplication of logic (DRY), no speculative generality (YAGNI); keep cyclomatic
   complexity low and prefer pure functions and immutable data where practical.
 
 ### Testing
+
 - Follow the test pyramid: many fast unit tests, fewer integration, fewest e2e.
 - Tests are deterministic — no real time, network, or randomness without control; fix or
   delete flaky tests, never `@skip` and forget.
@@ -118,6 +124,7 @@ The 20-30 cross-cutting rules these skills enforce. Concrete and checkable.
   regression test. Gate CI on tests passing and a meaningful coverage floor.
 
 ### Security
+
 - Validate and constrain all external input at the boundary; encode output for its sink
   (HTML, SQL, shell, URL).
 - Parameterize every query; never build SQL, shell, or template strings from user input.
@@ -127,6 +134,7 @@ The 20-30 cross-cutting rules these skills enforce. Concrete and checkable.
   secure defaults.
 
 ### Performance
+
 - Measure before optimizing — profile to find the real hot path; never tune on a hunch.
 - Eliminate N+1 and unbounded queries first; batch, cache (with an invalidation plan),
   and paginate. Keep payloads and bundles lean.
@@ -134,6 +142,7 @@ The 20-30 cross-cutting rules these skills enforce. Concrete and checkable.
   behavior.
 
 ### Git & review
+
 - One logical change per commit; write Conventional Commit messages that say why.
 - Branch off an up-to-date main; keep PRs small and focused so they can be reviewed well;
   protect main and require green CI before merge.
@@ -161,41 +170,41 @@ auto-activates on the trigger phrases shown.
 - **design:fundamentals** — Visual design fundamentals: color, typography, the 8pt
   spacing grid, layout, hierarchy, contrast, Gestalt, whitespace, visual weight —
   grounded in named primary-source principles with WCAG 2.2 AA + perf as defaults.
-  Say things like *"why does this look off?"*, *"fix the spacing/hierarchy"*,
-  *"pick a type scale"*, *"is this contrast accessible?"*.
+  Say things like _"why does this look off?"_, _"fix the spacing/hierarchy"_,
+  _"pick a type scale"_, _"is this contrast accessible?"_.
 - **design:ux-principles** — Usability and interaction: Nielsen's 10 heuristics, Laws
   of UX (Fitts, Hick, Doherty…), Norman's principles, applied in React/TS/Tailwind.
-  Say things like *"review this UX"*, *"name this control"*, *"show or hide this?"*,
-  *"why is this screen confusing/error-prone?"*.
+  Say things like _"review this UX"_, _"name this control"_, _"show or hide this?"_,
+  _"why is this screen confusing/error-prone?"_.
 - **design:design-systems** — Design systems, tokens, themeable/dark-mode UI, and
   accessible React components (button, dialog, menu, combobox, tabs) with shadcn/ui,
   Radix, React Aria, Tailwind, cva, Framer Motion.
-  Say things like *"build a design system"*, *"define tokens"*, *"add dark mode"*,
-  *"make this dialog/menu accessible"*, *"variant/state matrix for this"*.
+  Say things like _"build a design system"_, _"define tokens"_, _"add dark mode"_,
+  _"make this dialog/menu accessible"_, _"variant/state matrix for this"_.
 - **design:ui-animation** — UI motion: animations, transitions, easing/duration,
   micro-interactions, hover/press feedback, modals/toasts, route transitions,
   scroll-reveal, stagger, springs, FLIP, prefers-reduced-motion, jank.
-  Say things like *"animate this"*, *"make this feel smooth"*, *"easing/duration?"*,
-  *"add a hover effect"*, *"this animation is janky"*.
+  Say things like _"animate this"_, _"make this feel smooth"_, _"easing/duration?"_,
+  _"add a hover effect"_, _"this animation is janky"_.
 - **design:3d-effects** — 3D/WebGL: Three.js, React Three Fiber, glTF, GLSL shaders,
   bloom/postprocessing, instancing/draw-call perf, CSS 3D transforms, tilt, parallax,
   with reduced-motion + device-capability fallbacks.
-  Say things like *"add a 3D scene"*, *"load this model"*, *"write a shader"*,
-  *"add a tilt/parallax effect"*, *"is this 3D too heavy?"*.
+  Say things like _"add a 3D scene"_, _"load this model"_, _"write a shader"_,
+  _"add a tilt/parallax effect"_, _"is this 3D too heavy?"_.
 - **design:frontend-backend** — Wiring React/Next to a backend API: TanStack
   Query/SWR/RTK Query, mutations/optimistic updates, end-to-end types (tRPC,
   OpenAPI/GraphQL codegen, Zod), auth (cookies vs JWT, refresh, CSRF),
   loading/error/empty states, retries, pagination/infinite scroll, uploads, realtime,
   RSC/server actions/revalidation.
-  Say things like *"fetch and cache this"*, *"optimistic update"*, *"type this API
-  boundary"*, *"cookies or JWT?"*, *"add infinite scroll"*, *"wire up SSE/WebSocket"*.
+  Say things like _"fetch and cache this"_, _"optimistic update"_, _"type this API
+  boundary"_, _"cookies or JWT?"_, _"add infinite scroll"_, _"wire up SSE/WebSocket"_.
 - **design:frontend-architecture** — Frontend structure and perf: component/folder
   architecture, where state lives (local/lifted/URL/server/global),
   CSR/SSR/SSG/ISR/RSC/PPR, mobile-first + container queries, Core Web Vitals
   (LCP/INP/CLS), code splitting, image/font loading, hydration cost, a11y, bundle
   budgets.
-  Say things like *"where should this state live?"*, *"SSR or RSC here?"*, *"fix
-  LCP/INP/CLS"*, *"split this bundle"*, *"structure this Next app"*.
+  Say things like _"where should this state live?"_, _"SSR or RSC here?"_, _"fix
+  LCP/INP/CLS"_, _"split this bundle"_, _"structure this Next app"_.
 
 ## Frontend & design subagents
 
@@ -221,6 +230,7 @@ returned as a self-contained result (shipped code, cited review, or integration 
 Concrete, checkable cross-cutting rules these design skills/subagents enforce.
 
 ### Accessibility (WCAG 2.2 AA)
+
 - Every interactive element is keyboard-operable, has a visible focus ring (never
   `outline: none` without a replacement), and a programmatic accessible name.
 - Text contrast ≥ 4.5:1 (≥ 3:1 for large text and UI/graphical boundaries); never
@@ -233,6 +243,7 @@ Concrete, checkable cross-cutting rules these design skills/subagents enforce.
   primitives (Radix/React Aria) over hand-rolled widgets.
 
 ### Visual design
+
 - Spacing, sizing, and radii come from an 8pt grid (4pt for fine adjustments) via
   tokens — no arbitrary magic pixel values.
 - Type uses a defined modular scale with line-height ~1.4–1.6 for body and measure
@@ -243,6 +254,7 @@ Concrete, checkable cross-cutting rules these design skills/subagents enforce.
   and dark-mode-ready — not values scattered across components.
 
 ### Motion
+
 - Animate only `transform` and `opacity` on hot paths; avoid animating layout
   properties (width/height/top/left) that trigger reflow.
 - UI transition durations stay ~150–300ms with intentional easing (ease-out for
@@ -253,6 +265,7 @@ Concrete, checkable cross-cutting rules these design skills/subagents enforce.
   CLS.
 
 ### Performance (Core Web Vitals)
+
 - Targets: LCP ≤ 2.5s, INP ≤ 200ms, CLS ≤ 0.1 (field/p75).
 - Reserve dimensions for images, media, and ad/embeds (width/height or aspect-ratio)
   to keep CLS ~0; lazy-load below-the-fold images, eager-load the LCP image.
@@ -264,6 +277,7 @@ Concrete, checkable cross-cutting rules these design skills/subagents enforce.
   and avoid unnecessary hydration.
 
 ### Data & integration
+
 - Server state (fetched/cached data) lives in a query cache (TanStack Query/SWR/RTK
   Query), not in `useState`/global store; client state stays local/lifted/URL.
 - Every async surface handles all four states explicitly: loading (skeleton), error
@@ -276,6 +290,7 @@ Concrete, checkable cross-cutting rules these design skills/subagents enforce.
   secrets/JWTs in `localStorage`.
 
 ### 3D & when not to
+
 - Reach for 3D/WebGL only when it carries real product value; otherwise prefer CSS/SVG.
   Gate it behind device-capability and reduced-motion checks with a 2D fallback.
 - Budget draw calls: instance repeated geometry, reuse materials, dispose
@@ -284,6 +299,7 @@ Concrete, checkable cross-cutting rules these design skills/subagents enforce.
   tab is hidden.
 
 ### Responsive & structure
+
 - Design mobile-first; use container queries for component-level responsiveness and a
   small set of named breakpoints, not ad-hoc pixel checks.
 - Co-locate components with their styles/tests/stories; choose the rendering strategy
@@ -291,4 +307,5 @@ Concrete, checkable cross-cutting rules these design skills/subagents enforce.
   it.
 
 ## Commands
+
 - `/design-audit [path]` — audits a UI / component / frontend dir across UX (Nielsen + Laws of UX), accessibility (WCAG 2.2 AA), visual design, motion & performance (Core Web Vitals), and data/loading states. Fans out parallel reviewers, verifies each finding, and returns a severity-ranked, file:line-cited, scored report (`design-audit-report.md`). Read-only — fixes are a separate step.

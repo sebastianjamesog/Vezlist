@@ -19,12 +19,19 @@ export default function RequireAuth({ children }) {
   const pathname = usePathname();
 
   // Logging out picks its own destination. Without this the guard races it and
-  // wins, landing you on /login?next=<the page you just chose to leave>.
+  // wins, landing you on /login?next=<the page you just chose to leave>. Both
+  // the marker and the redirect live in the effect (never read/write `.current`
+  // during render): the write only needs to land before the *next* render that
+  // could see `signedIn` flip to false, and an effect always commits ahead of
+  // that, since flipping `signedIn` is itself a separate, later state update.
   const hadSession = useRef(false);
-  if (signedIn) hadSession.current = true;
 
   useEffect(() => {
-    if (!ready || signedIn || hadSession.current) return;
+    if (signedIn) {
+      hadSession.current = true;
+      return;
+    }
+    if (!ready || hadSession.current) return;
     navigate(`/login?next=${encodeURIComponent(pathname)}`, { replace: true });
   }, [ready, signedIn, navigate, pathname]);
 

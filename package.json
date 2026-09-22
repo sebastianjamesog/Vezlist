@@ -1,0 +1,17 @@
+{
+  "name": "vezlist-root",
+  "private": true,
+  "description": "Orchestration only. Backend/ and Frontend/ remain the real projects (Maven / npm workspaces respectively).",
+  "scripts": {
+    "backend:infra": "docker compose --env-file Backend/.env -f Backend/compose.yml up -d",
+    "backend:api": "mvn -f Backend/pom.xml spring-boot:run",
+    "backend": "npm run backend:infra && npm run backend:api",
+    "frontend:marketplace": "npm run dev --prefix Frontend",
+    "frontend:personals": "npm run dev:personals --prefix Frontend",
+    "frontend:admin": "npm run dev:admin --prefix Frontend",
+    "dev:all": "concurrently -n BACKEND,MARKET,PERSONALS,ADMIN -c blue,green,yellow,magenta \"npm run backend\" \"npm run frontend:marketplace\" \"npm run frontend:personals\" \"npm run frontend:admin\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

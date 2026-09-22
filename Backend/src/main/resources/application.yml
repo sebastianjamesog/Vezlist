@@ -58,6 +58,12 @@ vezlist:
     max-image-bytes: ${VEZLIST_STORAGE_MAX_IMAGE_BYTES:10485760}
   discovery:
     query-timeout-ms: ${VEZLIST_DISCOVERY_QUERY_TIMEOUT_MS:3000}
+  # Dev-only admin account seeding (see cc.vezlist.identity.application.AdminAccountSeeder).
+  # There is no separate "prod" Spring profile in this project yet, so this defaults to
+  # true for local development convenience but MUST be set to false via the
+  # VEZLIST_SEED_ADMIN environment variable in every deployed environment.
+  seed-admin: ${VEZLIST_SEED_ADMIN:true}
+  seed-admin-password: ${VEZLIST_SEED_ADMIN_PASSWORD:Vezlist#Admin2026}
 
 logging:
   level:

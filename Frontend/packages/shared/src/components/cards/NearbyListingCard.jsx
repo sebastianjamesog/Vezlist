@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { BadgeCheck } from "lucide-react";
 import { timeAgo } from "../../lib/format";
+import MediaImage from "../media/MediaImage.jsx";
 
 /** Compact row — used where the map already eats most of the screen. */
 export default function NearbyListingCard({ item }) {
@@ -16,11 +17,12 @@ export default function NearbyListingCard({ item }) {
       }`}
     >
       <div className="relative size-16 shrink-0 overflow-hidden rounded-2xl lg:size-[68px]">
-        <img
+        <MediaImage
+          fill
           src={item.image}
           alt={item.title}
-          loading="lazy"
-          className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
+          sizes="(min-width: 1024px) 68px, 64px"
+          className="object-cover transition-transform duration-300 group-hover:scale-105"
         />
       </div>
 

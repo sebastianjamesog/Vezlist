@@ -1,13 +1,19 @@
 import { Suspense } from "react";
 import Nearby from "@vezlist/shared/pages/Nearby.jsx";
+import Loading from "./loading.jsx";
 
-export const metadata = { title: "Nearby" };
+export const metadata = {
+  title: "Nearby",
+  description: "See personals posted close to you on a map.",
+};
 
-// The screen reads ?view= on the client, so the prerendered shell needs a
-// boundary to stream it into.
+// Nearby no longer reads a search param, so the boundary is not required for
+// that any more. It stays because the screen loads Leaflet through
+// next/dynamic, and a boundary is what the prerendered shell streams into
+// while that client-only chunk arrives.
 export default function Page() {
   return (
-    <Suspense>
+    <Suspense fallback={<Loading />}>
       <Nearby />
     </Suspense>
   );

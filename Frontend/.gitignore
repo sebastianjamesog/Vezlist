@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Environment — the *.local rule above already catches .env.local, but these
+# are listed explicitly so intent doesn't depend on that overlap: apps/*/.env
+# (unlike the committed apps/*/.env.production) is where a real secret would
+# first land, and it should never be one `git add .` away from being tracked.
+.env
+.env*.local
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -29,9 +36,10 @@ dist-ssr
 
 # Next / OpenNext
 .next
-.next-e2e
-.next-live
-playwright-report
-test-results
-test-results-live
 .open-next
+
+# Playwright
+/test-results
+/playwright-report
+/blob-report
+/playwright/.cache

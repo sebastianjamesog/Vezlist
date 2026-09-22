@@ -1,8 +1,11 @@
 package cc.vezlist.users.web;
 
+import cc.vezlist.admin.application.SecurityEventService;
+import cc.vezlist.admin.domain.SecurityEventType;
 import cc.vezlist.identity.application.IdentityService;
 import cc.vezlist.identity.application.VezlistUserPrincipal;
 import cc.vezlist.shared.security.AuthenticatedSessionService;
+import cc.vezlist.users.application.CurrentPasswordInvalidException;
 import cc.vezlist.users.application.DeletionRequestDetails;
 import cc.vezlist.users.application.UserPreferenceDetails;
 import cc.vezlist.users.application.UserProfileDetails;
@@ -26,14 +29,17 @@ public class UserProfileController {
     private final UserProfileService profileService;
     private final IdentityService identityService;
     private final AuthenticatedSessionService sessionService;
+    private final SecurityEventService securityEvents;
 
     public UserProfileController(
             UserProfileService profileService,
             IdentityService identityService,
-            AuthenticatedSessionService sessionService) {
+            AuthenticatedSessionService sessionService,
+            SecurityEventService securityEvents) {
         this.profileService = profileService;
         this.identityService = identityService;
         this.sessionService = sessionService;
+        this.securityEvents = securityEvents;
     }
 
     @GetMapping("/profile")
@@ -71,10 +77,17 @@ public class UserProfileController {
             @AuthenticationPrincipal VezlistUserPrincipal principal,
             @Valid @RequestBody PasswordChangeRequest request,
             HttpServletRequest httpRequest) {
-        profileService.changePassword(principal.id(), request.currentPassword(), request.newPassword());
+        try {
+            profileService.changePassword(principal.id(), request.currentPassword(), request.newPassword());
+        } catch (CurrentPasswordInvalidException exception) {
+            securityEvents.record(
+                    SecurityEventType.PASSWORD_CHANGE_FAILED, principal.id(), principal.email(), httpRequest, null);
+            throw exception;
+        }
         String currentSessionId = httpRequest.getSession(false).getId();
         sessionService.revokeOtherSessions(principal.email(), currentSessionId);
         sessionService.replacePrincipal(identityService.loadUserById(principal.id()), httpRequest);
+        securityEvents.record(SecurityEventType.PASSWORD_CHANGED, principal.id(), principal.email(), httpRequest, null);
         return ResponseEntity.noContent().build();
     }
 

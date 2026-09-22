@@ -1,299 +1,379 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useNavigate } from "../lib/nav";
+import { useParams } from "next/navigation";
 import {
+  BadgeCheck,
+  Flag,
   Heart,
-  Image as ImageIcon,
-  Images,
   Mail,
   MapPin,
   Phone,
-  Share2,
   ShieldCheck,
+  User,
+  UserRoundX,
 } from "lucide-react";
-import { useParams } from "next/navigation";
 import TopBar from "../components/layout/TopBar";
 import { useShell } from "../components/layout/AppLayout";
 import PageBody from "../components/layout/PageBody";
-import Icon from "../components/ui/Icon";
 import Button from "../components/ui/Button";
-import ReportListing from "../components/moderation/ReportListing";
-import { useAuth } from "../context/AuthContext";
-import { useSaved } from "../context/SavedStore";
+import ConfirmDialog from "../components/ui/ConfirmDialog";
+import ReportDialog from "../components/ReportDialog";
 import { useToast } from "../context/ToastContext";
-import { ads } from "../data/mock";
-import { api } from "../lib/api";
-import { maskContact } from "../lib/format";
-import { listingToAd } from "../lib/listings";
-import { useNavigate } from "../lib/nav";
-import { isRemoteListingId } from "../lib/saved";
-import { publicSeller, sellerProfilePath } from "../lib/seller";
-import { FEED_PATH, SITE } from "../lib/sites";
-import { tones } from "../lib/tones";
+import { useReports } from "../context/ReportsContext";
+import { useAuth } from "../context/AuthContext.jsx";
+import { useSaved } from "../context/SavedContext.jsx";
+import { getListingDetail } from "../lib/api/discovery.js";
+import { getSellerProfile } from "../lib/api/sellers.js";
+import { SITE_SCOPE } from "../lib/api/client.js";
+import { ApiError } from "../lib/api/client.js";
+import { categoryPath } from "../lib/taxonomy";
+import { timeAgo } from "../lib/format";
+import { FEED_PATH } from "../lib/sites";
+import { usePersistedObject } from "../lib/persisted";
+import MediaImage from "../components/media/MediaImage.jsx";
+import PhotoMark from "../components/media/PhotoMark.jsx";
+import {
+  NO_REVEALS,
+  REVEALS_KEY,
+  REVEAL_LIMIT,
+  SETTINGS_TOGGLES_KEY,
+  canReveal,
+  isRevealed,
+  maskEmail,
+  maskPhone,
+  recordReveal,
+  revealKey,
+  showsEmail,
+  showsPhone,
+} from "../lib/listings";
 
 const CARD = "rounded-card bg-surface p-4 shadow-card lg:p-6";
 
-function ContactRow({ icon: RowIcon, value, kind }) {
-  const [shown, setShown] = useState(false);
+const CALL =
+  "inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl brand-gradient h-[52px] px-6 text-[16px] font-semibold text-on-brand shadow-pop transition-all duration-150 hover:brightness-110 active:scale-[0.98] active:brightness-95";
 
+const PILL =
+  "inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl brand-gradient px-3.5 text-[13px] font-semibold text-on-brand shadow-pop transition-all duration-150 hover:brightness-110 active:scale-[0.98] active:brightness-95";
+
+function ContactRow({
+  channel,
+  icon: ChannelIcon,
+  masked,
+  value,
+  href,
+  actionLabel,
+  revealed,
+  onReveal,
+}) {
   return (
-    <div className="flex items-center gap-3 rounded-card bg-surface p-2.5">
-      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-soft text-brand">
-        <RowIcon className="size-[18px]" strokeWidth={2.4} />
+    <div className="mt-3 flex items-center gap-3">
+      <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand-soft text-brand">
+        <ChannelIcon className="size-[18px]" strokeWidth={2.4} />
       </span>
-      <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">
-        {shown ? value : maskContact(value, kind)}
-      </span>
-      {!shown && (
-        <button
-          onClick={() => setShown(true)}
-          className="shrink-0 rounded-full bg-canvas px-3 py-1.5 text-[12px] font-bold uppercase tracking-wide text-ink transition-colors hover:bg-line"
-        >
+
+      {revealed ? (
+        <a href={href} className={PILL}>
+          {actionLabel}
+          <span className="sr-only"> {channel}</span>
+        </a>
+      ) : (
+        <button type="button" onClick={onReveal} className={PILL}>
           Show
+          <span className="sr-only"> {channel}</span>
         </button>
       )}
+
+      <span className="min-w-0 flex-1 truncate text-[15px] font-bold tracking-tight text-ink">
+        <span className="sr-only">{channel}: </span>
+        {revealed ? value : masked}
+      </span>
     </div>
   );
 }
 
-function MissingAd({ loading, message, onBack, onPostAd }) {
+/** Loading skeleton — fixed-height blocks in the same layout the real page fills. */
+function DetailSkeleton({ onBack, openPost }) {
   return (
     <>
-      <TopBar variant="detail" onBack={onBack} onPostAd={onPostAd} />
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-        <p className="text-[18px] font-bold text-ink">
-          {loading ? "Loading this ad..." : "This ad is no longer available."}
-        </p>
-        {!loading && message && (
-          <p className="max-w-sm text-[14px] text-muted">{message}</p>
-        )}
-        {!loading && (
-          <Button to={FEED_PATH} variant="soft">
-            Back to listings
-          </Button>
-        )}
-      </div>
+      <TopBar variant="detail" onBack={onBack} onPostAd={openPost} />
+      <PageBody className="px-4 pb-6 lg:px-8 lg:py-8">
+        <div className="lg:grid lg:grid-cols-[1.35fr_1fr] lg:items-start lg:gap-x-8 lg:gap-y-6">
+          <div className="h-64 animate-pulse rounded-card bg-surface shadow-card lg:h-[440px]" />
+          <div className="mt-4 h-40 animate-pulse rounded-card bg-surface shadow-card lg:mt-0" />
+          <div className="mt-4 h-32 animate-pulse rounded-card bg-surface shadow-card lg:mt-0" />
+          <div className="mt-4 h-32 animate-pulse rounded-card bg-surface shadow-card lg:mt-0" />
+        </div>
+      </PageBody>
     </>
   );
+}
+
+/**
+ * A backend `ListingResponse.attributes` map, rendered the way the old mock
+ * body's `specs`/`details` were: a plain label/value list. There is no
+ * split between "four highlight tiles" and "a ten-row table" any more — the
+ * server has no notion of which attributes deserve a coloured chip — so
+ * every attribute renders the same way, which is the table shape rather
+ * than the tiles.
+ */
+function attributesToRows(attributes) {
+  if (!attributes) return [];
+  return Object.entries(attributes)
+    .filter(([, v]) => v != null && v !== "")
+    .map(([label, value]) => ({ label, value }));
 }
 
 export default function AdDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { openPost } = useShell();
-  const { ready: authReady, signedIn, user } = useAuth();
-  const { status, hydrate, setSaved } = useSaved();
   const toast = useToast();
-  const mockAd = ads[id];
-  const [remoteAd, setRemoteAd] = useState(null);
-  const [sellerProfile, setSellerProfile] = useState(null);
-  const [loading, setLoading] = useState(!mockAd);
-  const [error, setError] = useState("");
+  const { isBlocked, block, unblock, reportOf } = useReports();
+  const { signedIn } = useAuth();
+  const { isSaved, toggle: toggleSaved } = useSaved();
+
+  const [listing, setListing] = useState(null);
+  const [seller, setSeller] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [notFound, setNotFound] = useState(false);
+  const [savePending, setSavePending] = useState(false);
+
   const [active, setActive] = useState(0);
-  const ad = mockAd ?? remoteAd;
-  const seller = sellerProfile ?? ad?.seller;
-  const saveStatus = status(id);
-  const saved = saveStatus.saved;
-  const ownListing =
-    signedIn &&
-    Boolean(user?.id) &&
-    Boolean(ad?.sellerId) &&
-    String(user.id) === String(ad.sellerId);
-  const canSave = Boolean(ad?.remote) && isRemoteListingId(id) && !ownListing;
-  const checkingSaved =
-    authReady && signedIn && canSave && !saveStatus.known && !saveStatus.error;
-  const saveDisabled = !authReady || checkingSaved || saveStatus.pending;
-  const saveLabel = saveStatus.pending
-    ? saved
-      ? "Removing..."
-      : "Saving..."
-    : checkingSaved
-      ? "Checking..."
-      : saveStatus.error
-        ? "Retry"
-        : saved
-          ? "Saved"
-          : "Save";
-  const saveAriaLabel = saveStatus.error
-    ? "Retry saved status"
-    : saved
-      ? "Remove from saved"
-      : "Save ad";
-  const saveErrorTitle = saveStatus.error?.message ?? undefined;
+  const [reporting, setReporting] = useState(false);
+  const [confirmBlock, setConfirmBlock] = useState(false);
 
-  useEffect(() => {
-    setActive(0);
-    setSellerProfile(null);
-    if (!id || ads[id]) {
-      setLoading(false);
-      setRemoteAd(null);
-      setError("");
-      return;
-    }
+  const [toggles] = usePersistedObject(SETTINGS_TOGGLES_KEY);
+  const [reveals, setReveals] = usePersistedObject(REVEALS_KEY);
 
-    let current = true;
+  function load() {
     setLoading(true);
-    setError("");
-    api("/listings/" + id + "?site=" + SITE.toUpperCase())
-      .then((listing) => {
-        if (current) setRemoteAd(listingToAd(listing));
+    setError(null);
+    setNotFound(false);
+    getListingDetail(id, SITE_SCOPE)
+      .then((row) => {
+        setListing(row);
+        setActive(0);
+        // `limit: 1` rather than 0 — the service rejects anything outside
+        // 1-50 — and this page only reads `sellerPage.seller`, not `items`.
+        return getSellerProfile(row.ownerId, { site: SITE_SCOPE, limit: 1 }).catch(
+          () => null,
+        );
       })
-      .catch((requestError) => {
-        if (current) {
-          setRemoteAd(null);
-          setError(requestError.message);
+      .then((sellerPage) => setSeller(sellerPage?.seller ?? null))
+      .catch((err) => {
+        if (err instanceof ApiError && (err.status === 404 || err.status === 403)) {
+          setNotFound(true);
+        } else {
+          setError(err);
         }
       })
-      .finally(() => {
-        if (current) setLoading(false);
-      });
-    return () => {
-      current = false;
-    };
-  }, [id]);
-
-  useEffect(() => {
-    let current = true;
-    if (!ad?.remote || !ad.sellerId) return () => { current = false; };
-    api(sellerProfilePath(ad.sellerId, SITE, 1))
-      .then((page) => { if (current) setSellerProfile(publicSeller(page)); })
-      .catch(() => { if (current) setSellerProfile(null); });
-    return () => { current = false; };
-  }, [ad?.remote, ad?.sellerId]);
-
-  useEffect(() => {
-    if (!authReady || !signedIn || !canSave) return;
-    hydrate(id).catch(() => {});
-  }, [authReady, signedIn, canSave, hydrate, id]);
-
-  async function toggleSaved() {
-    if (!canSave || !authReady || saveStatus.pending) return;
-    if (!signedIn) {
-      navigate(`/login?next=${encodeURIComponent(`/ad/${id}`)}`);
-      return;
-    }
-    if (!saveStatus.known) {
-      try {
-        await hydrate(id, { force: true });
-      } catch (requestError) {
-        toast(requestError.message ?? "Could not check this saved ad.");
-      }
-      return;
-    }
-    try {
-      const result = await setSaved(id, !saved);
-      toast(
-        result.saved ? "Saved - find it in your profile" : "Removed from saved",
-      );
-    } catch (requestError) {
-      toast(requestError.message ?? "Could not update this saved ad.");
-    }
+      .finally(() => setLoading(false));
   }
 
-  if (!ad) {
+  useEffect(() => {
+    if (id) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  const reveal = (channel) => () => {
+    const at = Date.now();
+    const current = reveals ?? NO_REVEALS;
+    const key = revealKey(id, channel);
+    if (!canReveal(current, key, at)) {
+      toast(
+        `You've opened ${REVEAL_LIMIT} contact details in the last hour — try again later`,
+      );
+      return;
+    }
+    setReveals(recordReveal(current, key, at));
+  };
+
+  function onToggleSave() {
+    if (!signedIn) {
+      toast("Sign in to save ads");
+      return;
+    }
+    if (savePending) return;
+    setSavePending(true);
+    toggleSaved(id)
+      .catch(() => toast("Couldn't update saved ads — try again"))
+      .finally(() => setSavePending(false));
+  }
+
+  if (loading) {
+    return <DetailSkeleton onBack={() => navigate(-1)} openPost={openPost} />;
+  }
+
+  if (notFound || (!listing && !error)) {
     return (
-      <MissingAd
-        loading={loading}
-        message={error}
-        onBack={() => navigate(-1)}
-        onPostAd={openPost}
-      />
+      <>
+        <TopBar
+          variant="detail"
+          onBack={() => navigate(-1)}
+          onPostAd={openPost}
+        />
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <p className="text-[18px] font-bold text-ink">
+            This ad is no longer available.
+          </p>
+          <Button to={FEED_PATH} variant="soft">
+            Back to listings
+          </Button>
+        </div>
+      </>
     );
   }
 
-  const hasPhotos = ad.photos.length > 0;
+  if (error) {
+    return (
+      <>
+        <TopBar
+          variant="detail"
+          onBack={() => navigate(-1)}
+          onPostAd={openPost}
+        />
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <p className="text-[18px] font-bold text-ink">
+            Couldn't load this ad.
+          </p>
+          <p className="text-[14px] text-muted">
+            {error.message || "Something went wrong."}
+          </p>
+          <Button onClick={load}>Retry</Button>
+        </div>
+      </>
+    );
+  }
+
+  const path = categoryPath(listing.categoryLabel, null);
+  const photos = (listing.media ?? [])
+    .filter((m) => m.url)
+    .sort((a, b) => a.position - b.position)
+    .map((m) => m.url);
+
+  const mailHref = `mailto:${listing.contactEmail}?subject=${encodeURIComponent(listing.title)}`;
+  const telHref = `tel:${(listing.contactPhone ?? "").replace(/\s+/g, "")}`;
+
+  const phoneShown = showsPhone(toggles) && Boolean(listing.contactPhone);
+  const emailShown = showsEmail(toggles) && Boolean(listing.contactEmail);
+
+  const channels = [
+    phoneShown && {
+      id: "phone",
+      channel: "phone number",
+      icon: Phone,
+      value: listing.contactPhone,
+      masked: maskPhone(listing.contactPhone),
+      href: telHref,
+      actionLabel: "Call",
+      showLabel: "Show number",
+    },
+    emailShown && {
+      id: "email",
+      channel: "email address",
+      icon: Mail,
+      value: listing.contactEmail,
+      masked: maskEmail(listing.contactEmail),
+      href: mailHref,
+      actionLabel: "Email",
+      showLabel: "Show email",
+    },
+  ]
+    .filter(Boolean)
+    .map((c) => ({ ...c, revealed: isRevealed(reveals, revealKey(id, c.id)) }));
+
+  const notes = [
+    phoneShown &&
+      !emailShown &&
+      "This seller has not published an email address.",
+    emailShown &&
+      !phoneShown &&
+      "This seller has not published a phone number.",
+    channels.some((c) => !c.revealed) &&
+      `${REVEAL_LIMIT} contact details an hour, per device — a number and an address cost one each.`,
+    channels.some((c) => c.revealed) &&
+      "This is how you reach a seller on Vezlist — there is no messaging here. Never send a deposit before you have seen the item.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const lead = channels[0] ?? null;
+  const LeadIcon = lead?.icon ?? User;
+
+  const sellerName = seller?.displayName ?? "Vezlist seller";
+  const blocked = isBlocked(listing.ownerId);
+  const reported = reportOf("listing", id);
+  const rows = attributesToRows(listing.attributes);
+  const saved = isSaved(id);
+  const postedLabel = listing.publishedAt
+    ? `Posted ${timeAgo(Date.now() - new Date(listing.publishedAt).getTime())}`
+    : "Not yet published";
 
   return (
     <>
       <TopBar
         variant="detail"
-        title={ad.title}
+        title={listing.title}
         onBack={() => navigate(-1)}
         onPostAd={openPost}
       />
 
       <PageBody className="px-4 pb-6 lg:px-8 lg:py-8">
         <div className="lg:grid lg:grid-cols-[1.35fr_1fr] lg:items-start lg:gap-x-8 lg:gap-y-6">
+          {/* 1 — gallery */}
           <section className="lg:col-start-1 lg:row-start-1">
-            <div className="relative overflow-hidden rounded-card bg-brand-soft shadow-card">
-              {hasPhotos ? (
-                <img
-                  data-media
-                  src={ad.photos[active]}
-                  alt={ad.title}
-                  className="h-64 w-full object-cover lg:h-[440px]"
-                />
-              ) : (
-                <div className="grid h-64 place-items-center text-center text-brand lg:h-[440px]">
-                  <span>
-                    <ImageIcon className="mx-auto size-12" strokeWidth={1.5} />
-                    <span className="mt-2 block text-[13px] font-semibold">
-                      This listing does not have a ready photo yet
-                    </span>
-                  </span>
-                </div>
-              )}
-              {hasPhotos && (
-                <span className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-ink/60 to-transparent" />
-              )}
-
-              <span className="absolute bottom-3 left-3 flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-[12px] font-bold text-white backdrop-blur-sm">
-                <Images className="size-3.5" />
-                {ad.photoCount} photos
-              </span>
-
-              <div className="absolute right-3 top-3 flex gap-2">
-                <button
-                  onClick={() => toast("Link copied")}
-                  aria-label="Share ad"
-                  className="glass grid size-10 place-items-center rounded-full text-ink transition-transform hover:scale-105 active:scale-95"
-                >
-                  <Share2 className="size-[18px]" strokeWidth={2.2} />
-                </button>
-                {canSave && (
-                  <button
-                    type="button"
-                    onClick={toggleSaved}
-                    disabled={saveDisabled}
-                    aria-label={saveAriaLabel}
-                    aria-pressed={saveStatus.known ? saved : undefined}
-                    aria-busy={checkingSaved || saveStatus.pending}
-                    title={saveErrorTitle}
-                    className="glass grid size-10 place-items-center rounded-full transition-transform hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-60"
-                  >
-                    <Heart
-                      className={
-                        "size-[18px] " +
-                        (saved ? "fill-red-500 text-red-500" : "text-ink")
-                      }
-                      strokeWidth={2.2}
+            <div className="overflow-hidden rounded-card shadow-card">
+              <div className="relative h-64 lg:h-[440px]">
+                {photos.length > 0 ? (
+                  <>
+                    <MediaImage
+                      discreet
+                      fill
+                      preload
+                      src={photos[active]}
+                      alt={listing.title}
+                      sizes="(min-width: 1024px) 620px, 100vw"
+                      className="object-cover"
                     />
-                  </button>
+                    <span className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-ink/60 to-transparent" />
+                    <PhotoMark
+                      src={photos[active]}
+                      className="bottom-2.5 right-3 text-[13px] lg:text-[15px]"
+                    />
+                  </>
+                ) : (
+                  <div className="flex size-full items-center justify-center bg-canvas text-[14px] font-medium text-muted">
+                    No photos yet
+                  </div>
                 )}
               </div>
             </div>
 
-            {hasPhotos && (
+            {photos.length > 1 && (
               <div className="no-scrollbar mt-3 flex gap-2 overflow-x-auto pb-1">
-                {ad.photos.map((src, index) => (
+                {photos.map((src, i) => (
                   <button
                     key={src}
-                    onClick={() => setActive(index)}
-                    aria-label={"Photo " + (index + 1)}
-                    aria-current={index === active}
-                    className={
-                      "size-16 shrink-0 overflow-hidden rounded-2xl transition-all lg:size-20 " +
-                      (index === active
+                    onClick={() => setActive(i)}
+                    aria-label={`Photo ${i + 1}`}
+                    aria-current={i === active}
+                    className={`relative size-16 shrink-0 overflow-hidden rounded-2xl transition-all lg:size-20 ${
+                      i === active
                         ? "ring-2 ring-brand ring-offset-2 ring-offset-canvas"
-                        : "opacity-70 hover:opacity-100")
-                    }
+                        : "opacity-70 hover:opacity-100"
+                    }`}
                   >
-                    <img
-                      data-media
+                    <MediaImage
+                      discreet
+                      fill
                       src={src}
                       alt=""
-                      loading="lazy"
-                      className="size-full object-cover"
+                      sizes="(min-width: 1024px) 80px, 64px"
+                      className="object-cover"
                     />
                   </button>
                 ))}
@@ -301,161 +381,238 @@ export default function AdDetail() {
             )}
           </section>
 
+          {/* 2 — title, price, overview */}
           <section
-            className={"mt-4 lg:col-start-2 lg:row-start-1 lg:mt-0 " + CARD}
+            className={`mt-4 lg:col-start-2 lg:row-start-1 lg:mt-0 ${CARD}`}
           >
-            {ad.remote && (
-              <span className="mb-3 inline-flex rounded-full bg-brand-soft px-2.5 py-1 text-[11px] font-bold text-brand">
-                {ad.statusLabel}
-              </span>
+            {path && (
+              <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-brand">
+                {path}
+              </p>
             )}
-            <h1 className="text-[24px] font-extrabold leading-tight text-ink lg:text-[26px]">
-              {ad.title}
-            </h1>
+            <div className="flex items-start justify-between gap-3">
+              <h1 className="text-[24px] font-extrabold leading-tight text-ink lg:text-[26px]">
+                {listing.title}
+              </h1>
+              <button
+                type="button"
+                onClick={onToggleSave}
+                disabled={savePending}
+                aria-pressed={saved}
+                aria-label={saved ? "Remove from saved" : "Save this ad"}
+                className={`grid size-10 shrink-0 place-items-center rounded-full shadow-card transition-transform active:scale-90 ${
+                  saved ? "bg-brand-soft text-brand" : "bg-canvas text-muted"
+                }`}
+              >
+                <Heart
+                  className={`size-[18px] ${saved ? "fill-current" : ""}`}
+                  strokeWidth={2.2}
+                />
+              </button>
+            </div>
 
             <p className="mt-2 text-[30px] font-extrabold tabular-nums text-brand">
-              {ad.price == null
-                ? "Contact for price"
-                : "$" + ad.price.toLocaleString()}
+              ${Number(listing.price ?? 0).toLocaleString()}
             </p>
 
             <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
               <span className="flex items-center gap-1 rounded-full bg-canvas px-2.5 py-1 font-semibold">
                 <MapPin className="size-3.5" />
-                {ad.location}
+                {listing.locationLabel}
               </span>
-              <span>{ad.postedLabel}</span>
+              <span>
+                {postedLabel}
+                {listing.viewCount != null &&
+                  ` — Viewed ${listing.viewCount.toLocaleString("en-US")} times`}
+              </span>
             </p>
 
-            <h2 className="mb-3 mt-6 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
-              {ad.overviewTitle}
-            </h2>
-            <div className="grid grid-cols-2 gap-2.5">
-              {ad.specs.map((spec) => (
-                <div
-                  key={spec.label}
-                  className="flex items-center gap-3 rounded-2xl bg-canvas p-3"
-                >
-                  <span
-                    className={
-                      "grid size-9 shrink-0 place-items-center rounded-xl " +
-                      tones[spec.tone]
-                    }
-                  >
-                    <Icon
-                      name={spec.icon}
-                      className="size-[18px]"
-                      strokeWidth={2.5}
-                    />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-[10px] font-bold uppercase tracking-wide text-muted">
-                      {spec.label}
-                    </span>
-                    <span className="block truncate text-[14px] font-bold text-ink">
-                      {spec.value}
-                    </span>
-                  </span>
-                </div>
-              ))}
-            </div>
+            {rows.length > 0 && (
+              <>
+                <h2 className="mb-3 mt-6 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
+                  Overview
+                </h2>
+                <dl className="divide-y divide-line">
+                  {rows.map((d) => (
+                    <div
+                      key={d.label}
+                      className="flex items-baseline justify-between gap-4 py-2.5 first:pt-0 last:pb-0"
+                    >
+                      <dt className="shrink-0 text-[13px] font-semibold text-muted">
+                        {d.label}
+                      </dt>
+                      <dd className="min-w-0 truncate text-right text-[14px] font-bold text-ink">
+                        {d.value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </>
+            )}
           </section>
 
+          {/* 3 — description */}
           <section
-            className={"mt-4 lg:col-start-1 lg:row-start-2 lg:mt-0 " + CARD}
+            className={`mt-4 lg:col-start-1 lg:row-start-2 lg:mt-0 ${CARD}`}
           >
             <h2 className="text-[18px] font-extrabold text-ink">Description</h2>
             <div className="mt-3 space-y-3 text-[15px] leading-relaxed text-ink/75">
-              {ad.description.map((paragraph) => (
-                <p key={paragraph}>{paragraph}</p>
-              ))}
+              {listing.description
+                .split("\n")
+                .filter((p) => p.trim())
+                .map((p, i) => (
+                  <p key={i}>{p}</p>
+                ))}
             </div>
           </section>
 
+          {/* 4 — contact, then who you would be contacting. */}
           <div className="lg:col-start-2 lg:row-start-2 lg:space-y-6">
-            <section className="brand-gradient mt-4 space-y-2.5 rounded-card p-4 lg:mt-0 lg:p-6">
-              <p className="text-center text-[12px] font-medium text-white/80">
-                Say you saw my ad on
-              </p>
-              <p className="text-center text-[20px] font-extrabold text-white">
-                Vezlist.cc
-              </p>
-              <ContactRow icon={Phone} value={ad.phone} kind="phone" />
-              <ContactRow icon={Mail} value={ad.email} kind="email" />
-            </section>
+            <section className={`mt-4 lg:mt-0 ${CARD}`}>
+              <h2 className="text-[18px] font-extrabold text-ink">
+                Contact the seller
+              </h2>
+              {channels.length > 0 ? (
+                <>
+                  {channels.map((c) => (
+                    <ContactRow
+                      key={c.id}
+                      channel={c.channel}
+                      icon={c.icon}
+                      masked={c.masked}
+                      value={c.value}
+                      href={c.href}
+                      actionLabel={c.actionLabel}
+                      revealed={c.revealed}
+                      onReveal={reveal(c.id)}
+                    />
+                  ))}
 
-            <section className={"mt-4 lg:mt-0 " + CARD}>
-              <h2 className="text-[18px] font-extrabold text-ink">Seller</h2>
-              <div className="mt-3 flex items-center gap-3 rounded-2xl bg-canvas p-3">
-                {seller.avatar ? (
-                  <img
-                    src={seller.avatar}
-                    alt={seller.name}
-                    className="size-12 shrink-0 rounded-2xl object-cover"
-                  />
-                ) : (
-                  <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-brand-soft text-[18px] font-extrabold text-brand">
-                    {seller.name?.charAt(0)?.toUpperCase() ?? "V"}
-                  </span>
-                )}
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[16px] font-bold text-ink">
-                    {seller.name}
-                  </span>
-                  <span className="block text-[12px] text-muted">
-                    Contact this seller about the listing
-                  </span>
-                </span>
-                {seller.verified || seller.badge ? (
-                  <span className="flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-700">
-                    <ShieldCheck className="size-3.5" />
-                    {seller.verified ? "Verified seller" : seller.badge}
-                  </span>
-                ) : null}
-              </div>
-              {sellerProfile && (
-                <button onClick={() => navigate("/seller/" + sellerProfile.id)} className="mt-3 text-[13px] font-bold text-brand hover:underline">View seller profile</button>
+                  <p className="mt-3 text-[13px] leading-snug text-muted">
+                    {notes}
+                  </p>
+                </>
+              ) : (
+                <p className="mt-3 text-[15px] leading-relaxed text-ink/75">
+                  This seller has published neither a phone number nor an email
+                  address. There is no messaging on Vezlist, so this ad has no
+                  way to be answered — their other ads may.
+                </p>
               )}
             </section>
-            {!loading && ad.id === id && ad.remote && ad.status === "ACTIVE" && !ownListing && (
-              <ReportListing key={`${ad.id}:${user?.id ?? "guest"}`} listingId={ad.id} ready={authReady} signedIn={signedIn} />
-            )}
+
+            <section className={`mt-4 lg:mt-0 ${CARD}`}>
+              <h2 className="text-[18px] font-extrabold text-ink">Seller</h2>
+
+              <Link
+                href={`/seller/${listing.ownerId}`}
+                className="group mt-3 flex items-center gap-3 rounded-2xl bg-canvas p-3 transition-colors hover:bg-brand-soft"
+              >
+                <span className="relative shrink-0">
+                  <MediaImage
+                    src={seller?.avatarUrl}
+                    alt={sellerName}
+                    width={48}
+                    height={48}
+                    className="size-12 rounded-2xl object-cover"
+                  />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[16px] font-bold text-ink group-hover:text-brand">
+                    {sellerName}
+                  </span>
+                  <span className="block text-[12px] text-muted">
+                    {seller?.memberSince
+                      ? `Member since ${new Date(seller.memberSince).getFullYear()} · `
+                      : ""}
+                    View profile
+                  </span>
+                </span>
+                {seller?.verified && (
+                  <span className="flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-700">
+                    <ShieldCheck className="size-3.5" />
+                    Verified
+                  </span>
+                )}
+              </Link>
+
+              <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line pt-3.5">
+                <button
+                  type="button"
+                  onClick={() => setReporting(true)}
+                  className="flex items-center gap-1.5 text-[13.5px] font-semibold text-muted transition-colors hover:text-ink"
+                >
+                  <Flag className="size-4" strokeWidth={2.2} />
+                  {reported ? "Reported" : "Report ad"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (blocked) {
+                      unblock(listing.ownerId);
+                      toast(`${sellerName} unblocked`);
+                    } else {
+                      setConfirmBlock(true);
+                    }
+                  }}
+                  className={`flex items-center gap-1.5 text-[13.5px] font-semibold transition-colors ${
+                    blocked ? "text-brand" : "text-muted hover:text-danger"
+                  }`}
+                >
+                  <UserRoundX className="size-4" strokeWidth={2.2} />
+                  {blocked ? "Unblock seller" : "Block seller"}
+                </button>
+              </div>
+            </section>
           </div>
         </div>
       </PageBody>
 
       <div className="glass shrink-0 border-t border-line px-4 pb-nav pt-3 lg:hidden">
         <div className="flex gap-2.5">
-          {canSave && (
-            <Button
-              variant="outline"
-              size="lg"
-              className="flex-1"
-              onClick={toggleSaved}
-              disabled={saveDisabled}
-              aria-label={saveAriaLabel}
-              aria-pressed={saveStatus.known ? saved : undefined}
-              aria-busy={checkingSaved || saveStatus.pending}
+          {!lead ? (
+            <Link
+              href={`/seller/${listing.ownerId}`}
+              className="brand-gradient flex h-[52px] flex-1 items-center justify-center gap-2 rounded-2xl text-[16px] font-bold text-on-brand shadow-pop transition-transform active:scale-[0.98]"
             >
-              <Heart
-                className={
-                  "size-5 " + (saved ? "fill-red-500 text-red-500" : "")
-                }
-              />
-              {saveLabel}
+              <User className="size-5" />
+              View seller
+            </Link>
+          ) : lead.revealed ? (
+            <a href={lead.href} className={`${CALL} flex-1`}>
+              <LeadIcon className="size-5" />
+              {lead.actionLabel}
+            </a>
+          ) : (
+            <Button size="lg" className="flex-1" onClick={reveal(lead.id)}>
+              <LeadIcon className="size-5" />
+              {lead.showLabel}
             </Button>
           )}
-          <a
-            href={
-              "mailto:" + ad.email + "?subject=" + encodeURIComponent(ad.title)
-            }
-            className="brand-gradient flex h-[52px] flex-[1.6] items-center justify-center gap-2 rounded-2xl text-[16px] font-bold text-on-brand shadow-pop transition-transform active:scale-[0.98]"
-          >
-            <Mail className="size-5" />
-            Contact seller
-          </a>
         </div>
       </div>
+
+      <ReportDialog
+        open={reporting}
+        targetType="listing"
+        targetId={id}
+        targetLabel={listing.title}
+        onClose={() => setReporting(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmBlock}
+        title={`Block ${sellerName}?`}
+        body="Their ads stop appearing in your feed on this device. It takes effect straight away and you can undo it from their profile or from Account Settings. Blocking is not a report — if this ad is against the rules, report it too."
+        confirmLabel="Block"
+        destructive
+        onConfirm={() => {
+          setConfirmBlock(false);
+          block(listing.ownerId, sellerName);
+          toast(`${sellerName} blocked — their ads are hidden`);
+        }}
+        onClose={() => setConfirmBlock(false)}
+      />
     </>
   );
 }

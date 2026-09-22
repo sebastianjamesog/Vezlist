@@ -28,7 +28,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, ApiAccessDeniedHandler accessDeniedHandler) throws Exception {
         CookieCsrfTokenRepository csrf = CookieCsrfTokenRepository.withHttpOnlyFalse();
         csrf.setCookiePath("/");
 
@@ -37,9 +37,12 @@ public class SecurityConfig {
                 .csrf(csrfConfigurer -> csrfConfigurer.csrfTokenRepository(csrf))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
                 .exceptionHandling(exception -> exception
-                        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+                        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
+                        .accessDeniedHandler(accessDeniedHandler))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/v1/moderation/**").hasAnyRole("MODERATOR", "ADMIN")
+                        .requestMatchers("/api/v1/admin/**").hasAnyRole("MODERATOR", "ADMIN")
+                        .requestMatchers("/api/v1/listings/*/verification/**").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/listings").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/listings/*").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/sellers/*").permitAll()
@@ -71,9 +74,25 @@ public class SecurityConfig {
 
     @Bean
     CorsConfigurationSource corsConfigurationSource(
-            @Value("${vezlist.cors.allowed-origins}") List<String> allowedOrigins) {
+            @Value("${vezlist.cors.allowed-origins}") List<String> allowedOrigins,
+            @Value("${vezlist.cors.allow-local-patterns:true}") boolean allowLocalPatterns) {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(allowedOrigins);
+        if (allowLocalPatterns) {
+            // An exact origin list is easy to fall out of sync with local dev
+            // reality: `localhost` vs `127.0.0.1` vs a LAN IP are three
+            // distinct origins to a browser even though they're the same
+            // machine, and a dev opening the app by whichever one they typed
+            // sees every API call fail as an indistinguishable-from-network
+            // "Failed to fetch" rather than a clear CORS error. Patterns
+            // cover the whole space instead of enumerating it. Gated by a
+            // property (default on) so a real deployment can turn it off —
+            // see VEZLIST_CORS_ALLOW_LOCAL_PATTERNS in .env.example.
+            configuration.addAllowedOriginPattern("http://localhost:*");
+            configuration.addAllowedOriginPattern("http://127.0.0.1:*");
+            configuration.addAllowedOriginPattern("http://192.168.*.*:*");
+            configuration.addAllowedOriginPattern("http://10.*.*.*:*");
+        }
         configuration.setAllowedMethods(List.of("GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of(
                 "Content-Type", "Idempotency-Key", "X-Request-Id", "X-CSRF-Token", "X-XSRF-TOKEN"));

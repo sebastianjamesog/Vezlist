@@ -6,25 +6,33 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Info,
   MapPin,
   Search,
 } from "lucide-react";
 import ChoiceRow from "./ui/ChoiceRow";
 import Modal from "./ui/Modal";
-import { ALL_CANADA } from "../data/locations";
-import { useCatalog } from "../context/CatalogContext";
+import {
+  ALL_CANADA,
+  areasFor,
+  provinceById,
+  provinces,
+} from "../data/locations";
 
-/** "Ontario · 3 areas" — the whole choice in the width of one button. */
-function summarise(filters, provinces) {
-  const { label, id } =
-    provinces.find((province) => province.id === filters.province) ?? provinces[0];
-  if (id === ALL_CANADA) return "All Canada";
-  const n = filters.cities.length;
-  return n ? `${label} · ${n} ${n === 1 ? "area" : "areas"}` : label;
+/** "3 areas", in whatever language is on. Two keys, split at one, no plural engine. */
+function countLabel(n) {
+  return `${n} ${n === 1 ? "area" : "areas"}`;
 }
 
-function countLabel(n) {
-  return n === 1 ? "1 area" : `${n} areas`;
+/** "Ontario · 3 areas" — the whole choice in the width of one button. */
+function summarise(filters) {
+  const { label, id } = provinceById(filters.province);
+  if (id === ALL_CANADA) return "All Canada";
+  const n = filters.cities.length;
+  // Province names stay as the data spells them. They are proper nouns, and
+  // translating a place list inside a dictionary forks it away from the table
+  // the listings are actually filtered against.
+  return n ? `${label} · ${countLabel(n)}` : label;
 }
 
 /** A province you can step into — the count says how much is behind it. */
@@ -63,6 +71,14 @@ function ProvinceRow({ province, current, onPick }) {
  *
  * Edits are held in a draft until Done — a location change re-runs the feed, so
  * committing on every tick would thrash the results behind the modal.
+ *
+ * Two things about the frame this now sits in. The value it shows can *correct
+ * itself* a tick after hydration, because the country detection in
+ * data/locations.js runs after the tree is mounted and may narrow All Canada to
+ * a province; so both variants below are fixed-height and single-line, and the
+ * word inside them changes without anything around them moving. And the list is
+ * openly Canada-only — the note at step one says so rather than leaving a
+ * visitor in Lagos to work out why every option is a province.
  */
 export default function LocationBar({
   filters,
@@ -70,10 +86,6 @@ export default function LocationBar({
   className = "",
   variant = "row",
 }) {
-  const { provinces } = useCatalog();
-  const provinceById = (id) =>
-    provinces.find((province) => province.id === id) ?? provinces[0];
-  const areasFor = (id) => provinceById(id).areas;
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState("province");
   const [draft, setDraft] = useState(filters);
@@ -125,24 +137,43 @@ export default function LocationBar({
   return (
     <div className={className}>
       {variant === "card" ? (
-        // The launcher asks the question outright: where you are, then the way
-        // to change it. It is the first thing on the home screen.
-        <div className="rounded-card bg-surface p-5 text-center shadow-card">
-          <p className="text-[13px] font-medium text-muted">Your Location</p>
-          <p className="mt-1 truncate text-[19px] font-bold text-ink">
-            {summarise(filters, provinces)}
-          </p>
-          <button
-            type="button"
-            onClick={openModal}
-            aria-haspopup="dialog"
-            aria-expanded={open}
-            className="mt-3 inline-flex items-center gap-2 rounded-full border border-line px-4 py-2 text-[14px] font-semibold text-ink transition-colors hover:bg-canvas"
+        /**
+         * The launcher's version. It used to be a tall centred card with its
+         * own heading and a pill underneath — three stacked lines that took the
+         * same visual weight as the nine category tiles below it, on a screen
+         * whose whole job is to make those tiles the loudest thing there is.
+         *
+         * So it is one row now: the icon says place, the small caption says
+         * whose, the bold line says where, and the chevron says it opens. Same
+         * information, a third of the height, and no longer competing.
+         */
+        <button
+          type="button"
+          onClick={openModal}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          className="flex h-[68px] w-full items-center gap-3 rounded-card bg-surface px-4 text-left shadow-card transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-lift"
+        >
+          <span
+            aria-hidden="true"
+            className="grid size-10 shrink-0 place-items-center rounded-2xl bg-brand-soft"
           >
-            <MapPin className="size-4 text-brand" strokeWidth={2.4} />
-            Change Location
-          </button>
-        </div>
+            <MapPin className="size-5 text-brand" strokeWidth={2.4} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[11px] font-bold uppercase tracking-[0.08em] text-muted">
+              Your location
+            </span>
+            <span className="mt-0.5 block truncate text-[17px] font-bold leading-tight text-ink">
+              {summarise(filters)}
+            </span>
+          </span>
+          <ChevronRight
+            aria-hidden="true"
+            className="size-5 shrink-0 text-muted"
+            strokeWidth={2.4}
+          />
+        </button>
       ) : (
         <button
           type="button"
@@ -156,7 +187,7 @@ export default function LocationBar({
             strokeWidth={2.4}
           />
           <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">
-            {summarise(filters, provinces)}
+            {summarise(filters)}
           </span>
           <ChevronDown
             className="size-4 shrink-0 text-muted"
@@ -230,19 +261,29 @@ export default function LocationBar({
 
             {shown.length === 0 && (
               <p className="px-3 py-4 text-[14px] text-muted">
-                No area in {province.label} matches “{areaQuery}”.
+                {`No area in ${province.label} matches “${areaQuery}”.`}
               </p>
             )}
           </>
         ) : (
-          provinces.map((p) => (
-            <ProvinceRow
-              key={p.id}
-              province={p}
-              current={p.id === draft.province}
-              onPick={() => pickProvince(p.id)}
-            />
-          ))
+          <>
+            {/* The coverage, stated once, where the question is asked. The
+                country detection can put a visitor abroad on All Canada and
+                say nothing about why; this is where it says why. */}
+            <p className="mx-1 mb-2 flex items-start gap-2.5 rounded-2xl bg-brand-soft px-3.5 py-3 text-[13px] font-medium leading-snug text-brand">
+              <Info className="mt-px size-4 shrink-0" strokeWidth={2.4} />
+              Areas cover Canada today. Other countries are coming.
+            </p>
+
+            {provinces.map((p) => (
+              <ProvinceRow
+                key={p.id}
+                province={p}
+                current={p.id === draft.province}
+                onPick={() => pickProvince(p.id)}
+              />
+            ))}
+          </>
         )}
       </Modal>
     </div>

@@ -11,6 +11,8 @@ import {
   X,
 } from "lucide-react";
 import { MAX_IMAGES } from "../../lib/adDraft";
+import { WATERMARK_TEXT } from "../../lib/media";
+import MediaImage from "../media/MediaImage.jsx";
 
 const TIPS = [
   "Daylight beats flash",
@@ -18,18 +20,30 @@ const TIPS = [
   "Be honest about flaws",
 ];
 
+/**
+ * Buttons, not drag-and-drop, for reordering.
+ *
+ * Native HTML5 drag-and-drop is pointer-only — it fires no events a keyboard
+ * can trigger, so shipping it still means building a button-based fallback
+ * for anyone who tabs instead of drags, at which point the drag layer is
+ * extra code maintaining a second path to the same result. Buttons alone
+ * are keyboard-operable for free (focus, Enter/Space, the same way `Remove`
+ * already works two lines below) and are the entire feature rather than the
+ * accessible half of it.
+ */
 export default function StepPhotos({
   images,
   error,
+  busy = false,
   onAdd,
   onRemove,
-  onMove,
-  onMakeCover,
+  onReorder,
 }) {
   const input = useRef(null);
   const [dragging, setDragging] = useState(false);
   const full = images.length >= MAX_IMAGES;
-  const pick = () => input.current?.click();
+  const many = images.length > 1;
+  const pick = () => !busy && input.current?.click();
 
   // Native drag-and-drop: desktop users expect to throw files at the box.
   const dropProps = {
@@ -41,9 +55,12 @@ export default function StepPhotos({
     onDrop: (e) => {
       e.preventDefault();
       setDragging(false);
-      onAdd(
-        [...e.dataTransfer.files].filter((f) => f.type.startsWith("image/")),
-      );
+      // Every file goes to `onAdd` regardless of what it claims to be —
+      // `validatePhotoFile` is the one place that decides, so a non-image
+      // dropped here gets the same clear message a non-image picked past
+      // `accept="image/*"` in the OS dialog gets, rather than vanishing
+      // silently at this filter instead.
+      if (!busy) onAdd([...e.dataTransfer.files]);
     },
   };
 
@@ -52,8 +69,9 @@ export default function StepPhotos({
       <input
         ref={input}
         type="file"
-        accept="image/jpeg,image/png,image/webp"
+        accept="image/*"
         multiple
+        disabled={busy}
         className="sr-only"
         onChange={(e) => {
           onAdd([...e.target.files]);
@@ -65,8 +83,9 @@ export default function StepPhotos({
         <>
           <button
             onClick={pick}
+            disabled={busy}
             {...dropProps}
-            className={`group relative flex min-h-[240px] w-full flex-1 flex-col items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed transition-all duration-200 ${
+            className={`group relative flex min-h-[240px] w-full flex-1 flex-col items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed transition-all duration-200 disabled:cursor-wait disabled:opacity-70 ${
               dragging
                 ? "scale-[1.01] border-brand bg-brand-soft"
                 : "border-line bg-gradient-to-b from-brand-soft/60 via-surface to-canvas hover:border-brand"
@@ -94,7 +113,8 @@ export default function StepPhotos({
               {dragging ? "Drop them here" : "Add your photos"}
             </span>
             <span className="relative mt-1.5 max-w-[15rem] text-center text-[14px] leading-relaxed text-muted">
-              Tap to pick up to {MAX_IMAGES}, or drag files in.
+              Tap to pick up to {MAX_IMAGES}, or drag files in. Each one gets a
+              small {WATERMARK_TEXT} mark.
             </span>
 
             <span className="brand-gradient relative mt-5 inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[14px] font-bold text-on-brand shadow-pop transition-transform group-hover:scale-105">
@@ -125,10 +145,12 @@ export default function StepPhotos({
                 key={img.id}
                 className="relative aspect-square overflow-hidden rounded-2xl bg-canvas ring-1 ring-line"
               >
-                <img
+                <MediaImage
+                  fill
                   src={img.url}
                   alt={img.name}
-                  className="size-full object-cover"
+                  sizes="33vw"
+                  className="object-cover"
                 />
                 {i === 0 && (
                   <span className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/70 to-transparent px-2 pb-1.5 pt-4 text-[10px] font-bold uppercase tracking-wide text-white">
@@ -143,33 +165,40 @@ export default function StepPhotos({
                 >
                   <X className="size-3.5" strokeWidth={3} />
                 </button>
-                <span className="absolute bottom-1.5 right-1.5 flex gap-1">
-                  {i > 0 && (
+
+                {/*
+                  Reordering: every button here is a normal, focusable
+                  `<button>`, so Tab reaches it and Enter/Space activates it —
+                  no separate keyboard path to build or maintain. `i === 0`
+                  gets none of these; the way it stops being the cover is
+                  another photo's "Make cover" bumping it to position 1, the
+                  same as removing and re-adding used to, minus the remove.
+                */}
+                {many && i !== 0 && (
+                  <div className="absolute inset-x-1.5 bottom-1.5 flex items-center justify-between gap-1">
                     <button
-                      onClick={() => onMove(img.id, -1)}
-                      aria-label={`Move ${img.name} left`}
-                      className="grid size-6 place-items-center rounded-full bg-black/60 text-white backdrop-blur-sm hover:bg-brand"
+                      onClick={() => onReorder(img.id, i - 1)}
+                      aria-label={`Move ${img.name} earlier`}
+                      className="grid size-6 place-items-center rounded-full bg-black/60 text-white backdrop-blur-sm transition-colors hover:bg-black/80 disabled:pointer-events-none disabled:opacity-0"
                     >
                       <ChevronLeft className="size-3.5" strokeWidth={3} />
                     </button>
-                  )}
-                  {i < images.length - 1 && (
                     <button
-                      onClick={() => onMove(img.id, 1)}
-                      aria-label={`Move ${img.name} right`}
-                      className="grid size-6 place-items-center rounded-full bg-black/60 text-white backdrop-blur-sm hover:bg-brand"
+                      onClick={() => onReorder(img.id, 0)}
+                      aria-label={`Make ${img.name} the cover photo`}
+                      className="grid size-6 place-items-center rounded-full bg-black/60 text-white backdrop-blur-sm transition-colors hover:bg-brand"
+                    >
+                      <Star className="size-3.5" strokeWidth={2.5} />
+                    </button>
+                    <button
+                      onClick={() => onReorder(img.id, i + 1)}
+                      disabled={i === images.length - 1}
+                      aria-label={`Move ${img.name} later`}
+                      className="grid size-6 place-items-center rounded-full bg-black/60 text-white backdrop-blur-sm transition-colors hover:bg-black/80 disabled:pointer-events-none disabled:opacity-0"
                     >
                       <ChevronRight className="size-3.5" strokeWidth={3} />
                     </button>
-                  )}
-                </span>
-                {i > 0 && (
-                  <button
-                    onClick={() => onMakeCover(img.id)}
-                    className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-white backdrop-blur-sm hover:bg-brand"
-                  >
-                    Make cover
-                  </button>
+                  </div>
                 )}
               </div>
             ))}
@@ -177,8 +206,9 @@ export default function StepPhotos({
             {!full && (
               <button
                 onClick={pick}
+                disabled={busy}
                 aria-label="Add more photos"
-                className="grid aspect-square place-items-center rounded-2xl border-2 border-dashed border-line bg-canvas/50 text-muted transition-colors hover:border-brand hover:bg-brand-soft/50 hover:text-brand"
+                className="grid aspect-square place-items-center rounded-2xl border-2 border-dashed border-line bg-canvas/50 text-muted transition-colors hover:border-brand hover:bg-brand-soft/50 hover:text-brand disabled:cursor-wait disabled:opacity-60"
               >
                 <Plus className="size-7" strokeWidth={2.2} />
               </button>
@@ -196,8 +226,24 @@ export default function StepPhotos({
               {images.length}/{MAX_IMAGES}
             </p>
           </div>
-          <p className="mt-1.5 text-[13px] text-muted">
-            First photo is the cover.
+          <p className="mt-1.5 text-[13px] text-muted" aria-live="polite">
+            {busy
+              ? "Processing photo…"
+              : many
+                ? "First photo is the cover — use the star to change it."
+                : "First photo is the cover."}
+          </p>
+          {/*
+            Said plainly, before publishing rather than after: the mark is
+            burnt into the file the moment the photo is picked (see
+            `lib/media.js`), so what the poster ends up storing and sharing
+            already carries it. Stated here so nobody is surprised by a mark
+            on a photo they later download back out of their own ad, and
+            deliberately not offered as a toggle — the mark being
+            unconditional is the only reason it means anything.
+          */}
+          <p className="mt-1 text-[12px] text-muted">
+            Every photo carries a small {WATERMARK_TEXT} mark in the corner.
           </p>
         </div>
       )}

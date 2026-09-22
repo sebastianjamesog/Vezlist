@@ -55,6 +55,12 @@ public class User {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "suspended_at")
+    private Instant suspendedAt;
+
+    @Column(name = "suspension_reason", length = 200)
+    private String suspensionReason;
+
     protected User() {
     }
 
@@ -98,5 +104,27 @@ public class User {
 
     public void changePassword(String passwordHash) {
         this.passwordHash = passwordHash;
+    }
+
+    public Instant getSuspendedAt() { return suspendedAt; }
+    public String getSuspensionReason() { return suspensionReason; }
+
+    public void grantRole(Role role) {
+        this.roles.add(role);
+    }
+
+    /** Suspends the account: disables login/authoring app-wide (see {@code enabled}). */
+    public void suspend(String reason) {
+        if (!this.enabled) return;
+        this.enabled = false;
+        this.suspendedAt = Instant.now();
+        this.suspensionReason = reason;
+    }
+
+    /** Reinstates a previously suspended account. */
+    public void reinstate() {
+        this.enabled = true;
+        this.suspendedAt = null;
+        this.suspensionReason = null;
     }
 }

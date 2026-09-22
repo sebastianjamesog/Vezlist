@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { BadgeCheck, MapPin, ShieldCheck, Star } from "lucide-react";
+import MediaImage from "../media/MediaImage.jsx";
 
 const badges = {
   verified: { Icon: BadgeCheck, className: "text-sky-400" },
@@ -11,7 +12,14 @@ const badges = {
 
 /**
  * `tile` is the discovery grid (photo-led, like every dating feed); `row` is the
- * compact list that shares the Nearby sheet with the map.
+ * compact list that used to share the Nearby sheet with the map.
+ *
+ * Currently unreferenced. Nearby dropped its People tab — that screen lists ads
+ * on both boards now — and it was this component's last importer. The file is
+ * left in place deliberately: it is a shared component, and the `people` fixture
+ * it renders is still exported and still read by the console's `adminStore`, so
+ * deleting it is a separate decision from removing the tab that happened to be
+ * its only caller.
  */
 export default function PersonCard({ person, variant = "row" }) {
   const { Icon, className } = badges[person.badge] ?? badges.verified;
@@ -23,11 +31,12 @@ export default function PersonCard({ person, variant = "row" }) {
         href="/ad/a2"
         className="group relative aspect-[3/4] overflow-hidden rounded-card shadow-card transition-all duration-200 hover:-translate-y-1 hover:shadow-lift"
       >
-        <img
+        <MediaImage
+          fill
           src={person.avatar}
           alt={person.name}
-          loading="lazy"
-          className="size-full object-cover transition-transform duration-500 group-hover:scale-105"
+          sizes="(min-width: 1024px) 25vw, 50vw"
+          className="object-cover transition-transform duration-500 group-hover:scale-105"
         />
         <span className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-ink/85 via-ink/30 to-transparent" />
 
@@ -64,12 +73,13 @@ export default function PersonCard({ person, variant = "row" }) {
       href="/ad/a2"
       className="group flex gap-3 rounded-card bg-surface p-2.5 shadow-card transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift"
     >
-      <div className="relative shrink-0 self-start">
-        <img
+      <div className="relative size-16 shrink-0 self-start">
+        <MediaImage
+          fill
           src={person.avatar}
           alt={person.name}
-          loading="lazy"
-          className="size-16 rounded-2xl object-cover"
+          sizes="64px"
+          className="rounded-2xl object-cover"
         />
         <span
           className={`absolute -bottom-1 -right-1 size-4 rounded-full border-2 border-surface ${

@@ -76,21 +76,26 @@ class DiscoveryControllerIntegrationTest {
 
     @Test
     void publicSearchCombinesFiltersAndNeverLeaksStatusOrSite() {
-        UUID verified = user(true);
-        UUID unverified = user(false);
+        // `owner`'s app_users.seller_verified is unrelated to this assertion:
+        // "verified" is a per-listing flag now (see DiscoveryRepository),
+        // not a seller-level one, so `match` is marked verified directly
+        // below rather than via its owner.
+        UUID owner = user(true);
+        UUID otherOwner = user(false);
         Instant recent = Instant.now().minusSeconds(3600);
         UUID match = listing(
-                verified, "MARKETPLACE", "ACTIVE", "Red touring bicycle", "Island Cycle Shop",
+                owner, "MARKETPLACE", "ACTIVE", "Red touring bicycle", "Island Cycle Shop",
                 850, "vehicles", "bc", "bc-1", recent, 48.4284, -123.3656);
         listing(
-                unverified, "MARKETPLACE", "ACTIVE", "Red commuter bicycle", "Other Seller",
+                otherOwner, "MARKETPLACE", "ACTIVE", "Red commuter bicycle", "Other Seller",
                 700, "vehicles", "bc", "bc-1", recent, 48.43, -123.36);
         listing(
-                verified, "MARKETPLACE", "DRAFT", "Red hidden bicycle", "Island Cycle Shop",
+                owner, "MARKETPLACE", "DRAFT", "Red hidden bicycle", "Island Cycle Shop",
                 800, "vehicles", "bc", "bc-1", recent, 48.43, -123.36);
         listing(
-                verified, "PERSONALS", "ACTIVE", "Red private post", "Island Cycle Shop",
+                owner, "PERSONALS", "ACTIVE", "Red private post", "Island Cycle Shop",
                 800, "personals", "bc", "bc-1", recent, 48.43, -123.36);
+        jdbc.update("UPDATE listings SET verified = TRUE WHERE id = ?", match);
         readyImage(match);
 
         ResponseEntity<Map> response = rest.getForEntity(url(

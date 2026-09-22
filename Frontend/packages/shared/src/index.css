@@ -47,54 +47,62 @@
   /* The tab bar floats over the screen rather than reserving a band of canvas
      under it, so every bottom-most scroller pads itself out by its height. */
   --spacing-nav: calc(80px + max(0.5rem, env(safe-area-inset-bottom)));
+  /* The mirror of it at the other end. The brand app bar is desktop-only now,
+     so on a phone the screens that carried it paint straight into the status
+     bar — and in a PWA installed to the home screen, straight under the notch.
+     A screen that opens with a bar does not want this; the three that no longer
+     have one ask for it by name. */
+  --spacing-top: max(1rem, env(safe-area-inset-top));
 }
 :root {
-  --brand: #4f46e5;
-  --brand-strong: #4338ca;
-  --brand-2: #7c3aed;
-  --brand-soft: #eef2ff;
-  --ink: #0b0b12;
-  --muted: #6b6b76;
+  /* blue-600, the darkest blue that still reads as blue rather than navy. It
+     clears 4.5:1 on both --surface and --canvas, which is what lets the same
+     token carry body-sized link text and not just headings. */
+  --brand: #2563eb;
+  --brand-strong: #1d4ed8;
+  /* The second stop in every gradient. A lighter blue rather than a second
+     hue: two blues read as one brand, blue-to-violet reads as two. */
+  --brand-2: #38bdf8;
+  --brand-soft: #eff6ff;
+  /* Near-black with a blue cast, so text and chrome sit in the same family as
+     the brand instead of looking like grey borrowed from somewhere else. */
+  --ink: #0b1220;
+  /* One notch past slate-500: the old value cleared 4.75:1 on white --surface
+     but only 4.34:1 on --canvas, and --muted is read on both. This clears
+     4.95:1 on --canvas and 5.43:1 on --surface — AA on every surface it
+     actually sits on, with margin instead of a razor edge. */
+  --muted: #5b6b82;
   --surface: #ffffff;
-  --canvas: #f4f4f6;
-  --line: #ebebef;
+  --canvas: #f1f5f9;
+  --line: #e2e8f0;
   --on-brand: #ffffff;
   --danger: #dc2626;
   --danger-soft: #fef2f2;
 }
-/* personals.vezlist.cc runs the same components on its own palette, set by the
-   data-theme on its html entry — so the two sites never look like one. */
 /* ---------------------------------------------------------------------------
    personals.vezlist.cc — the adult board.
 
-   Dark, because that is the room the site is read in: a phone at night, often
-   with someone else nearby. It is a remap of the same nine roles, not a second
-   design system. Two things that do not survive the flip are handled here:
-   shadows (a 4%-black shadow is invisible on near-black, so elevation comes
-   from the surface step and the hairline instead) and `--on-brand`.
-
-   Greys are tinted toward the brand hue rather than neutral, so the dark reads
-   as a colour and not as switched-off.
+   The same white-and-blue palette as the marketplace, one step cooler and one
+   step deeper, so the two sites read as one product without reading as one
+   site. It used to be dark; the light theme's shadows work here unchanged,
+   which is why this block no longer restates them.
 --------------------------------------------------------------------------- */
 [data-theme="personals"] {
-  --brand: #ff5c85;
-  --brand-strong: #ff85a3;
-  --brand-2: #d946ef;
-  /* The quiet brand fill. Dark enough that --brand still clears 4.5:1 on it. */
-  --brand-soft: #2e1220;
-  --ink: #f7eef3;
-  --muted: #a08ea0;
-  --surface: #17121b;
-  --canvas: #0b080e;
-  --line: #2a2233;
-  --on-brand: #240610;
-  --danger: #ff6b6b;
-  --danger-soft: #2a1116;
-
-  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.6), 0 12px 28px -16px rgb(0 0 0 / 0.9);
-  --shadow-lift:
-    0 2px 8px rgb(0 0 0 / 0.7), 0 26px 56px -22px rgb(0 0 0 / 0.95);
-  --shadow-sheet: 0 -16px 48px -20px rgb(0 0 0 / 0.9);
+  --brand: #1d4ed8;
+  --brand-strong: #1e40af;
+  /* Personals is the only site that sets this one as *text*, so it is a step
+     darker than the marketplace's: sky-500 is a fine gradient stop and a
+     failing label. */
+  --brand-2: #0284c7;
+  --brand-soft: #e0ecff;
+  --ink: #0b1220;
+  --muted: #5b6b82;
+  --surface: #ffffff;
+  --canvas: #eef4fb;
+  --line: #dbe6f3;
+  --on-brand: #ffffff;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
 }
 html,
 body,
@@ -103,7 +111,7 @@ body,
 }
 body {
   /* Below lg the app is a phone mockup floating on a neutral desk. */
-  background: #e6e6ea;
+  background: #dde5ef;
   color: var(--ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
@@ -133,16 +141,16 @@ body {
   backdrop-filter: blur(20px) saturate(1.6);
   -webkit-backdrop-filter: blur(20px) saturate(1.6);
 }
-/* A dark map without a second tile provider. Inverting and rotating the hue
-   turns OpenStreetMap's own tiles dark while leaving the palette recognisable;
-   the filter is on the tiles alone, so the pins and controls stay as drawn. */
-[data-theme="personals"] .leaflet-tile {
-  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.88);
-}
-
 /* Discreet mode (personals): blur every photo until it is asked for. One rule
    over an attribute on <html>, so nothing that renders media has to know. The
-   blur is on a wrapper, not the <img>, so the scrim and badges stay sharp. */
+   blur is on a wrapper, not the <img>, so the scrim and badges stay sharp.
+
+   This is a visual effect only — the media is still requested and still in
+   the DOM, one click away. See the comment atop apps/personals/app/
+   useDiscreet.js for why that's the stated tradeoff rather than a bug, and
+   for what *is* a real guarantee here: the attribute below is set from an
+   inline, before-hydration script, so this rule is already in effect at the
+   very first paint and nothing renders unblurred first. */
 [data-discreet="on"] [data-media] {
   filter: blur(18px) saturate(0.7);
   transform: scale(1.08);
@@ -185,37 +193,6 @@ body {
 @utility tone-indigo {
   background-color: #e0e7ff;
   color: #4f46e5;
-}
-
-[data-theme="personals"] {
-  .tone-blue {
-    background-color: rgb(96 165 250 / 0.18);
-    color: #93c5fd;
-  }
-  .tone-green {
-    background-color: rgb(52 211 153 / 0.18);
-    color: #6ee7b7;
-  }
-  .tone-purple {
-    background-color: rgb(192 132 252 / 0.18);
-    color: #d8b4fe;
-  }
-  .tone-orange {
-    background-color: rgb(251 146 60 / 0.18);
-    color: #fdba74;
-  }
-  .tone-rose {
-    background-color: rgb(251 113 133 / 0.18);
-    color: #fda4af;
-  }
-  .tone-amber {
-    background-color: rgb(251 191 36 / 0.18);
-    color: #fcd34d;
-  }
-  .tone-indigo {
-    background-color: rgb(129 140 248 / 0.18);
-    color: #a5b4fc;
-  }
 }
 
 /* Gradient wash used behind heroes and on primary actions. */
@@ -290,6 +267,24 @@ body {
     pointer-events: none;
   }
 }
+/* Live player: a tapped heart rises out of the button and fades. Each one
+   carries its own --heart-x so a burst fans out instead of stacking into one
+   thick column. Reduced motion collapses the duration, which lands it straight
+   on the transparent end frame — no motion, no leftover glyph. */
+@keyframes live-heart {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 0) scale(0.6);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, -8px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--heart-x, 0px)), -110px) scale(0.9);
+  }
+}
 /* Status viewer: the bar for the update you're on fills over its lifetime. */
 @keyframes status-fill {
   from {
@@ -298,6 +293,23 @@ body {
   to {
     width: 100%;
   }
+}
+/* A label that replaces itself — the filter button says what is applied, so its
+   text changes under you. It rises rather than cuts, which reads as the same
+   control answering again instead of a different control appearing. The global
+   reduced-motion rule below squashes it to nothing on its own. */
+@keyframes swap-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@utility swap-in {
+  animation: swap-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 /* Hide scrollbars on the horizontal chip/thumbnail strips. */
 .no-scrollbar::-webkit-scrollbar {
