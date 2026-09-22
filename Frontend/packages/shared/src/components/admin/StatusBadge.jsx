@@ -32,6 +32,10 @@ const TONES = {
   verified: "bg-sky-100 text-sky-700",
   marketplace: "bg-blue-100 text-blue-700",
   personals: "bg-indigo-100 text-indigo-700",
+  // The audit log's login/logout/register/password-change entries — a
+  // distinct tone from the admin/moderation entity types (USER, LISTING,
+  // CATEGORY) they sit alongside in the same feed.
+  security: "bg-violet-100 text-violet-700",
 };
 
 /** Where the console's word is not the word a moderator would say out loud. */

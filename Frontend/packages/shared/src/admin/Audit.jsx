@@ -14,14 +14,20 @@ import * as adminAuditApi from "../lib/api/adminAudit.js";
 import { ApiError } from "../lib/api/client";
 
 /**
- * The full audit trail — every write the console has made, newest first.
+ * The full audit trail — every write the console has made, plus every
+ * account-security event, newest first.
  *
  * Over `GET /api/v1/admin/audit` (`AdminAuditController`), which flattens
- * moderation decisions and other admin actions (user suspend/reinstate,
- * taxonomy CRUD, listing takedown) into one cursor-paginated feed. The
+ * moderation decisions, other admin actions (user suspend/reinstate,
+ * taxonomy CRUD, listing takedown, verification decisions), and auth
+ * events (login success/failure, a blocked login on a suspended account,
+ * logout, register, password change/change-failed) into one cursor-
+ * paginated feed. Security rows carry the request's IP and user agent,
+ * shown in the Details column, since those exist only for a real request —
+ * an admin action has no browser behind it to attribute one to. The
  * dashboard's own "recent activity" panel is a glance at the same feed's
  * first few rows; this is the screen it links out to when the question is
- * "show me everything this admin did" rather than "what happened lately".
+ * "show me everything that happened" rather than "what happened lately".
  *
  * The backend paginates by opaque cursor, not by offset, so filtering can
  * only work over what has actually been fetched — there is no "load
@@ -44,9 +50,19 @@ const EXPORT_COLUMNS = [
   { key: "entity", label: "Entity" },
   { key: "entityId", label: "Entity ID" },
   { key: "note", label: "Note" },
+  { key: "ipAddress", label: "IP address" },
+  { key: "userAgent", label: "User agent" },
 ];
 
-/** AdminAuditEntryResponse -> the shape this screen's columns already read. */
+/**
+ * AdminAuditEntryResponse -> the shape this screen's columns already read.
+ *
+ * `ipAddress`/`userAgent` are only ever set on the security-event rows
+ * (login/logout/register/password-change) this feed now also carries —
+ * ordinary admin/moderation actions have no request to attribute one to,
+ * so they're `null` and the Details column below renders exactly as it
+ * did before this feed included security events at all.
+ */
 function mapEntry(entry) {
   return {
     id: entry.id,
@@ -56,6 +72,8 @@ function mapEntry(entry) {
     entity: entry.targetType,
     entityId: entry.targetId,
     note: entry.details,
+    ipAddress: entry.ipAddress,
+    userAgent: entry.userAgent,
   };
 }
 
@@ -152,7 +170,8 @@ export default function Audit() {
         String(entry.entityId ?? "")
           .toLowerCase()
           .includes(needle) ||
-        (entry.note ?? "").toLowerCase().includes(needle)
+        (entry.note ?? "").toLowerCase().includes(needle) ||
+        (entry.ipAddress ?? "").toLowerCase().includes(needle)
       );
     });
   }, [entries, actor, action, entity, from, to, query]);
@@ -197,7 +216,22 @@ export default function Audit() {
       key: "note",
       label: "Details",
       render: (row) => (
-        <span className="line-clamp-2 text-muted">{row.note}</span>
+        <span className="line-clamp-2 text-muted">
+          {row.note}
+          {/* Security-event rows (login/logout/register/password-change)
+              carry an IP; the full user agent rides along as a hover
+              title rather than its own column, since only these rows
+              ever have one and most of the feed doesn't. */}
+          {row.ipAddress && (
+            <span
+              className="ml-1.5 font-mono text-[12px]"
+              title={row.userAgent ?? undefined}
+            >
+              {row.note ? "· " : ""}
+              {row.ipAddress}
+            </span>
+          )}
+        </span>
       ),
     },
   ];
