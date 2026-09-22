@@ -24,7 +24,7 @@ export const ROLES = {
   moderator: {
     id: "moderator",
     label: "Moderator",
-    blurb: "The queues: ads, reports, users, live and status. Not money.",
+    blurb: "The queues: ads, reports, users, live and status.",
   },
   support: {
     id: "support",
@@ -49,13 +49,13 @@ const EVERYONE = ["owner", "moderator", "support"];
 export const PERMISSIONS = {
   "listing.moderate": MODS,
   "listing.edit": MODS,
-  "listing.boost": MODS,
   "listing.delete": OWNER,
   "user.moderate": MODS,
   "user.verify": MODS,
   "report.decide": MODS,
   "appeal.raise": MODS,
   "appeal.decide": MODS,
+  "verification.decide": MODS,
   "stream.moderate": MODS,
   "status.moderate": MODS,
   "ticket.reply": EVERYONE,
@@ -63,8 +63,6 @@ export const PERMISSIONS = {
   "content.edit": ["owner", "moderator", "support"],
   "taxonomy.edit": OWNER,
   "broadcast.send": OWNER,
-  "billing.manage": OWNER,
-  "billing.refund": OWNER,
   "settings.edit": OWNER,
   "admins.manage": OWNER,
   "analytics.view": EVERYONE,
@@ -93,13 +91,11 @@ export const ACTION_PERMISSION = {
   toggleVerified: "listing.moderate",
   editListing: "listing.edit",
   removePhoto: "listing.edit",
-  setBoost: "listing.boost",
   deleteListing: "listing.delete",
 
   suspendUser: "user.moderate",
   unsuspendUser: "user.moderate",
   verifyUser: "user.verify",
-  adjustCredits: "billing.manage",
 
   resolveReport: "report.decide",
   dismissReport: "report.decide",
@@ -137,10 +133,6 @@ export const ACTION_PERMISSION = {
   removeArea: "taxonomy.edit",
 
   sendBroadcast: "broadcast.send",
-
-  upsertCreditPack: "billing.manage",
-  deleteCreditPack: "billing.manage",
-  refundCharge: "billing.refund",
 
   setSetting: "settings.edit",
   resetToSeed: "settings.edit",

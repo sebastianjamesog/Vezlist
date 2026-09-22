@@ -48,6 +48,12 @@ export const adminNav = [
         icon: "ClipboardCheck",
         badge: "openAppeals",
       },
+      {
+        to: "/verifications",
+        label: "Verifications",
+        icon: "BadgeCheck",
+        badge: "openVerifications",
+      },
     ],
   },
   {
@@ -75,7 +81,6 @@ export const adminNav = [
     items: [
       { to: "/taxonomy", label: "Taxonomy", icon: "Tag" },
       { to: "/notifications", label: "Notifications", icon: "Bell" },
-      { to: "/billing", label: "Billing", icon: "CreditCard" },
       {
         to: "/admins",
         label: "Admins",

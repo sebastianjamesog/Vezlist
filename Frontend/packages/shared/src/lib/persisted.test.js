@@ -15,7 +15,7 @@ import {
  * `plan.md`'s "no component test framework"), but the decoding is where a
  * hand-edited localStorage value or a stale key from an older shape actually
  * gets judged, and that half is plain functions, testable the same way
- * `wallet.js`'s `normaliseWallet` is.
+ * `listings.js`'s `normaliseAdsState` is.
  */
 
 /* -------------------------------------------------------------- decodeIds */

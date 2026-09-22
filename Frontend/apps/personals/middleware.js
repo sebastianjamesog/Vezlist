@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { PAYBIS_HOSTS } from "@vezlist/shared/lib/paybis.js";
 
 /**
  * Security response headers, applied to every response the Worker serves.
@@ -54,30 +53,6 @@ import { PAYBIS_HOSTS } from "@vezlist/shared/lib/paybis.js";
  */
 const DEV = process.env.NODE_ENV === "development";
 
-/**
- * The Paybis widget origins, off the same table the checkout reads.
- *
- * Both environments are allowed rather than the one in play, because which
- * one is in play is a Worker variable read at request time
- * (`PAYBIS_ENVIRONMENT`) and this header is a constant. The cost of listing
- * the extra one is that a sandbox widget could load on a production deploy;
- * the cost of not listing it is that flipping the variable silently breaks
- * checkout with a console error nobody sees. Derived from `PAYBIS_HOSTS` so
- * adding an origin there cannot leave the policy behind.
- *
- * Note what is *not* widened: `frame-ancestors` stays `'self'`, and on this
- * app that directive is load-bearing — it is the age gate's clickjacking fix.
- * Paybis redirects its own frame to `/paybis/return` when the checkout ends,
- * and that page is framed by this origin, not by theirs, so the policy holds.
- * If Paybis ever nests that redirect a frame deeper, the return page is what
- * breaks; the gate is not made framable by a third party to save it. The
- * widget's own message is the second signal the wallet listens for, and
- * `readReturnMessage` takes either.
- */
-const PAYBIS = Object.values(PAYBIS_HOSTS)
-  .map((hosts) => hosts.widget)
-  .join(" ");
-
 function securityHeaders() {
   const csp = [
     "default-src 'self'",
@@ -86,7 +61,7 @@ function securityHeaders() {
     // 'unsafe-inline' is required for Next's inline RSC hydration scripts
     // (self.__next_f.push(...)) and, for style, MapView's inline marker
     // stylesheet — see the note above.
-    `script-src 'self' 'unsafe-inline' ${PAYBIS}${DEV ? " 'unsafe-eval'" : ""}`,
+    `script-src 'self' 'unsafe-inline'${DEV ? " 'unsafe-eval'" : ""}`,
     "style-src 'self' 'unsafe-inline'",
     // picsum.photos redirects to fastly.picsum.photos for the actual bytes;
     // basemaps.cartocdn.com is Leaflet's OSM/CARTO tile source (a/b/c/d
@@ -94,11 +69,7 @@ function securityHeaders() {
     // in StepPhotos.jsx / CreateAdSheet.jsx and the CSV export in lib/csv.js).
     "img-src 'self' data: blob: https://picsum.photos https://*.picsum.photos https://*.basemaps.cartocdn.com",
     "font-src 'self' data:",
-    `connect-src 'self' ${PAYBIS}`,
-    // The checkout the Buy credits modal embeds. Both environments are listed
-    // because which one is live is a Worker variable, not a build: see
-    // PAYBIS_ENVIRONMENT in DEPLOY.md § Payments.
-    `frame-src 'self' ${PAYBIS}`,
+    "connect-src 'self'",
     "form-action 'self'",
     // Fixes the clickjackable age gate (AgeGate.jsx): no third-party origin
     // may frame this site. Same-origin embeds only.

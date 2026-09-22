@@ -101,7 +101,7 @@ function Toggle({ checked, onChange, label, disabled }) {
 export default function Settings() {
   const toast = useToast();
   const { signOut } = useAuth();
-  const { role, roleMeta, setRole, resetWallet } = useAccount();
+  const { role, roleMeta, setRole } = useAccount();
   const { ids: savedIds, remove: removeSaved } = useSaved();
   const { clearSeen } = useStatus();
   const { reports, blocked, unblock, clear: clearReports } = useReports();
@@ -251,8 +251,7 @@ export default function Settings() {
               })}
             </div>
             <p className="mt-1.5 px-1 text-[12px] text-muted">
-              You are set to {roleMeta.label}. Credits stay with the account
-              either way.
+              You are set to {roleMeta.label}.
             </p>
           </section>
 
@@ -542,7 +541,7 @@ export default function Settings() {
       <ConfirmDialog
         open={confirm === "downgrade"}
         title={`Switch to ${ACCOUNT_ROLES.user.label}?`}
-        body="My Ads, the creator dashboard and promoting all go away, and any ad you have running stays up with nowhere to manage it. Your credits stay in your balance. Switching back takes one tap."
+        body="My Ads and the creator dashboard go away, and any ad you have running stays up with nowhere to manage it. Switching back takes one tap."
         confirmLabel="Switch"
         destructive
         onConfirm={() => {
@@ -569,15 +568,14 @@ export default function Settings() {
             // backend process, not something this click waits on. Once the
             // request is filed, the rest of this clears everything this
             // build itself holds on the device (saved ads, watched statuses,
-            // settings toggles, reports/blocks, the wallet balance) and signs
-            // out the same way "Log out" above does.
+            // settings toggles, reports/blocks) and signs out the same way
+            // "Log out" above does.
             await usersApi.requestDeletion();
             setConfirm(null);
             savedIds.forEach(removeSaved);
             clearSeen();
             clearToggles();
             clearReports();
-            resetWallet();
             await signOut();
             toast("Account deletion requested");
             navigate("/login", { replace: true });

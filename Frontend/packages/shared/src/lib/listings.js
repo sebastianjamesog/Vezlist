@@ -12,8 +12,8 @@ import { isFiniteNumber, isNonEmptyString, isObject } from "./guards.js";
  * The seller's own ads: one seed function and one reducer, no React.
  *
  * Everything a poster does to an ad after the wizard — publishing it, editing
- * it, renewing it, promoting it, deleting it — is a verb below, and My Ads is
- * a view over the rows they produce. Before this existed, publishing was a
+ * it, renewing it, deleting it — is a verb below, and My Ads is a view over
+ * the rows they produce. Before this existed, publishing was a
  * `console.log` and a toast that claimed otherwise, and My Ads held the mock in
  * a `useState` that a reload reset.
  *
@@ -161,8 +161,6 @@ function seedRow(mine, listing) {
     views: mine.views,
     saves: mine.saves,
     expiresInDays: mine.expiresInDays,
-    boost: null,
-    boostedUntilDays: 0,
   };
 }
 
@@ -217,8 +215,8 @@ function isValidAdRow(row) {
 
 /**
  * The guard `rehydrate` runs stored state through before folding it over a
- * fresh seed — see `normaliseWallet` in `wallet.js` for the pattern this
- * follows. A malformed `ads` (not an array, or full of rows a screen cannot
+ * fresh seed, the pattern every store in this app follows for the same
+ * reason. A malformed `ads` (not an array, or full of rows a screen cannot
  * render) is dropped rather than merged in, which is what stops a hand-edited
  * `localStorage` key or a stale shape from an older build reaching a `.map`
  * or `.filter` in My Ads. A top-level key this does not recognise — anything
@@ -270,8 +268,6 @@ export function reducer(state, action) {
             views: 0,
             saves: 0,
             expiresInDays: RUN_DAYS,
-            boost: null,
-            boostedUntilDays: 0,
           },
           ...state.ads,
         ],
@@ -311,25 +307,6 @@ export function reducer(state, action) {
         ads: patch(state.ads, action.id, {
           status: "pending",
           expiresInDays: RUN_DAYS,
-          // The promotion was bought for a run that is over. Carrying it into
-          // the new one would be days nobody paid for.
-          boost: null,
-          boostedUntilDays: 0,
-        }),
-      };
-    }
-
-    case "promote": {
-      const row = find(state.ads, action.id);
-      const { tier } = action;
-      if (!row || !tier) return state;
-      // The charge is the wallet's business and happens before this dispatch —
-      // see `confirmPromote` in My Ads. This records what was bought.
-      return {
-        ...state,
-        ads: patch(state.ads, action.id, {
-          boost: { id: tier.id, label: tier.label },
-          boostedUntilDays: tier.days,
         }),
       };
     }

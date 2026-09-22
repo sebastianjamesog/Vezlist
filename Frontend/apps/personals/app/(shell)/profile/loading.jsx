@@ -8,7 +8,7 @@ import {
  * Fallback for `/profile` and — because a segment's `loading.jsx` covers any
  * child segment that doesn't ship its own (see `loading.js` docs: it wraps
  * "the page.js file and any children below") — for the settings/ads/
- * dashboard/wallet/saved/notifications subpages too, none of which have a
+ * dashboard/saved/notifications subpages too, none of which have a
  * more specific one of their own. The hero card + menu-row shape below is
  * closest to the hub itself; the list subpages (My Ads, Saved) still read
  * fine against it since a listing row and a menu row are both a photo/icon

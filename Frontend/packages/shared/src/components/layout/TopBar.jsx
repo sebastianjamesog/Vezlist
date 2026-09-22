@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Bell, ChevronLeft, Coins } from "lucide-react";
+import { Bell, ChevronLeft } from "lucide-react";
 import { useAccount } from "../../context/AccountContext";
 import { useAuth } from "../../context/AuthContext";
 import { getUnreadCount } from "../../lib/api/notifications";
@@ -31,7 +31,7 @@ export default function TopBar({
   exitHref,
   exitLabel = "Home",
 }) {
-  const { credits, can } = useAccount();
+  const { can } = useAccount();
   const { signedIn } = useAuth();
   // Real unread count from GET /api/v1/me/notifications/unread-count, same
   // endpoint Notifications.jsx's list ultimately agrees with. Best-effort:
@@ -130,17 +130,6 @@ export default function TopBar({
             {hasUnread && (
               <span className="absolute right-2.5 top-2.5 size-2 rounded-full bg-red-500 ring-2 ring-surface" />
             )}
-          </Link>
-
-          <Link
-            href="/profile/wallet"
-            aria-label={`${credits} credits`}
-            className="flex h-10 items-center gap-1.5 rounded-full bg-brand-soft px-3.5 text-brand transition-colors hover:bg-brand hover:text-on-brand"
-          >
-            <Coins className="size-4" strokeWidth={2.4} />
-            <span className="text-[14px] font-bold tabular-nums">
-              {credits}
-            </span>
           </Link>
         </div>
       </div>

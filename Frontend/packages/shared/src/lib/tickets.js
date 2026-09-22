@@ -86,7 +86,7 @@ function normaliseThread(t) {
 
 /**
  * The guard `rehydrate` runs a stored delta through before folding it over
- * `EMPTY` — the same pattern `normaliseWallet` in `wallet.js` set. A ticket
+ * `EMPTY` — the same pattern `normaliseAdsState` in `listings.js` set. A ticket
  * only has to carry an id: `find`/`patch` key on it and nothing else does,
  * and every other field a screen reads (`title`, `status`, `icon`) is read
  * with its own fallback everywhere but here. A `tickets` or `threads` that is

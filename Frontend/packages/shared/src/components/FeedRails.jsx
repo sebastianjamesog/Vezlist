@@ -302,16 +302,21 @@ function Promo({
 }
 
 /**
- * The pair that closes the feed. They sit at the bottom because both are
- * things to do *after* you have read the board, not instead of reading it.
+ * The card (or pair of cards) that closes the feed. They sit at the bottom
+ * because they are things to do *after* you have read the board, not instead
+ * of reading it.
  *
- * Side by side even on the narrowest phone, and unevenly: the second card
- * carries a thumbnail stack, so it takes the wider half rather than squeezing
- * the stack down to nothing for the sake of a tidy 50/50.
+ * Two cards sit side by side even on the narrowest phone, and unevenly: the
+ * second one carries a thumbnail stack, so it takes the wider half rather
+ * than squeezing the stack down to nothing for the sake of a tidy 50/50. A
+ * single card takes the full width instead of leaving the other half of the
+ * grid empty.
  */
 export function Promos({ cards, className = "" }) {
   return (
-    <div className={`grid grid-cols-[1fr_1.45fr] gap-2 ${className}`}>
+    <div
+      className={`grid gap-2 ${cards.length > 1 ? "grid-cols-[1fr_1.45fr]" : "grid-cols-1"} ${className}`}
+    >
       {cards.map((card) => (
         <Promo key={card.id} {...card} />
       ))}

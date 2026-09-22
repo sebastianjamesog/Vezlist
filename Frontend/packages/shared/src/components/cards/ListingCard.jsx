@@ -26,8 +26,6 @@ import { useToast } from "../../context/ToastContext.jsx";
  * "Hot" only meant posted in the last six hours, and "Featured" only meant
  * first in the list, so the badge moved every time the sort changed. The one
  * badge left is Verified, which says something checkable about the seller.
- * `listing.boosted` still exists — the console bills against it — it just no
- * longer decorates the public row.
  *
  * Verified ads carry the travelling emerald ring; the pill on the seller line
  * names it for anyone who can't see the animation (reduced motion freezes it to

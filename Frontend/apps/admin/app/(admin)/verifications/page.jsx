@@ -1,10 +1,10 @@
 import { Suspense } from "react";
-import Billing from "@vezlist/shared/admin/Billing.jsx";
+import Verifications from "@vezlist/shared/admin/Verifications.jsx";
 import Loading from "../loading.jsx";
 
 export const metadata = {
-  title: "Billing",
-  description: "Boost and subscription revenue across both boards.",
+  title: "Verifications",
+  description: "Seller-requested ad verification codes and photos awaiting review.",
 };
 
 // Reads the URL filters on the client, so the prerendered shell needs a
@@ -12,7 +12,7 @@ export const metadata = {
 export default function Page() {
   return (
     <Suspense fallback={<Loading />}>
-      <Billing />
+      <Verifications />
     </Suspense>
   );
 }

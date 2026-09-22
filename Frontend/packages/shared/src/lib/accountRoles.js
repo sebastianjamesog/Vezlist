@@ -1,17 +1,16 @@
 /**
  * What kind of account you signed up as.
  *
- * The public sites had one account shape — everyone got My Ads, everyone got a
- * credit balance — and most people who use a classifieds board never post
- * anything. So there are two now: someone who is here to look, and someone who
- * is here to sell. One matrix, read by the shell to decide which tabs exist, by
- * the profile to decide which menu it draws, and by the wallet to decide
- * whether a spend is allowed at all.
+ * The public sites had one account shape — everyone got My Ads — and most
+ * people who use a classifieds board never post anything. So there are two
+ * now: someone who is here to look, and someone who is here to sell. One
+ * matrix, read by the shell to decide which tabs exist and by the profile to
+ * decide which menu it draws.
  *
  * Same honesty as the rest of this build: there is no server, so this shapes
- * what the UI offers and what the wallet reducer accepts. It is not a security
- * boundary — the client owns the store. On a real backend the matrix moves to
- * the server and stays here only to hide buttons.
+ * what the UI offers. It is not a security boundary — the client owns the
+ * store. On a real backend the matrix moves to the server and stays here only
+ * to hide buttons.
  *
  * The console has its own tiers in `adminRoles.js`; these are the public ones
  * and the two never mix.
@@ -22,14 +21,14 @@ export const ACCOUNT_ROLES = {
     id: "user",
     label: "Browsing",
     short: "Member",
-    blurb: "Browse, save and contact. No ads to manage, nothing to pay for.",
+    blurb: "Browse, save and contact. No ads to manage.",
     icon: "User",
   },
   creator: {
     id: "creator",
     label: "Ads creator",
     short: "Creator",
-    blurb: "Post and promote ads, spend credits, watch how they perform.",
+    blurb: "Post ads and watch how they perform.",
     icon: "Megaphone",
   },
 };
@@ -64,21 +63,17 @@ const CREATORS = ["creator"];
  * Capability -> the roles that hold it.
  *
  * Saving is what a board is *for*, so it stays with everyone; everything that
- * costs credits or puts something on the board is the creator's.
+ * puts something on the board is the creator's.
  */
 export const CAPABILITIES = {
   "listing.save": EVERYONE,
   "ticket.open": EVERYONE,
-  "wallet.view": EVERYONE,
-  "wallet.topup": EVERYONE,
 
   "ad.create": CREATORS,
   "ad.manage": CREATORS,
-  "ad.promote": CREATORS,
   "status.post": CREATORS,
   "live.host": CREATORS,
   "dashboard.view": CREATORS,
-  "wallet.spend": CREATORS,
 };
 
 /** Can this role do this thing? An unknown capability is denied, never granted. */

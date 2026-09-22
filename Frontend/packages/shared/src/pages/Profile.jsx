@@ -7,7 +7,6 @@ import {
   BadgeCheck,
   Camera,
   ChevronRight,
-  Coins,
   LogOut,
   MapPin,
   Plus,
@@ -51,7 +50,7 @@ export default function Profile() {
   const { seen, myUpdates } = useStatus();
   const toast = useToast();
   const { user, signOut, signedIn } = useAuth();
-  const { can, credits, isCreator, roleMeta } = useAccount();
+  const { can, isCreator, roleMeta } = useAccount();
   const { openStory } = useShell();
   const navigate = useNavigate();
   const [confirmLogout, setConfirmLogout] = useState(false);
@@ -117,8 +116,6 @@ export default function Profile() {
 
       <PageBody className="px-4 pb-6 pt-top lg:px-8 lg:py-8">
         <div className="lg:grid lg:grid-cols-[380px_1fr] lg:items-start lg:gap-8">
-          {/* The hero and the credits card travel together, so the sticky lives
-              on the pair rather than on the hero it used to sit on. */}
           <div className="lg:sticky lg:top-6">
             {/* Gradient hero: identity first, numbers second. */}
             <section className="brand-gradient relative overflow-hidden rounded-card p-5 shadow-lift lg:p-6">
@@ -178,37 +175,6 @@ export default function Profile() {
                 ))}
               </div>
             </section>
-
-            {/* The mobile app bar carried the balance, and below lg there is no
-                app bar any more — so the balance lands here, on the one screen
-                every account already opens for anything to do with itself.
-                `lg:hidden` because the desktop bar still shows it, and two live
-                balances on one screen only invite the reader to check whether
-                they agree.
-
-                Notifications are deliberately not repeated: profileMenu already
-                carries a notifications row with the unread dot, pointing at the
-                same /profile/notifications. A second entry point would be two
-                doors to one room, and the one nobody maintains goes stale. */}
-            <Link
-              href="/profile/wallet"
-              className="mt-4 flex items-center gap-3.5 rounded-card bg-surface p-4 shadow-card transition-colors hover:bg-canvas lg:hidden"
-            >
-              <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-brand-soft text-brand">
-                <Coins className="size-[22px]" strokeWidth={2.2} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[13px] font-semibold text-muted">
-                  Credit balance
-                </span>
-                <span className="block text-[22px] font-extrabold leading-tight tabular-nums text-ink">
-                  {credits.toLocaleString()}
-                </span>
-              </span>
-              <span className="shrink-0 rounded-full bg-brand-soft px-3.5 py-2 text-[13px] font-bold text-brand">
-                Top up
-              </span>
-            </Link>
           </div>
 
           <div className="mt-4 lg:mt-0">
@@ -320,9 +286,7 @@ export default function Profile() {
                           when they say what the screen is for. */}
                       {item.id === "saved" && savedCount
                         ? `${savedCount} saved ${savedCount === 1 ? "ad" : "ads"}`
-                        : item.id === "wallet"
-                          ? `${credits.toLocaleString()} credits`
-                          : item.sub}
+                        : item.sub}
                     </span>
                   </span>
                   <ChevronRight className="size-5 shrink-0 text-muted" />

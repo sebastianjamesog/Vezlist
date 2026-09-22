@@ -699,15 +699,6 @@ const allListings = rawListings.map(
  * The two sites do not share a feed. personals.vezlist.cc serves the personals
  * posts; vezlist.cc serves everything else and links across for the rest.
  */
-/** Ads running a paid boost. Mock-only — there is no billing behind it. */
-const boostedTitles = new Set([
-  "Looking for a Gym Partner",
-  "Weekend Getaway Companion",
-  "Senior React Developer",
-  "Solid Oak Dining Table, Seats Six",
-]);
-
-const withBoost = (l) => ({ ...l, boosted: boostedTitles.has(l.title) });
 
 /**
  * Self-described, and only on the personals board — the marketplace sells
@@ -762,28 +753,26 @@ export const personalsListings = allListings
   // Mock data: the board has no profiles behind it, so the posts are dealt one
   // of each in order rather than left blank. The category strides by three so
   // the two lists do not line up and every post is not one fixed pairing.
-  .map((l, i) =>
-    withBoost({
-      ...l,
-      // Hashed rather than dealt round-robin like the two lists below it. An age
-      // that climbed a year per row would be visible as a gradient the moment
-      // anyone scrolled, where ethnicity and category are unordered sets and a
-      // cycle through them reads as nothing in particular.
-      age: ageFor(l.title),
-      // The poster's own switch, not a guess made from distance or from how
-      // recently they posted. It is the one field on this board that the
-      // person behind the post controls in real time, which is what makes
-      // "Available now" worth filtering on at all — see the Availability
-      // group in `settingsGroups`.
-      available: availableFor(l.title),
-      ethnicity: ethnicities[i % ethnicities.length],
-      personalsCategory:
-        personalsCategories[(i * 3) % personalsCategories.length],
-    }),
-  );
-export const listings = allListings
-  .filter((l) => l.categoryId !== "personals")
-  .map(withBoost);
+  .map((l, i) => ({
+    ...l,
+    // Hashed rather than dealt round-robin like the two lists below it. An age
+    // that climbed a year per row would be visible as a gradient the moment
+    // anyone scrolled, where ethnicity and category are unordered sets and a
+    // cycle through them reads as nothing in particular.
+    age: ageFor(l.title),
+    // The poster's own switch, not a guess made from distance or from how
+    // recently they posted. It is the one field on this board that the
+    // person behind the post controls in real time, which is what makes
+    // "Available now" worth filtering on at all — see the Availability
+    // group in `settingsGroups`.
+    available: availableFor(l.title),
+    ethnicity: ethnicities[i % ethnicities.length],
+    personalsCategory:
+      personalsCategories[(i * 3) % personalsCategories.length],
+  }));
+export const listings = allListings.filter(
+  (l) => l.categoryId !== "personals",
+);
 
 export const people = [
   {
@@ -1121,7 +1110,7 @@ export const supportTopics = [
   {
     id: "payments",
     label: "Payments",
-    sub: "Credits, cards, refunds",
+    sub: "Cards, refunds",
     icon: "CreditCard",
     to: "/support/faqs?cat=Payments",
   },
@@ -1202,15 +1191,6 @@ export const profileMenu = [
     icon: "Megaphone",
     tone: "brand",
     cap: "ad.manage",
-  },
-  {
-    id: "wallet",
-    to: "/profile/wallet",
-    label: "Credits",
-    sub: "Balance, top-ups and spending",
-    icon: "Coins",
-    tone: "soft",
-    cap: "wallet.view",
   },
   {
     id: "saved",
@@ -1448,11 +1428,6 @@ export const allFaqs = [
     a: "Most declines come from an expired card or a bank block on online payments. Check with your bank, then retry from Account Settings.",
   },
   {
-    q: "How do credits work?",
-    category: "Payments",
-    a: "Credits pay for promotions and featured placement. They never expire and are shown in the header.",
-  },
-  {
     q: "How do I delete my account?",
     category: "Account",
     a: "Account Settings has Delete account at the bottom. Deletion removes your ads and cannot be undone.",
@@ -1484,9 +1459,6 @@ export const settingsGroups = [
         type: "link",
         to: "/profile/settings/password",
       },
-      // No "Payment methods" row: Paybis collects the card at checkout and
-      // keeps the token, so there is nothing on this side to manage. See
-      // pages/Wallet.jsx.
     ],
   },
   {
@@ -1624,7 +1596,7 @@ export const demoAccounts = [
     id: "creator",
     role: "creator",
     label: "Ads creator",
-    blurb: "My Ads, the dashboard, credits and promoting",
+    blurb: "My Ads and the creator dashboard",
     email: "sarah@vezlist.cc",
     // Eight characters or more, or validateAuth rejects our own demo.
     password: "creator123",
@@ -1636,95 +1608,6 @@ export const demoAccounts = [
     blurb: "Saved items and contact — nothing to manage",
     email: "alex@vezlist.cc",
     password: "browsing123",
-  },
-];
-
-/**
- * `paymentMethods` used to sit here — two invented cards behind a Payment
- * methods screen. Both are gone: Paybis takes the payment for a credit pack
- * and collects the card itself, so nothing in this app bills one, and a
- * stored card nobody charges is a liability rather than a feature.
- */
-export const creditPacks = [
-  { id: "cp1", credits: 100, price: 9, note: "Starter" },
-  { id: "cp2", credits: 350, price: 25, note: "Most popular", best: true },
-  { id: "cp3", credits: 800, price: 49, note: "Best value" },
-];
-
-/**
- * What was charged to a card, in dollars.
- *
- * It used to carry a third row — the Honda promotion, at $6 — from before
- * promoting cost credits. A promotion is now paid out of the balance and never
- * touches a card (see `boostOptions`, priced in credits), so a dollar charge
- * for one is a charge that cannot happen: the console would offer to refund
- * money nobody was ever billed. Credits are bought with money and spent on
- * promotions, and only the first half of that is a card charge.
- */
-export const billingHistory = [
-  { id: "bh1", label: "350 credits", date: "12 Aug 2026", amount: 25 },
-  { id: "bh3", label: "100 credits", date: "18 Jul 2026", amount: 9 },
-];
-
-/**
- * The wallet's opening ledger. `billingHistory` above is the card statement —
- * what was charged in dollars; this is the credit account — what went in and
- * what went out. They describe the same three events from the two sides.
- *
- * Stamped against fixed instants: a ledger seeded with `Date.now()` renders one
- * relative time on the server and another in the browser, and React throws out
- * the tree when that happens.
- */
-export const LEDGER_SEED = [
-  {
-    id: "tx-seed3",
-    label: "350 credits",
-    delta: 350,
-    price: 25,
-    at: Date.parse("2026-08-12T10:00:00.000Z"),
-  },
-  {
-    id: "tx-seed2",
-    label: "Promoted “2012 Honda Accord EX-L Sedan”",
-    delta: -60,
-    at: Date.parse("2026-08-02T15:30:00.000Z"),
-  },
-  {
-    id: "tx-seed1",
-    label: "100 credits",
-    delta: 100,
-    price: 9,
-    at: Date.parse("2026-07-18T08:15:00.000Z"),
-  },
-];
-
-/**
- * What a promotion costs. The Promote button used to toast "Promotion costs 20
- * credits" and then do nothing; these are the tiers it actually charges, priced
- * so the starter pack buys a couple of days and the top tier is a decision.
- */
-export const boostOptions = [
-  {
-    id: "bo1",
-    label: "Spotlight",
-    days: 3,
-    credits: 20,
-    blurb: "Top of its category for three days.",
-  },
-  {
-    id: "bo2",
-    label: "Featured",
-    days: 7,
-    credits: 60,
-    blurb: "Top of the feed and the home rail for a week.",
-    best: true,
-  },
-  {
-    id: "bo3",
-    label: "Headline",
-    days: 14,
-    credits: 140,
-    blurb: "Everything in Featured, plus the nearby map pin.",
   },
 ];
 
@@ -1829,9 +1712,9 @@ export const liveStreams = [
 --------------------------------------------------------------------------- */
 
 /**
- * Ads sitting in review. The same idiom `boostedTitles` uses above: a set of
- * titles rather than a second listings array, so editing a listing does not
- * mean editing it twice. Without this the moderation queue opens empty, which
+ * Ads sitting in review. A set of titles rather than a second listings array,
+ * so editing a listing does not mean editing it twice. Without this the
+ * moderation queue opens empty, which
  * is the one state it must not open in.
  */
 export const pendingTitles = new Set([

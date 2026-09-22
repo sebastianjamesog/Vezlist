@@ -204,7 +204,7 @@ function isValidReport(row) {
 
 /**
  * The guard `rehydrate` runs a stored delta through before folding it over
- * `EMPTY` — the pattern `normaliseWallet` in `wallet.js` set. Blocks only
+ * `EMPTY` — the pattern `normaliseAdsState` in `listings.js` set. Blocks only
  * need the id `isBlocked`/`hideBlocked` key on; reports need the fields named
  * above. A `reports` or `blocked` that is not an array is dropped rather than
  * merged in, and a top-level key neither name comes back the same way —

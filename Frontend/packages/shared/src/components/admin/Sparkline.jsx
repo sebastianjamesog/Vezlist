@@ -15,9 +15,8 @@ export default function Sparkline({
   height = 34,
   className = "",
 }) {
-  // Two sparklines over the same series would otherwise mint the same gradient
+  // Two sparklines on the same screen would otherwise mint the same gradient
   // id — duplicate ids in one document, and whichever <defs> lost the race.
-  // The dashboard and /billing both draw the revenue series, so this is real.
   // Stripped of punctuation: React's ids carry colons, and `url(#:r0:)` is not
   // a reference every engine resolves.
   const gradientId = `spark${useId().replace(/[^a-zA-Z0-9]/g, "")}`;

@@ -157,7 +157,7 @@ export function reactionFor(reactions, storyId, updateId) {
 
 /**
  * The guard `rehydrate` runs stored reactions through before they land in
- * state — the same `normaliseWallet`/`normaliseTicketsState` pattern every
+ * state — the same `normaliseAdsState`/`normaliseTicketsState` pattern every
  * other store in this app follows. A key that is not a non-empty string, or
  * a value that is not one of the emoji this build actually offers (a
  * hand-edited `localStorage` entry, or an emoji a later build retired), is

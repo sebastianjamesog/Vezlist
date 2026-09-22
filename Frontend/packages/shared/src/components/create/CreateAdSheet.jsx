@@ -86,6 +86,12 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
   // couple hundred milliseconds and a modal spinner for that would flicker
   // more than it informs.
   const [addingPhotos, setAddingPhotos] = useState(false);
+  // Off by default, and never persisted with the rest of the draft: this is
+  // a one-time instruction to `handlePublish` for the ad about to be
+  // created, not a field of the ad itself — the code and photo it leads to
+  // don't exist until a real listing does, so there is nothing here worth
+  // restoring across a reload.
+  const [wantVerification, setWantVerification] = useState(false);
   const idSeq = useRef(0);
   const toast = useToast();
   const { can } = useAccount();
@@ -136,6 +142,7 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
     setStep(0);
     setDraft({ ...EMPTY_DRAFT, category: CREATE_CATEGORIES[0] });
     setErrors({});
+    setWantVerification(false);
     // The write-back effect above clears storage on its own the next time it
     // sees this draft (`isDraftWorthSaving` is false for a fresh one), but
     // discard and publish both mean "gone now" — a reload between this line
@@ -189,9 +196,7 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
   // above the hooks because bailing early would change the hook order — the
   // draft-persistence effects above have to run for every render this
   // component ever does, `open` or not, or a draft typed just before closing
-  // would never reach its last write. Nothing about posting costs credits,
-  // so there is no balance to read here; the charge is on promoting, which
-  // is the wallet's screen.
+  // would never reach its last write.
   if (!open || !can("ad.create")) return null;
 
   const patch = (next) => {
@@ -270,7 +275,7 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
     const found = validateStep(current.id, draft);
     if (Object.keys(found).length) return setErrors(found);
     if (step < STEPS.length - 1) return setStep(step + 1);
-    onPublish(draft);
+    onPublish(draft, { requestVerification: wantVerification });
     reset();
   }
 
@@ -365,7 +370,12 @@ export default function CreateAdSheet({ open, onClose, onPublish }) {
             <StepContact draft={draft} errors={errors} onPatch={patch} />
           )}
           {current.id === "review" && (
-            <StepReview draft={draft} onEdit={setStep} />
+            <StepReview
+              draft={draft}
+              onEdit={setStep}
+              verified={wantVerification}
+              onToggleVerified={setWantVerification}
+            />
           )}
         </div>
 

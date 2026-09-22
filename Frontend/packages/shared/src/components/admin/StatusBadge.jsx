@@ -30,7 +30,6 @@ const TONES = {
   overturned: "bg-emerald-100 text-emerald-700",
   // Attributes rather than states.
   verified: "bg-sky-100 text-sky-700",
-  boosted: "bg-violet-100 text-violet-700",
   marketplace: "bg-blue-100 text-blue-700",
   personals: "bg-indigo-100 text-indigo-700",
 };

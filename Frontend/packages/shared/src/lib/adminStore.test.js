@@ -59,8 +59,6 @@ const COLLECTIONS = [
   "provinces",
   "notifications",
   "broadcasts",
-  "creditPacks",
-  "billing",
   "admins",
   "cannedReplies",
   "audit",
@@ -895,7 +893,7 @@ test("a broadcast lands at the top of the history", () => {
     type: "sendBroadcast",
     broadcast: {
       title: "Fees are changing",
-      body: "Boosts drop to 4 credits on 1 September.",
+      body: "Listing fees increase on 1 September.",
       tone: "blue",
       icon: "Megaphone",
       site: "marketplace",
@@ -904,26 +902,6 @@ test("a broadcast lands at the top of the history", () => {
   assert.equal(next.broadcasts.length, state.broadcasts.length + 1);
   assert.equal(next.broadcasts[0].title, "Fees are changing");
   assert.ok(next.broadcasts[0].reach > 0);
-});
-
-test("credit packs upsert by id and delete by id", () => {
-  const state = buildSeed();
-  const created = run(state, {
-    type: "upsertCreditPack",
-    pack: { credits: 2000, price: 99, note: "Agency" },
-  });
-  assert.equal(created.creditPacks.length, state.creditPacks.length + 1);
-  const added = created.creditPacks.at(-1);
-
-  const edited = run(created, {
-    type: "upsertCreditPack",
-    pack: { ...added, price: 89 },
-  });
-  assert.equal(edited.creditPacks.length, created.creditPacks.length);
-  assert.equal(edited.creditPacks.at(-1).price, 89);
-
-  const removed = run(edited, { type: "deleteCreditPack", id: added.id });
-  assert.equal(removed.creditPacks.length, state.creditPacks.length);
 });
 
 test("FAQs upsert and delete", () => {
@@ -962,10 +940,10 @@ test("every mutation names its actor, newest first", () => {
   const next = run(
     state,
     { type: "approve", id },
-    { type: "setBoost", id, on: true },
+    { type: "toggleVerified", id },
   );
   assert.equal(next.audit.length, state.audit.length + 2);
-  assert.equal(next.audit[0].action, "startBoost");
+  assert.equal(next.audit[0].action, "verifyListing");
   assert.equal(next.audit[1].action, "approve");
   for (const entry of next.audit.slice(0, 2)) {
     assert.equal(entry.actor, ACTOR);
@@ -973,7 +951,7 @@ test("every mutation names its actor, newest first", () => {
   }
   assert.deepEqual(
     auditFor(next, "listing", id).map((a) => a.action),
-    ["startBoost", "approve"],
+    ["verifyListing", "approve"],
   );
 });
 
@@ -991,15 +969,14 @@ test("the audit caps rather than growing forever", () => {
       actor: ACTOR,
       role: ROLE,
       at: 1_756_000_000_000 + i,
-      type: "setBoost",
+      type: "toggleVerified",
       id,
-      on: i % 2 === 0,
     });
   }
   assert.equal(state.audit.length, AUDIT_CAP);
   // The cap drops the tail, so the newest entry is still the last one written
-  // — the loop ends on an even index, which is a boost being switched on.
-  assert.equal(state.audit[0].action, "startBoost");
+  // — the loop ends on an odd index, which is a listing being unverified.
+  assert.equal(state.audit[0].action, "unverifyListing");
   // And the seeded entries, which were the oldest, are the ones now gone.
   assert.ok(!state.audit.some((a) => a.id.startsWith("au-seed")));
 });
@@ -1052,7 +1029,7 @@ test("the reducer refuses what the role does not hold", () => {
     }),
     state,
   );
-  // Taxonomy, money, settings and admins are the owner's.
+  // Taxonomy, settings and admins are the owner's.
   for (const action of [
     { type: "deleteCategory", id: "vehicles" },
     { type: "setSetting", key: "liveEnabled", value: false },
@@ -1061,7 +1038,6 @@ test("the reducer refuses what the role does not hold", () => {
       broadcast: { title: "x", body: "y", site: "all" },
     },
     { type: "removeAdmin", id: "ad2" },
-    { type: "refundCharge", id: "bh1" },
   ]) {
     assert.equal(
       reducer(state, { ...act, role: "moderator", ...action }),
@@ -1184,37 +1160,6 @@ test("an admin email is claimed once", () => {
       type: "upsertAdmin",
       admin: { name: "Nope", email: "nope@vezlist.cc", role: "superuser" },
     }),
-    state,
-  );
-});
-
-test("a refund marks the charge rather than erasing it", () => {
-  const state = buildSeed();
-  const next = run(state, { type: "refundCharge", id: "bh1" });
-  assert.equal(next.billing.length, state.billing.length);
-  assert.equal(next.billing.find((b) => b.id === "bh1").refunded, true);
-  // Refunding twice is not two refunds.
-  assert.equal(run(next, { type: "refundCharge", id: "bh1" }), next);
-});
-
-test("credits adjust up and down but never below zero", () => {
-  const state = buildSeed();
-  const user = state.users.find((u) => (u.credits ?? 0) > 0);
-  const up = run(state, { type: "adjustCredits", id: user.id, delta: 50 });
-  assert.equal(
-    up.users.find((u) => u.id === user.id).credits,
-    user.credits + 50,
-  );
-
-  const floored = run(up, {
-    type: "adjustCredits",
-    id: user.id,
-    delta: -100_000,
-  });
-  assert.equal(floored.users.find((u) => u.id === user.id).credits, 0);
-  // A zero adjustment is not an adjustment.
-  assert.equal(
-    run(state, { type: "adjustCredits", id: user.id, delta: 0 }),
     state,
   );
 });

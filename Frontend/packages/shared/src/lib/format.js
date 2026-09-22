@@ -38,14 +38,14 @@ export function compactCount(n) {
 }
 
 /**
- * A dated row on a statement — a wallet ledger entry, a card charge — from an
+ * A dated row on a record — an audit log entry, a support ticket — from an
  * epoch-millisecond stamp. "12 Aug 2026".
  *
  * Deliberately not `timeAgo`. That one derives from `Date.now()`, and these
  * rows prerender at build time: the server would render one label and the
  * browser another, and React discards the whole tree when they disagree. It is
- * also the wrong unit — people reconcile a statement against a dated card
- * charge, not against "a while back".
+ * also the wrong unit — people reconcile a record against a dated entry, not
+ * against "a while back".
  *
  * Locale and time zone are pinned for that same reason: the build machine's
  * defaults are not the reader's. The cost is that a late-evening purchase can

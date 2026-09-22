@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, MapPin, Pencil } from "lucide-react";
+import { BadgeCheck, Check, MapPin, Pencil } from "lucide-react";
 import { isPersonalsCategory, stepIndex } from "../../lib/adDraft";
 import { categoryPath } from "../../lib/taxonomy";
 import MediaImage from "../media/MediaImage.jsx";
@@ -45,7 +45,7 @@ function Row({ label, value, onEdit }) {
   );
 }
 
-export default function StepReview({ draft, onEdit }) {
+export default function StepReview({ draft, onEdit, verified, onToggleVerified }) {
   // One string for both places it appears below, because the preview chip and
   // the summary row are describing the same single decision — if one of them
   // ever showed "Vehicles" while the other showed "Vehicles › Boats" the poster
@@ -139,6 +139,33 @@ export default function StepReview({ draft, onEdit }) {
         <Row label="Email" value={draft.email} onEdit={toContact} />
         <Row label="Phone" value={draft.phone} onEdit={toContact} />
       </div>
+
+      {/*
+        Optional, off by default: verification only makes sense once a real
+        listing exists (it is `POST /listings/{listingId}/verification`), so
+        checking this doesn't gather anything here — it just tells
+        `handlePublish` to request it, and the actual code + photo happens in
+        a follow-up step once the listing is real.
+      */}
+      <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line p-4">
+        <input
+          type="checkbox"
+          checked={verified}
+          onChange={(e) => onToggleVerified(e.target.checked)}
+          className="mt-0.5 size-5 shrink-0 accent-[var(--brand)]"
+        />
+        <span className="min-w-0">
+          <span className="flex items-center gap-1.5 text-[14px] font-bold text-ink">
+            <BadgeCheck className="size-4 text-brand" />
+            Post as Verified
+          </span>
+          <span className="mt-0.5 block text-[13px] leading-relaxed text-muted">
+            After publishing, we&apos;ll give you a 6-digit code — photograph
+            yourself holding it and a staff member will review it and add the
+            Verified badge to this ad.
+          </span>
+        </span>
+      </label>
 
       <p className="text-[13px] leading-relaxed text-muted">
         Ads are reviewed before they go live. Most are approved within a couple

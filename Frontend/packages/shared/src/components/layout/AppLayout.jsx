@@ -9,9 +9,11 @@ import Footer from "./Footer";
 import CreateAdSheet from "../create/CreateAdSheet";
 import StoryComposer from "../create/StoryComposer";
 import CreateMenu, { HAS_CREATE_MENU } from "../create/CreateMenu";
+import VerificationRequestModal from "../create/VerificationRequestModal";
 import { ToastProvider, useToast } from "../../context/ToastContext";
 import { useAccount } from "../../context/AccountContext";
 import { publishDraft } from "../../lib/api/listings.js";
+import { requestVerification } from "../../lib/api/verification.js";
 import { ApiError } from "../../lib/api/client.js";
 
 /**
@@ -37,6 +39,11 @@ function Shell({ children, navPreset }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [postOpen, setPostOpen] = useState(false);
   const [storyOpen, setStoryOpen] = useState(false);
+  // Set the moment a "Post as Verified" publish succeeds and the follow-up
+  // request has been created — `{ listingId, request }` — and cleared on
+  // close. Not part of `postOpen`'s own state: the create sheet has already
+  // reset itself by the time this exists, so it needs a life of its own.
+  const [verification, setVerification] = useState(null);
   const main = useRef(null);
   const pathname = usePathname();
   const navigate = useNavigate();
@@ -152,10 +159,11 @@ function Shell({ children, navPreset }) {
    * call to actually settle, so a failed submit is reported rather than
    * silently swallowed while the sheet has already moved on.
    */
-  async function handlePublish(values) {
+  async function handlePublish(values, { requestVerification: wantVerification } = {}) {
     setPostOpen(false);
+    let listing;
     try {
-      await publishDraft(values);
+      listing = await publishDraft(values);
       toast("Ad submitted — it's in My Ads under In review");
     } catch (error) {
       toast(
@@ -163,6 +171,25 @@ function Shell({ children, navPreset }) {
           ? error.message || "Couldn't submit your ad — try again"
           : "Couldn't submit your ad — try again",
       );
+      return;
+    }
+
+    // The listing is real now, which is the earliest a verification request
+    // can exist (it's `POST /listings/{listingId}/verification`) — so this
+    // runs as its own follow-up rather than inside the try above, and a
+    // failure here doesn't touch the "ad submitted" outcome that already
+    // happened.
+    if (wantVerification) {
+      try {
+        const request = await requestVerification(listing.id);
+        setVerification({ listingId: listing.id, request });
+      } catch (error) {
+        toast(
+          error instanceof ApiError
+            ? error.message || "Couldn't start verification — try again from My Ads"
+            : "Couldn't start verification — try again from My Ads",
+        );
+      }
     }
   }
 
@@ -214,6 +241,13 @@ function Shell({ children, navPreset }) {
               open={postOpen}
               onClose={() => setPostOpen(false)}
               onPublish={handlePublish}
+            />
+
+            <VerificationRequestModal
+              open={Boolean(verification)}
+              listingId={verification?.listingId}
+              initial={verification?.request}
+              onClose={() => setVerification(null)}
             />
           </main>
 

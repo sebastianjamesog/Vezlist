@@ -6,7 +6,6 @@ import {
   Bookmark,
   BookmarkPlus,
   MapPin,
-  Rocket,
   SlidersHorizontal,
   Sparkles,
   Tag,
@@ -28,7 +27,6 @@ import FilterButton from "@vezlist/shared/components/FilterButton.jsx";
 import ListingCard from "@vezlist/shared/components/cards/ListingCard.jsx";
 import { Promos, Shortcuts } from "@vezlist/shared/components/FeedRails.jsx";
 import { useShell } from "@vezlist/shared/components/layout/AppLayout.jsx";
-import { usePromote } from "@vezlist/shared/lib/usePromote.js";
 import { useFeed } from "@vezlist/shared/context/FeedContext.jsx";
 import { useSearch } from "@vezlist/shared/context/SearchContext.jsx";
 import { searchListings } from "@vezlist/shared/lib/api/discovery.js";
@@ -172,7 +170,6 @@ const SHORTCUTS = [
 export default function BrowseScreen() {
   const { filters, setFilters, query, setQuery, locations } = useFeed();
   const { openPost } = useShell();
-  const promote = usePromote();
   const navigate = useNavigate();
   const { recent, saved, recordSearch, clearRecent, saveSearch, deleteSaved } =
     useSearch();
@@ -486,16 +483,6 @@ export default function BrowseScreen() {
           <Promos
             className="mt-3"
             cards={[
-              {
-                id: "boost",
-                Icon: Rocket,
-                iconClass: "text-brand",
-                title: "Smart Boost",
-                sub: "Get more views",
-                cta: "Boost Now",
-                ctaClass: "brand-gradient text-on-brand",
-                onClick: promote,
-              },
               {
                 id: "sell",
                 Icon: Tag,

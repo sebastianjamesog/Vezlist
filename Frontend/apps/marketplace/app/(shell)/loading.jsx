@@ -6,8 +6,8 @@ import {
 
 /**
  * Catch-all fallback for every `(shell)` route that doesn't ship a more
- * specific `loading.jsx` of its own (support, tickets, wallet, settings,
- * the launcher). Deliberately shape-neutral — those screens are a mix of
+ * specific `loading.jsx` of its own (support, tickets, settings, the
+ * launcher). Deliberately shape-neutral — those screens are a mix of
  * lists, forms and menus, not one repeating card — so this is a generic
  * content skeleton rather than a guess at any one of their layouts.
  * Routes with a real repeating shape (browse, nearby, ad, seller, profile)

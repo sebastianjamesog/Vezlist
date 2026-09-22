@@ -26,13 +26,10 @@ test("the two public roles are the two the screens branch on", () => {
 
 test("a browsing account can use the board but cannot put anything on it", () => {
   assert.equal(can("user", "listing.save"), true);
-  assert.equal(can("user", "wallet.view"), true);
 
   assert.equal(can("user", "ad.create"), false);
   assert.equal(can("user", "ad.manage"), false);
-  assert.equal(can("user", "ad.promote"), false);
   assert.equal(can("user", "dashboard.view"), false);
-  assert.equal(can("user", "wallet.spend"), false);
 });
 
 test("a creator holds everything a browsing account holds, and more", () => {
@@ -42,7 +39,6 @@ test("a creator holds everything a browsing account holds, and more", () => {
     }
   }
   assert.equal(can("creator", "ad.create"), true);
-  assert.equal(can("creator", "wallet.spend"), true);
 });
 
 test("an unknown capability is denied — a typo must not open a screen", () => {

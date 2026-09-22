@@ -100,7 +100,6 @@ test("publishing lands a pending ad at the top of the list", () => {
   // Nobody has seen an ad that is still in the queue.
   assert.equal(row.views, 0);
   assert.equal(row.saves, 0);
-  assert.equal(row.boost, null);
   assert.equal(
     countOf(after.ads, "pending"),
     countOf(before.ads, "pending") + 1,
@@ -233,29 +232,6 @@ test("there is nothing to renew on an ad that is still running", () => {
   const state = buildSeed();
   const live = firstWith(state, "active");
   assert.equal(run(state, { type: "renew", id: live.id }), state);
-});
-
-test("a promotion is recorded, and a renewal does not carry it over", () => {
-  const state = buildSeed();
-  const live = firstWith(state, "active");
-  const tier = { id: "bo2", label: "Featured", days: 7 };
-
-  const promoted = run(state, { type: "promote", id: live.id, tier });
-  assert.deepEqual(ad(promoted, live.id).boost, {
-    id: "bo2",
-    label: "Featured",
-  });
-  assert.equal(ad(promoted, live.id).boostedUntilDays, 7);
-
-  // Expire it the way a run ends, then buy the next one: the days already
-  // spent do not come along.
-  const dead = firstWith(state, "expired");
-  const renewed = run(run(state, { type: "promote", id: dead.id, tier }), {
-    type: "renew",
-    id: dead.id,
-  });
-  assert.equal(ad(renewed, dead.id).boost, null);
-  assert.equal(ad(renewed, dead.id).boostedUntilDays, 0);
 });
 
 test("deleting drops the row, and deleting twice is not an error", () => {

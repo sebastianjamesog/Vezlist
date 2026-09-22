@@ -141,7 +141,7 @@ const NO_IDS = [];
  * survives the filter is a string, not merely present. `usePersisted`'s own
  * `try/catch` still covers a `raw` that is not JSON at all; this covers JSON
  * that parsed fine and is simply not the shape asked for. Exported for direct
- * testing, the way `wallet.js` exports `normaliseWallet` rather than only
+ * testing, the way `listings.js` exports `normaliseAdsState` rather than only
  * exercising it through a hook.
  */
 export const decodeIds = (raw) => arrayOf(JSON.parse(raw), isString);

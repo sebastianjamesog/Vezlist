@@ -146,10 +146,6 @@ export function ListingsProvider({ children }) {
     (id) => dispatch({ type: "remove", id }),
     [dispatch],
   );
-  const promote = useCallback(
-    (id, tier) => dispatch({ type: "promote", id, tier }),
-    [dispatch],
-  );
 
   const value = useMemo(
     // `ready` means "showing the stored ads", not "storage answered" — the
@@ -161,9 +157,8 @@ export function ListingsProvider({ children }) {
       save,
       renew,
       remove,
-      promote,
     }),
-    [state.ads, hydrated, publish, save, renew, remove, promote],
+    [state.ads, hydrated, publish, save, renew, remove],
   );
 
   return (

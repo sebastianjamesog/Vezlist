@@ -95,7 +95,6 @@ export default function Privacy() {
               The name, email and role you give the sign-up form, and the email
               you use to sign in.
             </li>
-            <li>Your credits balance and the log of how you spent it.</li>
             <li>Ads you save, and which status posts you've seen.</li>
             <li>
               Listings, support tickets and reports you create — this build has
@@ -124,7 +123,7 @@ export default function Privacy() {
             <li>
               <strong>A shared cookie.</strong> vezlist.cc and
               personals.vezlist.cc are one product with two front doors, so your
-              session, wallet, language and location are kept in a cookie set on
+              session, language and location are kept in a cookie set on
               the shared parent domain rather than per-site storage — otherwise
               signing out of one site would leave you signed in on the other. It
               is not marked <code>httpOnly</code>: there is no server to issue a
@@ -179,12 +178,6 @@ export default function Privacy() {
                   kind="Cookie (shared)"
                   purpose="Signed-in session — name, email, avatar, role"
                   life="30 days, or until sign-out"
-                />
-                <StoreRow
-                  name="vezlist_wallet"
-                  kind="Cookie (shared)"
-                  purpose="Credits balance and spend ledger"
-                  life="30 days"
                 />
                 <StoreRow
                   name="vezlist_location"
@@ -265,8 +258,8 @@ export default function Privacy() {
         <Section id="cookie-banner" title="4. Why there's no cookie banner">
           <p>
             Every item above exists to run a feature you asked for — staying
-            signed in across both sites, keeping your credits balance,
-            remembering what you saved, your language, your settings. None of it
+            signed in across both sites, remembering what you saved, your
+            language, your settings. None of it
             is advertising, analytics or cross-site tracking, and this build has
             no analytics script, ad pixel or third-party tracker of any kind —
             that was checked against the source, not assumed. Cookies and
@@ -318,7 +311,7 @@ export default function Privacy() {
             Because everything today lives in your own browser, exporting or
             deleting it is already available: clearing your browser's site data
             for vezlist.cc / personals.vezlist.cc removes all of it, and account
-            deletion in Settings clears the wallet.
+            deletion in Settings clears it too.
           </p>
           <Todo>
             build a real data export/delete flow (GDPR/CCPA-style) once a

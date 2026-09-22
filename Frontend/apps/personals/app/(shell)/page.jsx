@@ -9,7 +9,6 @@ import {
   LayoutGrid,
   MapPin,
   Radio,
-  Rocket,
   SlidersHorizontal,
   Sparkles,
   UsersRound,
@@ -28,7 +27,6 @@ import { useFeed } from "@vezlist/shared/context/FeedContext.jsx";
 // label on screen is Stories, the identifiers underneath it are not renamed.
 import { useStatus } from "@vezlist/shared/context/StatusContext.jsx";
 import { useToast } from "@vezlist/shared/context/ToastContext.jsx";
-import { usePromote } from "@vezlist/shared/lib/usePromote.js";
 import { groupStatuses } from "@vezlist/shared/lib/status.js";
 import { DEFAULT_FILTERS, activeFilterCount } from "@vezlist/shared/lib/filters.js";
 import { searchListings } from "@vezlist/shared/lib/api/discovery.js";
@@ -187,7 +185,6 @@ export default function Personals() {
   const [discreet, setDiscreet] = useDiscreet();
   const { seen, stories } = useStatus();
   const toast = useToast();
-  const promote = usePromote();
 
   const { recent, viewed } = groupStatuses(stories, seen);
   const shownStatuses = [...recent, ...viewed];
@@ -392,16 +389,6 @@ export default function Personals() {
           <Promos
             className="mt-3"
             cards={[
-              {
-                id: "boost",
-                Icon: Rocket,
-                iconClass: "text-brand",
-                title: "Smart Boost",
-                sub: "Get more views",
-                cta: "Boost Now",
-                ctaClass: "brand-gradient text-on-brand",
-                onClick: promote,
-              },
               {
                 id: "clips",
                 Icon: Clapperboard,

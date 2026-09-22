@@ -37,11 +37,6 @@ const FLAGS = [
     sub: "The 24-hour update tray on personals.",
   },
   {
-    key: "boostsEnabled",
-    label: "Paid boosts",
-    sub: "Sellers can promote an ad with credits.",
-  },
-  {
     key: "autoApproveMarketplace",
     label: "Auto-approve marketplace ads",
     sub: "Skip the queue on vezlist.cc. Reports still come through.",

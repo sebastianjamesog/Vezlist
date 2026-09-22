@@ -135,19 +135,7 @@ export default function Terms() {
           </Todo>
         </Section>
 
-        <Section id="payments" title="5. Credits and payments">
-          <p>
-            The app has a credits wallet used to promote listings. In this build
-            it is a simulated balance stored in the same shared session cookie —
-            no card is charged and no payment processor is connected.
-          </p>
-          <Todo>
-            write real payment terms (refunds, chargebacks, pricing) once a
-            payment processor is integrated.
-          </Todo>
-        </Section>
-
-        <Section id="moderation" title="6. Moderation and enforcement">
+        <Section id="moderation" title="5. Moderation and enforcement">
           <Todo>
             describe how reports are handled and what enforcement looks like
             (warnings, listing removal, suspension). An admin moderation console
@@ -156,14 +144,14 @@ export default function Terms() {
           </Todo>
         </Section>
 
-        <Section id="disclaimers" title="7. Disclaimers and liability">
+        <Section id="disclaimers" title="6. Disclaimers and liability">
           <Todo>
             standard disclaimer and limitation-of-liability language — this must
             come from counsel, not be drafted here.
           </Todo>
         </Section>
 
-        <Section id="law" title="8. Governing law">
+        <Section id="law" title="7. Governing law">
           <p>
             The product is built for a Canadian audience — prices are shown in
             Canadian dollars and the default locale is en-CA.
@@ -174,14 +162,14 @@ export default function Terms() {
           </Todo>
         </Section>
 
-        <Section id="changes" title="9. Changes to these terms">
+        <Section id="changes" title="8. Changes to these terms">
           <p>
             Once this page is real, material changes will be dated on this page
             and, where required, announced before they take effect.
           </p>
         </Section>
 
-        <Section id="contact" title="10. Contact">
+        <Section id="contact" title="9. Contact">
           <p>
             Reach the team through{" "}
             <Link

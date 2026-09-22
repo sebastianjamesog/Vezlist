@@ -7,8 +7,8 @@ import {
 
 /**
  * One fallback for every console section (dashboard, listings, users,
- * tickets, reports, audit, billing, analytics, taxonomy, content, live,
- * notifications, settings, status, admins) rather than fourteen near-copies:
+ * tickets, reports, audit, analytics, taxonomy, content, live,
+ * notifications, settings, status, admins) rather than thirteen near-copies:
  * every one of them opens with an `AdminHeader` and is either a `StatCard`
  * row, a `DataTable`, or both — this renders both, so the shape reads as
  * "console screen loading" regardless of which section it resolves into.

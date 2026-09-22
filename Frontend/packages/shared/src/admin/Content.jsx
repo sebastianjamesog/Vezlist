@@ -360,7 +360,7 @@ export default function Content() {
               onChange={(e) =>
                 setNewTopic({ ...newTopic, sub: e.target.value })
               }
-              placeholder="Credits, chargebacks, disputes"
+              placeholder="Refunds, chargebacks, disputes"
               className={`${FIELD} ${border(false)}`}
             />
           </Field>

@@ -3,9 +3,9 @@
  *
  * Every context in this app reads localStorage or a cookie — both fully
  * under the visitor's control, whether by hand-editing devtools or by a
- * stale key left over from a shape this build no longer writes. `wallet.js`
- * already carries its own defence (`normaliseWallet`, tested by "a
- * hand-edited cookie cannot mint credits or crash a screen") and that is the
+ * stale key left over from a shape this build no longer writes. `listings.js`
+ * already carries its own defence (`normaliseAdsState`, tested by "a
+ * hand-edited cookie cannot crash a screen") and that is the
  * pattern here: no schema library (`plan.md` — "Not adding: ... a form
  * library"), just the small primitives every store's own normaliser is built
  * from, so the check reads next to the shape it is checking rather than in a

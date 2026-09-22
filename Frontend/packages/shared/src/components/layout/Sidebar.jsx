@@ -24,10 +24,7 @@ const ROW =
 export default function Sidebar({ onCreate, onPostAd, navPreset }) {
   const toast = useToast();
   const { user, signOut } = useAuth();
-  // The balance used to be a `credits = 100` default prop that no caller ever
-  // passed, so the rail told every account it had 100 no matter what it had
-  // spent. It reads the wallet now.
-  const { role, credits } = useAccount();
+  const { role } = useAccount();
   const navigate = useNavigate();
   const [confirmLogout, setConfirmLogout] = useState(false);
 
@@ -120,20 +117,6 @@ export default function Sidebar({ onCreate, onPostAd, navPreset }) {
       </div>
 
       <div className="mt-auto space-y-1 pt-6">
-        {/* Stays for both roles: `wallet.view` is everyone's, a browsing account
-            can hold and top up a balance, and hiding the row would hide the
-            money it already paid for. Only spending it is the creator's. */}
-        <Link
-          href="/profile/wallet"
-          title={`${credits} credits`}
-          className={`${ROW} text-ink hover:bg-canvas`}
-        >
-          <span className="grid size-6 shrink-0 place-items-center rounded-lg bg-brand-soft text-[12px] font-bold tabular-nums text-brand">
-            {credits}
-          </span>
-          <span className="hidden xl:inline">Credits</span>
-        </Link>
-
         <button
           onClick={() => setConfirmLogout(true)}
           title="Log out"

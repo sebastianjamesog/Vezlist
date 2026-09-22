@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronRight, Coins } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import SubPageBar from "../components/layout/SubPageBar";
 import PageBody from "../components/layout/PageBody";
 import { useShell } from "../components/layout/AppLayout";
@@ -16,12 +16,10 @@ import MediaImage from "../components/media/MediaImage.jsx";
 // them is wrong, which is the reuse this repo already made the call on.
 import StatCard from "../components/admin/StatCard";
 import Sparkline from "../components/admin/Sparkline";
-import { useAccount } from "../context/AccountContext";
 import { useListings } from "../context/ListingsContext";
 import { creatorStats } from "../data/mock";
 
 export default function CreatorDashboard() {
-  const { credits } = useAccount();
   const { openPost } = useShell();
 
   // The poster's own ads, off the same store My Ads writes to, so an ad
@@ -53,18 +51,6 @@ export default function CreatorDashboard() {
         title="Creator dashboard"
         subtitle="How your ads are doing"
         fallback="/profile"
-        action={
-          <Link
-            href="/profile/wallet"
-            aria-label={`${credits} credits, open your wallet`}
-            className="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-brand-soft px-3.5 text-brand transition-colors hover:bg-brand hover:text-on-brand"
-          >
-            <Coins className="size-4" strokeWidth={2.4} />
-            <span className="text-[14px] font-bold tabular-nums">
-              {credits.toLocaleString()}
-            </span>
-          </Link>
-        }
       />
 
       <PageBody className="px-4 pb-8 pt-3 lg:px-8 lg:py-6">

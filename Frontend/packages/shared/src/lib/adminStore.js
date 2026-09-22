@@ -5,11 +5,9 @@ import {
   ads,
   allFaqs,
   cannedReplies,
-  billingHistory,
   broadcasts,
   categories,
   contactChannels,
-  creditPacks,
   ethnicities,
   faqCategories,
   homeCategories,
@@ -138,7 +136,6 @@ function listingRow(l, site, ownerByName) {
     description: body?.description ?? [],
     specs: body?.specs ?? [],
     verified: l.verified,
-    boosted: Boolean(l.boosted),
     postedMsAgo: l.postedMsAgo,
     status,
     rejectionReason: rejection ?? null,
@@ -198,10 +195,6 @@ function userRows() {
     status: "active",
   };
 
-  // Credits are what boosts are bought with, so support needs to see and
-  // adjust them. Derived from the id rather than random, like views and saves.
-  const withCredits = (u) => ({ ...u, credits: hash(`${u.id}c`) % 400 });
-
   /**
    * ...and one account for every other name ads were posted under.
    *
@@ -243,14 +236,14 @@ function userRows() {
   const seen = new Map();
   return [account, ...fromSellers, ...fromPeople, ...derived.values()].map(
     (u) => {
-      if (u.email) return withCredits(u);
+      if (u.email) return u;
       const base = slug(u.name);
       const n = (seen.get(base) ?? 0) + 1;
       seen.set(base, n);
-      return withCredits({
+      return {
         ...u,
         email: `${base}${n > 1 ? `.${u.id}` : ""}@example.com`,
-      });
+      };
     },
   );
 }
@@ -404,7 +397,6 @@ export const DEFAULT_SETTINGS = {
   discreetByDefault: true,
   liveEnabled: true,
   statusEnabled: true,
-  boostsEnabled: true,
   autoApproveMarketplace: false,
   autoApprovePersonals: false,
   reviewSlaHours: 2,
@@ -482,8 +474,6 @@ export function buildSeed() {
     provinces: provinces.map((p) => ({ ...p, areas: [...p.areas] })),
     notifications: notifications.map((n) => ({ ...n })),
     broadcasts: broadcasts.map((b) => ({ ...b })),
-    creditPacks: creditPacks.map((p) => ({ ...p })),
-    billing: billingHistory.map((b) => ({ ...b })),
     admins: adminUsers.map((a) => ({ ...a })),
     cannedReplies: cannedReplies.map((r) => ({ ...r })),
     settings: { ...DEFAULT_SETTINGS },
@@ -567,7 +557,7 @@ function freeId(rows, base) {
 /**
  * Every collection that is an array of id-keyed rows, and nothing more
  * specific than that a row exists and has an id — `find`/`patch` are the only
- * thing every one of these has in common. Eighteen collections is too many to
+ * thing every one of these has in common. Sixteen collections is too many to
  * write a per-field schema for each without the schema drifting from the
  * shapes above it the moment either one changes, so this is the floor, not
  * the ceiling: `ROW_CHECKS` below adds the one extra requirement a handful of
@@ -587,8 +577,6 @@ const ID_ROW_COLLECTIONS = [
   "categories",
   "notifications",
   "broadcasts",
-  "creditPacks",
-  "billing",
   "admins",
   "cannedReplies",
   "audit",
@@ -638,8 +626,8 @@ const isValidRow = (collection, row) =>
 
 /**
  * The guard `rehydrate` runs stored state through before folding it over a
- * fresh seed — the same pattern `normaliseWallet` in `wallet.js` set, scaled
- * to eighteen collections instead of one ledger. Each collection is checked
+ * fresh seed — the same pattern `normaliseAdsState` in `listings.js` sets,
+ * scaled to sixteen collections instead of one. Each collection is checked
  * against its own expected shape (an array of id-rows, a flat list of
  * strings, or — `provinces` and `settings` — something more specific still);
  * one that fails is left out of the result entirely, so the spread in
@@ -749,7 +737,6 @@ export function reducer(state, action) {
           listings: patch(state.listings, action.id, {
             status: "rejected",
             rejectionReason: reason,
-            boosted: false,
           }),
         },
         {
@@ -785,26 +772,6 @@ export function reducer(state, action) {
       );
     }
 
-    case "setBoost": {
-      const row = find(state.listings, action.id);
-      if (!row) return state;
-      return log(
-        state,
-        {
-          ...state,
-          listings: patch(state.listings, action.id, { boosted: action.on }),
-        },
-        {
-          actor,
-          at,
-          action: action.on ? "startBoost" : "stopBoost",
-          entity: "listing",
-          entityId: action.id,
-          note: row.title,
-        },
-      );
-    }
-
     case "expire": {
       const row = find(state.listings, action.id);
       if (!row) return state;
@@ -815,7 +782,6 @@ export function reducer(state, action) {
           listings: patch(state.listings, action.id, {
             status: "expired",
             expiresInDays: 0,
-            boosted: false,
           }),
         },
         {
@@ -951,7 +917,7 @@ export function reducer(state, action) {
           listings: suspend
             ? state.listings.map((l) =>
                 l.ownerId === row.id && l.status === "active"
-                  ? { ...l, status: "expired", boosted: false }
+                  ? { ...l, status: "expired" }
                   : l,
               )
             : state.listings,
@@ -1875,91 +1841,6 @@ export function reducer(state, action) {
       );
     }
 
-    /* ---- money ---- */
-    case "upsertCreditPack": {
-      const { pack } = action;
-      const exists = Boolean(pack.id && find(state.creditPacks, pack.id));
-      const id = exists ? pack.id : `cp-${Date.now().toString(36)}`;
-      return log(
-        state,
-        {
-          ...state,
-          creditPacks: exists
-            ? patch(state.creditPacks, id, pack)
-            : [...state.creditPacks, { ...pack, id }],
-        },
-        {
-          actor,
-          at,
-          action: exists ? "updateCreditPack" : "createCreditPack",
-          entity: "creditPack",
-          entityId: id,
-          note: `${pack.credits} credits · $${pack.price}`,
-        },
-      );
-    }
-
-    case "deleteCreditPack": {
-      const row = find(state.creditPacks, action.id);
-      if (!row) return state;
-      return log(
-        state,
-        {
-          ...state,
-          creditPacks: state.creditPacks.filter((p) => p.id !== action.id),
-        },
-        {
-          actor,
-          at,
-          action: "deleteCreditPack",
-          entity: "creditPack",
-          entityId: action.id,
-          note: `${row.credits} credits`,
-        },
-      );
-    }
-
-    case "refundCharge": {
-      const row = find(state.billing, action.id);
-      if (!row || row.refunded) return state;
-      return log(
-        state,
-        {
-          ...state,
-          // The charge is marked, not deleted. A ledger you can erase rows
-          // from is not a ledger.
-          billing: patch(state.billing, action.id, { refunded: true }),
-        },
-        {
-          actor,
-          at,
-          action: "refundCharge",
-          entity: "billing",
-          entityId: action.id,
-          note: `${row.label} · $${row.amount}`,
-        },
-      );
-    }
-
-    case "adjustCredits": {
-      const row = find(state.users, action.id);
-      const delta = Number(action.delta);
-      if (!row || !Number.isFinite(delta) || delta === 0) return state;
-      const next = Math.max(0, (row.credits ?? 0) + delta);
-      return log(
-        state,
-        { ...state, users: patch(state.users, action.id, { credits: next }) },
-        {
-          actor,
-          at,
-          action: "adjustCredits",
-          entity: "user",
-          entityId: action.id,
-          note: `${delta > 0 ? "+" : ""}${delta} credits → ${next}`,
-        },
-      );
-    }
-
     /* ---- admins ---- */
     case "upsertAdmin": {
       const { admin } = action;
@@ -2118,12 +1999,6 @@ export function counts(state, site = "all") {
     suspended: scoped(state.users).filter((u) => u.status === "suspended")
       .length,
   };
-}
-
-/** Revenue by week, oldest first — the shape the dashboard sparkline wants. */
-export function revenueSeries(state) {
-  const base = state.billing.reduce((sum, b) => sum + b.amount, 0);
-  return [3, 5, 4, 7, 6, 9, 8, 12].map((week) => base + week * 11);
 }
 
 /** Ads a user owns. Joined on the id stamped at seed time, never on the name. */
