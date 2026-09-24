@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Eye, MapPin } from "lucide-react";
+import { Eye } from "lucide-react";
 import SubPageBar from "@vezlist/shared/components/layout/SubPageBar.jsx";
 import PageBody from "@vezlist/shared/components/layout/PageBody.jsx";
 import EmptyState from "@vezlist/shared/components/ui/EmptyState.jsx";
@@ -15,8 +15,8 @@ export const metadata = {
 /** The red dot that means "this is happening", not "this happened". */
 function LivePill() {
   return (
-    <span className="flex items-center gap-1 rounded-md bg-red-500 px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-[0.06em] text-white">
-      <span className="size-1.5 rounded-full bg-white" />
+    <span className="flex items-center gap-0.5 rounded bg-red-500 px-1 py-px text-[8px] font-extrabold uppercase tracking-[0.06em] text-white">
+      <span className="size-1 rounded-full bg-white" />
       Live
     </span>
   );
@@ -25,21 +25,23 @@ function LivePill() {
 /**
  * A broadcast tile. The cover is the whole card — a live grid is looked at
  * rather than read, so the text sits on the image under a scrim instead of in
- * a row beneath it, and two of them fit across a phone.
+ * a row beneath it. Three fit across a phone, so the overlay keeps to one
+ * title line and one host line; the location lives on the stream page.
  */
 function StreamTile({ stream }) {
   return (
     <Link
       href={`/live/${stream.id}`}
-      className="group relative block overflow-hidden rounded-2xl shadow-card ring-1 ring-line transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
+      aria-label={`${stream.title} — ${stream.host}, ${stream.location}`}
+      className="group relative block overflow-hidden rounded-lg transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
     >
-      <div className="relative aspect-[3/4] w-full overflow-hidden">
+      <div className="relative aspect-[4/5] w-full overflow-hidden">
         <MediaImage
           discreet
           fill
           src={stream.cover}
           alt=""
-          sizes="(min-width: 1024px) 25vw, 50vw"
+          sizes="(min-width: 1280px) 20vw, (min-width: 1024px) 25vw, 33vw"
           className="object-cover transition-transform duration-300 group-hover:scale-105"
         />
       </div>
@@ -51,37 +53,23 @@ function StreamTile({ stream }) {
         className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/45"
       />
 
-      <span className="absolute left-2 top-2">
+      <span className="absolute left-1.5 top-1.5">
         <LivePill />
       </span>
-      <span className="absolute right-2 top-2 flex items-center gap-1 rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white backdrop-blur-sm">
-        <Eye className="size-3" strokeWidth={2.4} />
+      <span className="absolute right-1.5 top-1.5 flex items-center gap-0.5 rounded bg-black/55 px-1 py-px text-[8px] font-bold tabular-nums text-white backdrop-blur-sm">
+        <Eye className="size-2.5" strokeWidth={2.4} />
         {compactCount(stream.viewers)}
       </span>
 
-      <div className="absolute inset-x-0 bottom-0 p-2.5">
-        <p className="line-clamp-2 text-[13px] font-bold leading-tight text-white">
+      <div className="absolute inset-x-0 bottom-0 p-1.5 lg:p-2">
+        <p className="truncate text-[10px] font-bold leading-tight text-white lg:text-xs">
           {stream.title}
         </p>
-        <div className="mt-1.5 flex items-center gap-1.5">
-          <MediaImage
-            discreet
-            src={stream.avatar}
-            alt=""
-            width={20}
-            height={20}
-            className="size-5 shrink-0 rounded-full object-cover ring-1 ring-white/40"
-          />
-          <span className="truncate text-[11px] font-semibold text-white/85">
-            {stream.host}
-          </span>
-        </div>
-        <div className="mt-1 flex items-center gap-1 text-[10px] font-medium text-white/60">
-          <MapPin className="size-3 shrink-0" strokeWidth={2.2} />
-          <span className="truncate">{stream.location}</span>
-          <span aria-hidden="true">·</span>
-          <span className="shrink-0">{timeAgo(stream.startedMsAgo)}</span>
-        </div>
+        <p className="mt-0.5 truncate text-[8px] font-medium text-white/70 lg:text-[10px]">
+          {stream.host}
+          <span aria-hidden="true"> · </span>
+          {timeAgo(stream.startedMsAgo)}
+        </p>
       </div>
     </Link>
   );
@@ -110,10 +98,12 @@ export default function Live() {
 
       <PageBody className="px-4 pb-8 lg:px-8">
         {streams.length ? (
-          <div className="grid grid-cols-2 gap-2.5 pt-1 lg:grid-cols-4 lg:gap-4">
-            {streams.map((s) => (
-              <StreamTile key={s.id} stream={s} />
-            ))}
+          <div className="rounded-card bg-surface p-2.5 shadow-card lg:p-4">
+            <div className="grid grid-cols-3 gap-1.5 lg:grid-cols-4 lg:gap-3 xl:grid-cols-5">
+              {streams.map((s) => (
+                <StreamTile key={s.id} stream={s} />
+              ))}
+            </div>
           </div>
         ) : (
           <EmptyState
