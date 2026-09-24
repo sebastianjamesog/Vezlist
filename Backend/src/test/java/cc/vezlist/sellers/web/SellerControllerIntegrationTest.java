@@ -74,6 +74,37 @@ class SellerControllerIntegrationTest {
         assertThat(invalid.getBody()).containsEntry("code", "SELLER_QUERY_INVALID");
     }
 
+    @Test void trendingRanksCreatorsByLikesAndViewsAndCountsAViewOncePerViewer() {
+        UUID quiet = user();
+        UUID popular = user();
+        listing(quiet, "PERSONALS", "ACTIVE", "Quiet post");
+        UUID hit = listing(popular, "PERSONALS", "ACTIVE", "Popular post");
+        listing(popular, "MARKETPLACE", "ACTIVE", "Other-site post");
+        jdbc.update("UPDATE listings SET save_count = 2 WHERE id = ?", hit);
+
+        // Two opens by the same anonymous client count as one view; the owner's own open is never counted.
+        rest.getForEntity(url("/api/v1/listings/" + hit + "?site=PERSONALS"), Map.class);
+        rest.getForEntity(url("/api/v1/listings/" + hit + "?site=PERSONALS"), Map.class);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM listing_views WHERE listing_id = ?", Long.class, hit))
+                .isEqualTo(1L);
+
+        ResponseEntity<List> trending = rest.getForEntity(url("/api/v1/sellers/trending?site=PERSONALS"), List.class);
+        assertThat(trending.getStatusCode()).isEqualTo(HttpStatus.OK);
+        List<Map<String, Object>> rows = trending.getBody();
+        assertThat(rows).extracting(row -> row.get("id")).containsExactly(popular.toString(), quiet.toString());
+        assertThat(rows.getFirst()).containsEntry("postCount", 1).containsEntry("viewCount", 1)
+                .containsEntry("likeCount", 2).doesNotContainKeys("email", "phone");
+
+        ResponseEntity<Map> profile = rest.getForEntity(url("/api/v1/sellers/" + popular + "?site=PERSONALS"), Map.class);
+        assertThat(profile.getBody()).containsEntry("viewCount", 1).containsEntry("likeCount", 2);
+    }
+
+    @Test void trendingRejectsAnInvalidLimit() {
+        ResponseEntity<Map> invalid = rest.getForEntity(url("/api/v1/sellers/trending?site=PERSONALS&limit=0"), Map.class);
+        assertThat(invalid.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(invalid.getBody()).containsEntry("code", "SELLER_QUERY_INVALID");
+    }
+
     private UUID user() {
         UUID id = UUID.randomUUID();
         jdbc.update("""
@@ -82,13 +113,15 @@ class SellerControllerIntegrationTest {
                 "$2a$10$012345678901234567890u012345678901234567890123456789012");
         return id;
     }
-    private void listing(UUID seller, String site, String status, String title) {
+    private UUID listing(UUID seller, String site, String status, String title) {
+        UUID id = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO listings (id, owner_id, site_scope, status, title, business_name, description, price,
                 category_id, province_id, location_id, contact_email, contact_phone, published_at)
                 VALUES (?, ?, ?, ?, ?, 'Business', 'Description', 10, ?, 'bc', 'bc-1', 'private@example.test', '+15550100', ?)""",
-                UUID.randomUUID(), seller, site, status, title, site.equals("PERSONALS") ? "personals" : "services",
+                id, seller, site, status, title, site.equals("PERSONALS") ? "personals" : "services",
                 Timestamp.from(Instant.now()));
+        return id;
     }
     private String url(String path) { return "http://localhost:" + port + path; }
 }

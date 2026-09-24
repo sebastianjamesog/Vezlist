@@ -1,5 +1,6 @@
 package cc.vezlist.sellers.web;
 
+import java.util.List;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -14,6 +15,11 @@ import cc.vezlist.shared.domain.SiteScope;
 public class SellerController {
     private final SellerService sellers;
     public SellerController(SellerService sellers) { this.sellers = sellers; }
+    @GetMapping("/trending")
+    public List<TrendingSellerResponse> trending(@RequestParam SiteScope site,
+                                                 @RequestParam(required = false) Integer limit) {
+        return sellers.trending(site, limit);
+    }
     @GetMapping("/{sellerId}")
     public SellerPageResponse publicProfile(@PathVariable UUID sellerId, @RequestParam SiteScope site,
                                             @RequestParam(required = false) Integer limit) {
