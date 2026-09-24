@@ -1597,16 +1597,16 @@ export const liveStreams = [
   },
   {
     id: "lv2",
-    host: "Clara Bennett",
+    host: "Chloe Dubois",
     title: "Late-night studio session",
     viewers: 862,
     startedMsAgo: 42 * 60_000,
-    location: "Greater Toronto Area",
+    location: "Halifax",
     verified: true,
   },
   {
     id: "lv3",
-    host: "Fabian Ruiz",
+    host: "Aisha Rahman",
     title: "Walking the canal, ask me anything",
     viewers: 317,
     startedMsAgo: 9 * 60_000,
@@ -1624,7 +1624,7 @@ export const liveStreams = [
   },
   {
     id: "lv5",
-    host: "Michael T.",
+    host: "Noah Fischer",
     title: "City lights from the roof",
     viewers: 154,
     startedMsAgo: 4 * 60_000,

@@ -164,7 +164,7 @@ const SHORTCUTS = [
     label: "Trending",
     sub: "This week",
     Icon: ChartNoAxesCombined,
-    patch: { postedWithin: "7d", sort: "newest" },
+    href: "/trending",
     accent: "purple",
   },
   {
