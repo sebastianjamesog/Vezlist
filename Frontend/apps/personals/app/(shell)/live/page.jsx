@@ -4,7 +4,7 @@ import SubPageBar from "@vezlist/shared/components/layout/SubPageBar.jsx";
 import PageBody from "@vezlist/shared/components/layout/PageBody.jsx";
 import EmptyState from "@vezlist/shared/components/ui/EmptyState.jsx";
 import { compactCount, timeAgo } from "@vezlist/shared/lib/format.js";
-import { liveStreams } from "@vezlist/shared/data/mock.js";
+import { allLiveStreams } from "@vezlist/shared/data/mock.js";
 import MediaImage from "@vezlist/shared/components/media/MediaImage.jsx";
 
 export const metadata = {
@@ -80,7 +80,7 @@ function StreamTile({ stream }) {
  * anything else is asking you to scroll past the thing you came for.
  */
 export default function Live() {
-  const streams = [...liveStreams].sort(
+  const streams = [...allLiveStreams].sort(
     (a, b) => a.startedMsAgo - b.startedMsAgo,
   );
   const watching = streams.reduce((n, s) => n + s.viewers, 0);
@@ -88,6 +88,7 @@ export default function Live() {
   return (
     <>
       <SubPageBar
+        plain
         title="Live now"
         subtitle={
           streams.length
@@ -98,12 +99,10 @@ export default function Live() {
 
       <PageBody className="px-4 pb-8 lg:px-8">
         {streams.length ? (
-          <div className="rounded-card bg-surface p-2.5 shadow-card lg:p-4">
-            <div className="grid grid-cols-3 gap-1.5 lg:grid-cols-4 lg:gap-3 xl:grid-cols-5">
-              {streams.map((s) => (
-                <StreamTile key={s.id} stream={s} />
-              ))}
-            </div>
+          <div className="grid grid-cols-3 gap-1.5 lg:grid-cols-4 lg:gap-3 xl:grid-cols-5">
+            {streams.map((s) => (
+              <StreamTile key={s.id} stream={s} />
+            ))}
           </div>
         ) : (
           <EmptyState

@@ -7,7 +7,7 @@ import { Navigate, useNavigate } from "@vezlist/shared/lib/nav.jsx";
 import { compactCount, timeAgo } from "@vezlist/shared/lib/format.js";
 import ReportDialog from "@vezlist/shared/components/ReportDialog.jsx";
 import { useReports } from "@vezlist/shared/context/ReportsContext.jsx";
-import { liveStreams } from "@vezlist/shared/data/mock.js";
+import { allLiveStreams } from "@vezlist/shared/data/mock.js";
 import MediaImage from "@vezlist/shared/components/media/MediaImage.jsx";
 
 /** How often the viewer count re-reads, and how far it can move in one step. */
@@ -25,7 +25,7 @@ const HEART_MS = 1800;
 export default function LiveViewer() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const stream = liveStreams.find((s) => s.id === id);
+  const stream = allLiveStreams.find((s) => s.id === id);
 
   const [viewers, setViewers] = useState(stream?.viewers ?? 0);
   const [chat, setChat] = useState(stream?.chat ?? []);

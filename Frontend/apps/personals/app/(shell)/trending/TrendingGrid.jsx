@@ -11,6 +11,7 @@ import { compactCount } from "@vezlist/shared/lib/format.js";
 import { getTrendingSellers } from "@vezlist/shared/lib/api/sellers.js";
 import { SITE_SCOPE } from "@vezlist/shared/lib/api/client.js";
 import { liveStreamFor } from "@vezlist/shared/lib/live.js";
+import { trendingCreators } from "@vezlist/shared/data/mock.js";
 import CreatorAvatar from "../../CreatorAvatar.jsx";
 
 /**
@@ -19,6 +20,21 @@ import CreatorAvatar from "../../CreatorAvatar.jsx";
  * only drops creators the visitor has blocked on this device.
  */
 const LIMIT = 30;
+
+/**
+ * `next dev` only: top the list up to LIMIT with mock creators so the grid
+ * looks full against a near-empty local database. Production shows exactly
+ * what the API returns. Mixed in by the server's own score (views + 5×likes)
+ * so real and mock creators rank together.
+ */
+const FILL_WITH_MOCKS = process.env.NODE_ENV === "development";
+const score = (c) => c.viewCount + 5 * c.likeCount;
+
+function withMocks(rows) {
+  if (!FILL_WITH_MOCKS) return rows;
+  const fill = trendingCreators.slice(0, Math.max(0, LIMIT - rows.length));
+  return [...rows, ...fill].sort((a, b) => score(b) - score(a));
+}
 
 /** Same shape as the Live now tile: the cover is the card, text on a scrim. */
 function CreatorTile({ creator, rank }) {
@@ -92,10 +108,8 @@ function CreatorTile({ creator, rank }) {
 
 function Panel({ children }) {
   return (
-    <div className="rounded-card bg-surface p-2.5 shadow-card lg:p-4">
-      <div className="grid grid-cols-3 gap-1.5 lg:grid-cols-4 lg:gap-3 xl:grid-cols-5">
-        {children}
-      </div>
+    <div className="grid grid-cols-3 gap-1.5 lg:grid-cols-4 lg:gap-3 xl:grid-cols-5">
+      {children}
     </div>
   );
 }
@@ -113,7 +127,7 @@ export default function TrendingGrid() {
     setError(null);
     getTrendingSellers({ site: SITE_SCOPE, limit: LIMIT })
       .then((rows) => {
-        if (!cancelled) setCreators(rows ?? []);
+        if (!cancelled) setCreators(withMocks(rows ?? []));
       })
       .catch((err) => {
         if (!cancelled) setError(err);

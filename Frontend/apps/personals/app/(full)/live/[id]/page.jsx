@@ -1,8 +1,8 @@
-import { liveStreams } from "@vezlist/shared/data/mock.js";
+import { allLiveStreams } from "@vezlist/shared/data/mock.js";
 import LiveViewer from "./LiveViewer.jsx";
 
 export function generateStaticParams() {
-  return liveStreams.map(({ id }) => ({ id }));
+  return allLiveStreams.map(({ id }) => ({ id }));
 }
 
 // Every stream and story used to inherit the generic site title —
@@ -11,7 +11,7 @@ export function generateStaticParams() {
 // homepage.
 export async function generateMetadata({ params }) {
   const { id } = await params;
-  const stream = liveStreams.find((s) => s.id === id);
+  const stream = allLiveStreams.find((s) => s.id === id);
   if (!stream) return { title: "Live stream not found" };
   const title = `${stream.title} — ${stream.host} is live`;
   const description = `${stream.host} is broadcasting live from ${stream.location}. ${stream.viewers.toLocaleString("en-US")} watching now.`;

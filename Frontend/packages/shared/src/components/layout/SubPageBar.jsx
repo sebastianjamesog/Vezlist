@@ -3,17 +3,24 @@
 import { useNavigate } from "../../lib/nav";
 import { ChevronLeft } from "lucide-react";
 
-/** Header for every screen you reach from another screen: back + title + optional action. */
+/**
+ * Header for every screen you reach from another screen: back + title + optional action.
+ * `plain` drops the frosted bar and lets the header scroll away with the page,
+ * for screens that sit straight on the canvas with no card behind them.
+ */
 export default function SubPageBar({
   title,
   subtitle,
   action,
   fallback = "/",
+  plain = false,
 }) {
   const navigate = useNavigate();
 
   return (
-    <header className="glass sticky top-0 z-30 px-4 py-3 lg:px-8 lg:py-4">
+    <header
+      className={`px-4 py-3 lg:px-8 lg:py-4 ${plain ? "" : "glass sticky top-0 z-30"}`}
+    >
       <div className="mx-auto flex w-full max-w-7xl items-center gap-3">
         <button
           onClick={() =>

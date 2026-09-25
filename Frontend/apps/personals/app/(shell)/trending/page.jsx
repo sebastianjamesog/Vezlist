@@ -10,7 +10,11 @@ export const metadata = {
 export default function Trending() {
   return (
     <>
-      <SubPageBar title="Trending" subtitle="Most viewed & liked creators" />
+      <SubPageBar
+        plain
+        title="Trending"
+        subtitle="Most viewed & liked creators"
+      />
 
       <PageBody className="px-4 pb-8 lg:px-8">
         <TrendingGrid />
