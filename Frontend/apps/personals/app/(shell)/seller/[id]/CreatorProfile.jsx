@@ -3,7 +3,15 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { BadgeCheck, Eye, Flag, Radio, UserRoundX } from "lucide-react";
+import {
+  BadgeCheck,
+  CalendarDays,
+  Eye,
+  Flag,
+  Megaphone,
+  Radio,
+  UserRoundX,
+} from "lucide-react";
 import SubPageBar from "@vezlist/shared/components/layout/SubPageBar.jsx";
 import PageBody from "@vezlist/shared/components/layout/PageBody.jsx";
 import EmptyState from "@vezlist/shared/components/ui/EmptyState.jsx";
@@ -30,13 +38,14 @@ const POST_LIMIT = 50;
  * list-style `SellerProfile`; a creator board is looked at, not read.
  */
 
+/** A frosted tile on the gradient hero — the same one the Profile tab uses. */
 function Stat({ value, label }) {
   return (
-    <div className="flex-1 text-center">
-      <p className="text-[18px] font-extrabold tabular-nums leading-none text-ink lg:text-[20px]">
+    <div className="flex-1 rounded-2xl bg-on-brand/15 px-2 py-2.5 text-center backdrop-blur-sm">
+      <p className="text-[20px] font-extrabold tabular-nums leading-none text-on-brand">
         {compactCount(value)}
       </p>
-      <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+      <p className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-on-brand/75">
         {label}
       </p>
     </div>
@@ -114,23 +123,23 @@ function LiveBanner({ stream }) {
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
-          <span className="flex items-center gap-1 rounded bg-red-500 px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-[0.06em] text-white">
+          <span className="flex items-center gap-1 rounded bg-red-500 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-[0.06em] text-white">
             <span className="size-1.5 animate-pulse rounded-full bg-white motion-reduce:animate-none" />
-            Live now
+            Live
           </span>
-          <span className="flex items-center gap-0.5 text-[11px] font-semibold tabular-nums text-muted">
+          <span className="flex items-center gap-0.5 text-[10px] font-semibold tabular-nums text-muted">
             <Eye className="size-3" strokeWidth={2.4} />
             {compactCount(stream.viewers)} watching
           </span>
         </span>
-        <span className="mt-1 block truncate text-[14px] font-bold text-ink">
+        <span className="mt-1 block truncate text-[13px] font-bold text-ink">
           {stream.title}
         </span>
-        <span className="block truncate text-[12px] text-muted">
+        <span className="block truncate text-[11px] text-muted">
           Started {timeAgo(stream.startedMsAgo).toLowerCase()}
         </span>
       </span>
-      <span className="shrink-0 rounded-full bg-red-500 px-3.5 py-2 text-[13px] font-bold text-white transition-colors group-hover:bg-red-600">
+      <span className="shrink-0 rounded-full bg-red-500 px-3 py-1.5 text-[12px] font-bold text-white transition-colors group-hover:bg-red-600">
         Watch
       </span>
     </Link>
@@ -239,6 +248,12 @@ export default function CreatorProfile() {
   const blocked = isBlocked(seller.id);
   const reported = reportOf("user", seller.id);
   const live = blocked ? null : liveStreamFor(seller.displayName);
+  // Profile-photo upload is future work, so most creators have no avatar yet:
+  // stand in their first post's photo rather than bare initials — unless
+  // they're blocked, when their posts are hidden and so is this.
+  const avatarSrc =
+    seller.avatarUrl ??
+    (blocked ? null : items.find((post) => post.imageUrl)?.imageUrl);
   const since = seller.memberSince
     ? new Date(seller.memberSince).getFullYear()
     : null;
@@ -251,87 +266,92 @@ export default function CreatorProfile() {
       />
 
       <PageBody className="px-4 pb-8 pt-3 lg:px-8 lg:py-6">
-        <section className="overflow-hidden rounded-card bg-surface shadow-card">
-          <div className="brand-gradient h-20 lg:h-24" aria-hidden="true" />
+        {/* Gradient hero, the same card the Profile tab gives your own
+            account: identity on the left, numbers in frosted tiles below. */}
+        <section
+          aria-label={`${seller.displayName}'s profile`}
+          className="brand-gradient relative overflow-hidden rounded-card p-5 shadow-lift lg:p-6"
+        >
+          <span
+            aria-hidden="true"
+            className="absolute -right-10 -top-10 size-40 rounded-full bg-on-brand/15 blur-2xl"
+          />
 
-          <div className="-mt-10 flex flex-col items-center px-5 pb-5 text-center lg:-mt-12">
-            {live ? (
-              <Link
-                href={`/live/${live.id}`}
-                aria-label={`${seller.displayName} is live — watch now`}
-                className="relative rounded-full bg-gradient-to-tr from-red-600 via-red-500 to-rose-400 p-[3px] ring-4 ring-surface transition-transform hover:scale-[1.03]"
-              >
-                <span className="block rounded-full bg-surface p-[3px]">
-                  <CreatorAvatar
-                    name={seller.displayName}
-                    src={seller.avatarUrl}
-                    size={74}
-                  />
-                </span>
-                <span className="absolute -bottom-1.5 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-md bg-red-500 px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-[0.06em] text-white ring-2 ring-surface">
-                  <span className="size-1.5 animate-pulse rounded-full bg-white motion-reduce:animate-none" />
-                  Live
-                </span>
-              </Link>
-            ) : (
+          <div className="relative flex items-center gap-4">
+            <span className="relative shrink-0">
               <CreatorAvatar
                 name={seller.displayName}
-                src={seller.avatarUrl}
+                src={avatarSrc}
                 size={80}
-                className="ring-4 ring-surface"
+                rounded="rounded-3xl"
+                discreet
+                className="ring-4 ring-on-brand/30"
               />
-            )}
-            <h2 className="mt-2.5 flex items-center gap-1.5 text-[20px] font-bold leading-tight text-ink">
-              {seller.displayName}
               {seller.verified && (
-                <BadgeCheck
-                  className="size-5 text-sky-500"
-                  strokeWidth={2.4}
-                  aria-label="Verified"
-                />
+                <span className="absolute -bottom-1.5 -right-1.5 grid size-7 place-items-center rounded-full bg-surface shadow-card">
+                  <BadgeCheck
+                    className="size-5 text-brand"
+                    strokeWidth={2.4}
+                    aria-label="Verified"
+                  />
+                </span>
               )}
-            </h2>
-            {since && (
-              <p className="mt-0.5 text-[13px] text-muted">
-                On Vezlist since {since}
+            </span>
+
+            <div className="min-w-0">
+              <h2 className="flex items-center gap-1.5 truncate text-[24px] font-extrabold leading-tight text-on-brand">
+                <span className="truncate">{seller.displayName}</span>
+              </h2>
+              <p className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-on-brand/20 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-on-brand">
+                <Megaphone className="size-3.5" strokeWidth={2.6} />
+                Creator
               </p>
-            )}
-
-            <div className="mt-4 flex w-full max-w-sm divide-x divide-line rounded-2xl bg-canvas py-3">
-              <Stat value={activeListingCount} label="Posts" />
-              <Stat value={viewCount} label="Views" />
-              <Stat value={likeCount} label="Likes" />
+              {since && (
+                <p className="mt-1.5 flex items-center gap-1 text-[13px] font-medium text-on-brand/80">
+                  <CalendarDays
+                    className="size-3.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                  On Vezlist since {since}
+                </p>
+              )}
             </div>
+          </div>
 
-            <div className="mt-4 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setReporting(true)}
-                className="flex items-center gap-1.5 rounded-full border border-line px-3.5 py-1.5 text-[13px] font-semibold text-muted transition-colors hover:text-ink"
-              >
-                <Flag className="size-3.5" strokeWidth={2.2} />
-                {reported ? "Reported" : "Report"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (blocked) {
-                    unblock(seller.id);
-                    toast(`${seller.displayName} unblocked`);
-                  } else {
-                    setConfirmBlock(true);
-                  }
-                }}
-                className={`flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] font-semibold transition-colors ${
-                  blocked
-                    ? "border-brand text-brand"
-                    : "border-line text-muted hover:text-danger"
-                }`}
-              >
-                <UserRoundX className="size-3.5" strokeWidth={2.2} />
-                {blocked ? "Unblock" : "Block"}
-              </button>
-            </div>
+          <div className="relative mt-5 flex gap-2">
+            <Stat value={activeListingCount} label="Posts" />
+            <Stat value={viewCount} label="Views" />
+            <Stat value={likeCount} label="Likes" />
+          </div>
+
+          <div className="relative mt-4 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setReporting(true)}
+              className="flex items-center gap-1.5 rounded-full bg-on-brand/15 px-3.5 py-1.5 text-[13px] font-semibold text-on-brand transition-colors hover:bg-on-brand/25"
+            >
+              <Flag className="size-3.5" strokeWidth={2.2} />
+              {reported ? "Reported" : "Report"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (blocked) {
+                  unblock(seller.id);
+                  toast(`${seller.displayName} unblocked`);
+                } else {
+                  setConfirmBlock(true);
+                }
+              }}
+              className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-semibold transition-colors ${
+                blocked
+                  ? "bg-surface text-brand"
+                  : "bg-on-brand/15 text-on-brand hover:bg-on-brand/25"
+              }`}
+            >
+              <UserRoundX className="size-3.5" strokeWidth={2.2} />
+              {blocked ? "Unblock" : "Block"}
+            </button>
           </div>
         </section>
 

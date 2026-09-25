@@ -12,7 +12,7 @@ function initials(name = "") {
 }
 
 /**
- * A creator's round avatar. Most accounts have no photo yet (profile-photo
+ * A creator's avatar — round unless `rounded` says otherwise. Most accounts have no photo yet (profile-photo
  * upload is future work), so the fallback is their initials on the brand
  * gradient rather than an empty circle.
  */
@@ -20,15 +20,18 @@ export default function CreatorAvatar({
   name,
   src,
   size = 40,
+  rounded = "rounded-full",
+  discreet = false,
   className = "",
 }) {
   return (
     <span
-      className={`relative grid shrink-0 place-items-center overflow-hidden rounded-full ${className}`}
+      className={`relative grid shrink-0 place-items-center overflow-hidden ${rounded} ${className}`}
       style={{ width: size, height: size }}
     >
       {src ? (
         <MediaImage
+          discreet={discreet}
           fill
           src={src}
           alt=""
