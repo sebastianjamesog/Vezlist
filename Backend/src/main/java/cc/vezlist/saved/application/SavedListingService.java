@@ -129,6 +129,6 @@ public class SavedListingService {
                 row.id(), row.site(), row.title(), row.businessName(), row.price(),
                 row.categoryId(), row.categoryLabel(), row.provinceId(), row.provinceLabel(),
                 row.locationId(), row.locationLabel(),
-                row.verified(), imageUrl, row.photoCount(), row.publishedAt(), row.savedAt());
+                row.verified(), imageUrl, row.photoCount(), row.publishedAt(), row.savedAt(), row.viewCount());
     }
 }

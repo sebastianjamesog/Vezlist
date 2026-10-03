@@ -212,6 +212,42 @@ class DiscoveryControllerIntegrationTest {
         assertThat(excessiveRadius.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
+    @Test
+    void trendingDirectoryIncludesBeyondFiveSlotsAndExposesStoredEngagement() {
+        UUID owner = user(false);
+        UUID firstReader = user(false);
+        UUID secondReader = user(false);
+        Instant published = Instant.now().minusSeconds(48 * 3600);
+        for (int index = 0; index < 7; index++) {
+            UUID id = listing(owner, "PERSONALS", "ACTIVE", "Trending creator " + index,
+                    "Creator " + index, 0, "personals", "bc", "bc-1", published, null, null);
+            jdbc.update("INSERT INTO saved_listings(id, user_id, listing_id) VALUES (?, ?, ?), (?, ?, ?)",
+                    UUID.randomUUID(), firstReader, id, UUID.randomUUID(), secondReader, id);
+            jdbc.update("UPDATE listings SET view_count = 1200, save_count = 2 WHERE id = ?", id);
+        }
+
+        ResponseEntity<Map> featured = rest.getForEntity(
+                url("/api/v1/personals/featured?feed=TRENDING"), Map.class);
+        ResponseEntity<Map> directory = rest.getForEntity(
+                url("/api/v1/personals/featured?feed=TRENDING&all=true"), Map.class);
+        assertThat(featured.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(directory.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(items(featured)).hasSize(5);
+        assertThat(items(directory)).hasSize(7);
+        assertThat(items(directory).subList(0, 5)).isEqualTo(items(featured));
+        assertThat(items(directory)).allSatisfy(card -> {
+            assertThat(card).containsEntry("viewCount", 1200).containsEntry("saveCount", 2);
+        });
+
+        // A cached allocation must not keep showing a removed ad.
+        String removed = (String) items(directory).getLast().get("id");
+        jdbc.update("UPDATE listings SET status = 'DELETED' WHERE id = ?", UUID.fromString(removed));
+        ResponseEntity<Map> afterRemoval = rest.getForEntity(
+                url("/api/v1/personals/featured?feed=TRENDING&all=true"), Map.class);
+        assertThat(items(afterRemoval)).hasSize(6).noneSatisfy(card ->
+                assertThat(card.get("id")).isEqualTo(removed));
+    }
+
     private UUID user(boolean verified) {
         UUID id = UUID.randomUUID();
         jdbc.update("""

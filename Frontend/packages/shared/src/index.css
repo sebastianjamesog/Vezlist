@@ -268,6 +268,43 @@ body {
     pointer-events: none;
   }
 }
+/* Card geometry follows the space a feed gives each card. The narrow layout
+   keeps all metadata visible in a three-column feed without growing the row. */
+.listing-card,
+.listing-card-skeleton-container {
+  container-type: inline-size;
+}
+@container (min-width: 380px) {
+  .listing-card__link,
+  .listing-card-skeleton {
+    gap: 0.75rem;
+    padding: 0.75rem;
+  }
+  .listing-card__photo,
+  .listing-card-skeleton__photo {
+    width: 120px;
+    height: 120px;
+  }
+  .listing-card__title,
+  .listing-card-skeleton__title {
+    min-height: 40px;
+  }
+  .listing-card__title {
+    font-size: 17px;
+    line-height: 20px;
+  }
+  .listing-card__meta,
+  .listing-card-skeleton__meta {
+    height: 20px;
+  }
+  .listing-card__chevron {
+    display: block;
+  }
+  .listing-card__save {
+    left: 92px;
+    top: 16px;
+  }
+}
 /* Live player: a tapped heart rises out of the button and fades. Each one
    carries its own --heart-x so a burst fans out instead of stacking into one
    thick column. Reduced motion collapses the duration, which lands it straight

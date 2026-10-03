@@ -1,4 +1,10 @@
 spring:
+  data:
+    redis:
+      host: ${VEZLIST_REDIS_HOST:localhost}
+      port: ${VEZLIST_REDIS_PORT:6379}
+      password: ${VEZLIST_REDIS_PASSWORD:}
+      timeout: 2s
   application:
     name: vezlist-api
   # Loads local developer secrets from Backend/.env when present. The file is
@@ -45,8 +51,24 @@ springdoc:
     path: /swagger-ui.html
 
 vezlist:
+  live:
+    demo-purchases-enabled: ${VEZLIST_LIVE_DEMO_PURCHASES_ENABLED:false}
+    recording-policy: ${VEZLIST_LIVE_RECORDING_POLICY:UNCONFIRMED}
+    mux-token-id: ${VEZLIST_MUX_TOKEN_ID:}
+    mux-token-secret: ${VEZLIST_MUX_TOKEN_SECRET:}
+    mux-webhook-secret: ${VEZLIST_MUX_WEBHOOK_SECRET:}
+    mux-signing-key-id: ${VEZLIST_MUX_SIGNING_KEY_ID:}
+    mux-signing-private-key: ${VEZLIST_MUX_SIGNING_PRIVATE_KEY:}
+    broadcast-ws-url: ${VEZLIST_LIVE_BROADCAST_WS_URL:ws://localhost:8080/api/v1/live/broadcast}
+    chat-ws-url: ${VEZLIST_LIVE_CHAT_WS_URL:ws://localhost:8080/api/v1/live/chat}
+    ffmpeg-path: ${VEZLIST_FFMPEG_PATH:ffmpeg}
+    max-broadcasts-per-node: ${VEZLIST_LIVE_MAX_BROADCASTS_PER_NODE:4}
+    max-chat-connections-per-node: ${VEZLIST_LIVE_MAX_CHAT_CONNECTIONS_PER_NODE:2000}
+  stories:
+    demo-purchases-enabled: ${VEZLIST_STORY_DEMO_PURCHASES_ENABLED:false}
   cors:
     allowed-origins: ${VEZLIST_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001,http://localhost:3100,http://localhost:3101,http://localhost:3102}
+    allow-local-patterns: ${VEZLIST_CORS_ALLOW_LOCAL_PATTERNS:false}
   storage:
     endpoint: ${VEZLIST_STORAGE_ENDPOINT:http://localhost:9000}
     region: ${VEZLIST_STORAGE_REGION:us-east-1}
@@ -58,12 +80,9 @@ vezlist:
     max-image-bytes: ${VEZLIST_STORAGE_MAX_IMAGE_BYTES:10485760}
   discovery:
     query-timeout-ms: ${VEZLIST_DISCOVERY_QUERY_TIMEOUT_MS:3000}
-  # Dev-only admin account seeding (see cc.vezlist.identity.application.AdminAccountSeeder).
-  # There is no separate "prod" Spring profile in this project yet, so this defaults to
-  # true for local development convenience but MUST be set to false via the
-  # VEZLIST_SEED_ADMIN environment variable in every deployed environment.
-  seed-admin: ${VEZLIST_SEED_ADMIN:true}
-  seed-admin-password: ${VEZLIST_SEED_ADMIN_PASSWORD:Vezlist#Admin2026}
+  # Opt-in local admin seeding (see cc.vezlist.identity.application.AdminAccountSeeder).
+  seed-admin: ${VEZLIST_SEED_ADMIN:false}
+  seed-admin-password: ${VEZLIST_SEED_ADMIN_PASSWORD:}
 
 logging:
   level:

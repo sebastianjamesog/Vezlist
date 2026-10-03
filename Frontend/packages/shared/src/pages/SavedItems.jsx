@@ -5,6 +5,7 @@ import SubPageBar from "../components/layout/SubPageBar";
 import PageBody from "../components/layout/PageBody";
 import EmptyState from "../components/ui/EmptyState";
 import ListingCard from "../components/cards/ListingCard";
+import { ListingCardSkeleton } from "../components/ui/Skeleton.jsx";
 import { useSaved } from "../context/SavedContext";
 import { FEED_PATH } from "../lib/sites";
 
@@ -22,6 +23,8 @@ function toCardListing(row) {
     location: row.locationLabel,
     province: row.provinceLabel,
     price: row.price,
+    views: row.viewCount,
+    site: row.site,
     verified: row.verified,
     postedMsAgo: row.publishedAt
       ? Date.now() - new Date(row.publishedAt).getTime()
@@ -45,15 +48,10 @@ export default function SavedItems() {
 
       <PageBody className="px-4 pb-6 pt-3 lg:px-8 lg:py-6">
         {!ready ? (
-          // Skeleton, not blank: three fixed-height placeholder rows in the
-          // same grid the real cards render into, so the layout does not
-          // jump the instant the list answers.
+          // Match the image-first cards while saved ads load.
           <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2 lg:gap-4 xl:grid-cols-3">
             {[0, 1, 2].map((i) => (
-              <div
-                key={i}
-                className="h-[122px] animate-pulse rounded-2xl bg-surface shadow-card lg:h-[136px]"
-              />
+              <ListingCardSkeleton key={i} />
             ))}
           </div>
         ) : error ? (

@@ -5,7 +5,6 @@ import { AccountProvider } from "@vezlist/shared/context/AccountContext.jsx";
 import { SavedProvider } from "@vezlist/shared/context/SavedContext.jsx";
 import { StatusProvider } from "@vezlist/shared/context/StatusContext.jsx";
 import { FeedProvider } from "@vezlist/shared/context/FeedContext.jsx";
-import { ListingsProvider } from "@vezlist/shared/context/ListingsContext.jsx";
 import { TicketsProvider } from "@vezlist/shared/context/TicketsContext.jsx";
 import { ReportsProvider } from "@vezlist/shared/context/ReportsContext.jsx";
 import { SearchProvider } from "@vezlist/shared/context/SearchContext.jsx";
@@ -47,13 +46,11 @@ export default function Providers({ children }) {
           <StatusProvider>
             <FeedProvider>
               <LocationSync />
-              <ListingsProvider>
                 <TicketsProvider>
                   <ReportsProvider>
                     <SearchProvider>{children}</SearchProvider>
                   </ReportsProvider>
                 </TicketsProvider>
-              </ListingsProvider>
             </FeedProvider>
           </StatusProvider>
         </SavedProvider>

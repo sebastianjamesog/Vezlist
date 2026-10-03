@@ -37,6 +37,7 @@ public class SellerService {
         String imageUrl = row.coverObjectKey() == null ? null : storage.authorizeDownload(row.coverObjectKey()).toString();
         return new DiscoveryListingResponse(row.id(), row.site(), row.title(), row.businessName(), row.price(),
                 row.categoryId(), row.categoryLabel(), row.provinceId(), row.provinceLabel(), row.locationId(),
-                row.locationLabel(), null, null, null, row.verified(), imageUrl, row.photoCount(), row.publishedAt());
+                row.locationLabel(), null, null, null, row.verified(), imageUrl, row.photoCount(),
+                row.publishedAt(), row.viewCount());
     }
 }

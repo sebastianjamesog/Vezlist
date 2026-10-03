@@ -8,6 +8,10 @@ import {
 import FilterSheet from "./FilterSheet";
 import { DEFAULT_FILTERS } from "../lib/filters";
 import { listings, personalsListings } from "../data/mock";
+import { categories } from "../data/mock";
+import { setCategories } from "../lib/taxonomy.js";
+
+setCategories(categories);
 
 /**
  * The two-pane filter sheet.

@@ -3,6 +3,7 @@ package cc.vezlist.media.storage;
 import java.io.InputStream;
 import java.net.URI;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.Map;
 
 public interface ObjectStorage {
@@ -18,6 +19,10 @@ public interface ObjectStorage {
     InputStream open(String objectKey);
 
     URI authorizeDownload(String objectKey);
+
+    URI authorizeDownload(String objectKey, Duration maximumTtl);
+
+    void store(String objectKey, String contentType, byte[] bytes);
 
     void delete(String objectKey);
 

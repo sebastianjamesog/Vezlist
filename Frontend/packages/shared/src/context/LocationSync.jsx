@@ -4,8 +4,6 @@ import { useEffect, useRef } from "react";
 import { useFeed } from "./FeedContext";
 import { usePersistedObject } from "../lib/persisted";
 import { cookieStore } from "../lib/cookieStore";
-import { IS_PERSONALS } from "../lib/sites";
-import { listings, personalsListings } from "../data/mock";
 import {
   ALL_CANADA,
   LOCATION_KEY,
@@ -22,9 +20,6 @@ import {
  * would close that loop into a cycle. This module is downstream of both, which
  * makes it the first place the two facts can be held at once.
  */
-const stocked = new Set(
-  (IS_PERSONALS ? personalsListings : listings).map((l) => l.province),
-);
 
 /**
  * A guess is only worth applying if there is something behind it.
@@ -42,8 +37,7 @@ const stocked = new Set(
  */
 function guessProvince() {
   const { province } = detectLocation();
-  if (province === ALL_CANADA) return ALL_CANADA;
-  return stocked.has(provinceById(province).label) ? province : ALL_CANADA;
+  return province || ALL_CANADA;
 }
 
 /**

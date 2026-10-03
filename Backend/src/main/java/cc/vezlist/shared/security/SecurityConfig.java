@@ -34,18 +34,29 @@ public class SecurityConfig {
 
         return http
                 .cors(cors -> { })
-                .csrf(csrfConfigurer -> csrfConfigurer.csrfTokenRepository(csrf))
+                .csrf(csrfConfigurer -> csrfConfigurer.csrfTokenRepository(csrf)
+                        .ignoringRequestMatchers("/api/v1/live/webhooks/mux"))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
                         .accessDeniedHandler(accessDeniedHandler))
                 .authorizeHttpRequests(authorize -> authorize
+                        .requestMatchers("/api/v1/admin/live-plans", "/api/v1/admin/live-plans/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/live/plans", "/api/v1/live/sessions/*",
+                                "/api/v1/live/chat", "/api/v1/live/broadcast").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/live/webhooks/mux", "/api/v1/live/sessions/*/viewer-ticket").permitAll()
+                        .requestMatchers("/api/v1/admin/story-plans", "/api/v1/admin/story-plans/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/stories", "/api/v1/stories/plans", "/api/v1/stories/creator/*").permitAll()
                         .requestMatchers("/api/v1/moderation/**").hasAnyRole("MODERATOR", "ADMIN")
                         .requestMatchers("/api/v1/admin/**").hasAnyRole("MODERATOR", "ADMIN")
                         .requestMatchers("/api/v1/listings/*/verification/**").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/listings").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/listings/*").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/listings/*/views").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/sellers/*").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/support/articles").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/live").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/personals/featured").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/locations/search").permitAll()
                         .requestMatchers(
                                 "/api/v1",
@@ -76,7 +87,7 @@ public class SecurityConfig {
     @Bean
     CorsConfigurationSource corsConfigurationSource(
             @Value("${vezlist.cors.allowed-origins}") List<String> allowedOrigins,
-            @Value("${vezlist.cors.allow-local-patterns:true}") boolean allowLocalPatterns) {
+            @Value("${vezlist.cors.allow-local-patterns:false}") boolean allowLocalPatterns) {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(allowedOrigins);
         if (allowLocalPatterns) {
@@ -87,7 +98,7 @@ public class SecurityConfig {
             // sees every API call fail as an indistinguishable-from-network
             // "Failed to fetch" rather than a clear CORS error. Patterns
             // cover the whole space instead of enumerating it. Gated by a
-            // property (default on) so a real deployment can turn it off —
+            // property (default off) so deployments opt in deliberately —
             // see VEZLIST_CORS_ALLOW_LOCAL_PATTERNS in .env.example.
             configuration.addAllowedOriginPattern("http://localhost:*");
             configuration.addAllowedOriginPattern("http://127.0.0.1:*");

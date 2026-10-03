@@ -36,7 +36,7 @@ public class SellerRepository {
                 SELECT l.id, l.site_scope, l.title, l.business_name, l.price,
                        l.category_id, c.label AS category_label, l.province_id,
                        p.label AS province_label, l.location_id, a.label AS location_label,
-                       u.seller_verified AS verified,
+                       u.seller_verified AS verified, l.view_count,
                        (SELECT lm.object_key FROM listing_media lm WHERE lm.listing_id = l.id
                         AND lm.status = 'READY' ORDER BY lm.position ASC, lm.created_at ASC LIMIT 1) AS cover_object_key,
                        (SELECT COUNT(*) FROM listing_media lm WHERE lm.listing_id = l.id
@@ -56,7 +56,7 @@ public class SellerRepository {
     public record ListingRow(UUID id, SiteScope site, String title, String businessName, BigDecimal price,
                              String categoryId, String categoryLabel, String provinceId, String provinceLabel,
                              String locationId, String locationLabel, boolean verified, String coverObjectKey,
-                             int photoCount, Instant publishedAt) { }
+                             int photoCount, Instant publishedAt, long viewCount) { }
     private static final class SellerRowMapper implements RowMapper<SellerRow> {
         @Override public SellerRow mapRow(ResultSet rs, int rowNum) throws SQLException {
             return new SellerRow(rs.getObject("id", UUID.class), rs.getString("display_name"), rs.getString("avatar_url"),
@@ -69,7 +69,8 @@ public class SellerRepository {
                     rs.getString("title"), rs.getString("business_name"), rs.getBigDecimal("price"), rs.getString("category_id"),
                     rs.getString("category_label"), rs.getString("province_id"), rs.getString("province_label"),
                     rs.getString("location_id"), rs.getString("location_label"), rs.getBoolean("verified"),
-                    rs.getString("cover_object_key"), rs.getInt("photo_count"), rs.getTimestamp("published_at").toInstant());
+                    rs.getString("cover_object_key"), rs.getInt("photo_count"),
+                    rs.getTimestamp("published_at").toInstant(), rs.getLong("view_count"));
         }
     }
 }

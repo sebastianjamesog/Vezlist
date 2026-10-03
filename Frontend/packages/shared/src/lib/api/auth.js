@@ -19,6 +19,10 @@ export function me() {
   return api.get("/api/v1/auth/me");
 }
 
+export function changeAccountType(accountType) {
+  return api.patch("/api/v1/auth/account-type", { accountType });
+}
+
 /** POST /api/v1/auth/logout -> 204. */
 export async function logout() {
   await api.post("/api/v1/auth/logout");

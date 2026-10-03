@@ -2,10 +2,12 @@ package cc.vezlist.listings.web;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import cc.vezlist.identity.application.VezlistUserPrincipal;
 import cc.vezlist.listings.application.ListingService;
+import cc.vezlist.listings.application.ListingViewService;
 import cc.vezlist.shared.domain.SiteScope;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -29,9 +31,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1")
 public class ListingController {
     private final ListingService listingService;
+    private final ListingViewService listingViews;
 
-    public ListingController(ListingService listingService) {
+    public ListingController(ListingService listingService, ListingViewService listingViews) {
         this.listingService = listingService;
+        this.listingViews = listingViews;
     }
 
     @PostMapping("/listings")
@@ -67,6 +71,21 @@ public class ListingController {
             @PathVariable UUID listingId,
             @RequestParam SiteScope site) {
         return listingService.detail(listingId, site, principal == null ? null : principal.id());
+    }
+
+    @PostMapping("/listings/{listingId}/views")
+    ListingViewCountResponse registerView(
+            @AuthenticationPrincipal VezlistUserPrincipal principal,
+            @PathVariable UUID listingId,
+            @RequestParam SiteScope site,
+            @RequestHeader("Idempotency-Key") UUID requestId) {
+        return new ListingViewCountResponse(listingViews.register(
+                listingId, site, requestId, principal == null ? null : principal.id()));
+    }
+
+    @GetMapping("/listings/views")
+    Map<UUID, Long> viewCounts(@RequestParam SiteScope site, @RequestParam List<UUID> ids) {
+        return listingViews.activeCounts(ids, site);
     }
 
     @GetMapping("/me/listings")

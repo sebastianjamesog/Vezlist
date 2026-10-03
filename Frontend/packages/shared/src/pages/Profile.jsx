@@ -317,7 +317,7 @@ export default function Profile() {
                         Add a story
                       </span>
                       <span className="mt-0.5 block truncate text-[13px] text-muted">
-                        A photo on the board for 24 hours
+                        A photo or video for 24 hours
                       </span>
                     </span>
                     <ChevronRight className="size-5 shrink-0 text-muted" />

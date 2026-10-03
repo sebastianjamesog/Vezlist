@@ -23,10 +23,8 @@ export const HAS_CREATE_MENU = IS_PERSONALS;
  * The three things the plus can mean, in the order they are offered.
  *
  * Post an ad is first because it is the one that works end to end and the one
- * both boards share. The other two are personals-only, and neither has a
- * backend behind it — see the note on `refuse` below for what happens when they
- * are pressed, and why that is the honest end state rather than a placeholder
- * screen that mimes broadcasting.
+ * both boards share. The other two are personals-only. Live Now has a
+ * server-backed presence, but video and paid sessions are not connected.
  *
  * `cap` is the capability the account needs before the feature is even a
  * question. `nudge` is what a browsing account is told instead: never a dead
@@ -43,7 +41,7 @@ const OPTIONS = [
     id: "live",
     Icon: Radio,
     label: "Go live",
-    blurb: "Broadcast to the board and take replies as they come.",
+    blurb: "Put your profile in Live Now while you are online.",
     personals: true,
     cap: "live.host",
     to: "/live/start",
@@ -53,7 +51,7 @@ const OPTIONS = [
     id: "story",
     Icon: Camera,
     label: "Add a story",
-    blurb: "A photo on your profile ring that clears after 24 hours.",
+    blurb: "Share a photo or video for 24 hours.",
     personals: true,
     cap: "status.post",
     nudge: "Switch to an ads creator account to post a story",
@@ -99,9 +97,8 @@ function Option({ Icon, label, blurb, onClick }) {
  * about the draft, the object URLs it holds or the "Draft saved" toast changes
  * because a menu now sits in front.
  *
- * The other two rows go somewhere now. Live opens the broadcaster screen at
- * `/live/start` — a real route outside the shell, because a viewfinder with a
- * tab bar under it is not a viewfinder — and Story opens the composer the
+ * The other two rows go somewhere now. Live opens a focused setup flow at
+ * `/live/start` outside the shell, and Story opens the composer the
  * shell hosts beside the ad wizard. Both still ask the capability question
  * first, and an account that does not hold it gets the sentence naming the
  * account type that does rather than a dead row.

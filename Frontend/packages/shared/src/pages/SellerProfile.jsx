@@ -10,6 +10,7 @@ import EmptyState from "../components/ui/EmptyState";
 import Button from "../components/ui/Button";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import ListingCard from "../components/cards/ListingCard";
+import { ListingCardSkeleton } from "../components/ui/Skeleton.jsx";
 import ReportDialog from "../components/ReportDialog";
 import MediaImage from "../components/media/MediaImage.jsx";
 import { useReports } from "../context/ReportsContext";
@@ -27,6 +28,8 @@ function toCardListing(row) {
     category: row.categoryLabel,
     location: row.locationLabel,
     price: row.price,
+    views: row.viewCount,
+    site: row.site,
     verified: row.verified,
     postedMsAgo: row.publishedAt
       ? Date.now() - new Date(row.publishedAt).getTime()
@@ -43,10 +46,7 @@ function ProfileSkeleton() {
         <div className="h-32 animate-pulse rounded-card bg-surface shadow-card" />
         <div className="mt-6 grid grid-cols-1 gap-2.5 lg:grid-cols-2 lg:gap-4 xl:grid-cols-3">
           {[0, 1, 2].map((i) => (
-            <div
-              key={i}
-              className="h-[122px] animate-pulse rounded-2xl bg-surface shadow-card"
-            />
+            <ListingCardSkeleton key={i} />
           ))}
         </div>
       </PageBody>

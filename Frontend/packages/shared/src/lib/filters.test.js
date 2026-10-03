@@ -1,6 +1,8 @@
 // Run with: npm test
 import test from "node:test";
 import assert from "node:assert/strict";
+import { setCategories } from "./taxonomy.js";
+import { categories } from "../data/mock.js";
 import {
   DEFAULT_FILTERS,
   activeFilterChips,
@@ -14,6 +16,7 @@ import {
 } from "./filters.js";
 
 const HOUR = 3_600_000;
+setCategories(categories);
 const DAY = 86_400_000;
 
 const data = [

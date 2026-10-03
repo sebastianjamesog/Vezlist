@@ -214,7 +214,7 @@ function Shell({ children, navPreset }) {
           navPreset={navPreset}
         />
 
-        <div className="relative flex h-dvh w-full max-w-[430px] flex-col overflow-hidden bg-canvas shadow-xl lg:max-w-none lg:shadow-none">
+        <div className={`relative flex h-dvh w-full flex-col overflow-hidden bg-canvas shadow-xl lg:max-w-none lg:shadow-none ${pathname === "/" ? "max-w-[430px] sm:max-w-[691px]" : "max-w-[430px]"}`}>
           <main
             id="main-content"
             ref={main}

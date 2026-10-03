@@ -25,3 +25,5 @@
 Thumbs.db
 .codex/
 .agents/
+Backend/.seed-cache/
+Backend/.local-tools/

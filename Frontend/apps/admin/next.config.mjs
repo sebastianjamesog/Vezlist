@@ -5,6 +5,8 @@ const nextConfig = {
   // The third build off the same packages. `IS_PERSONALS` stays false here, so
   // every shared component the console borrows keeps its marketplace defaults.
   env: { NEXT_PUBLIC_SITE: "admin" },
+  // Keep dependency changes from reviving stale PostCSS transforms on restart.
+  experimental: { turbopackFileSystemCacheForDev: false },
   // `unoptimized` rather than the default loader: this app deploys through
   // OpenNext to Cloudflare Workers, and the Workers adapter only serves
   // `/_next/image` when the project defines a Cloudflare Images binding or a

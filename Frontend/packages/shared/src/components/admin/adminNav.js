@@ -60,7 +60,13 @@ export const adminNav = [
     title: "People",
     items: [
       { to: "/users", label: "Users", icon: "User" },
-      { to: "/live", label: "Live", icon: "Radio", badge: "liveNow" },
+      {
+        to: "/live",
+        label: "Live",
+        icon: "Radio",
+        scoped: false,
+        permission: "stream.moderate",
+      },
       { to: "/status", label: "Status", icon: "Clapperboard" },
     ],
   },
@@ -80,6 +86,20 @@ export const adminNav = [
     title: "Configuration",
     items: [
       { to: "/taxonomy", label: "Taxonomy", icon: "Tag" },
+      {
+        to: "/live-plans",
+        label: "Live plans",
+        icon: "Radio",
+        scoped: false,
+        permission: "livePlans.manage",
+      },
+      {
+        to: "/story-plans",
+        label: "Story packs",
+        icon: "Clapperboard",
+        scoped: false,
+        permission: "storyPlans.manage",
+      },
       { to: "/notifications", label: "Notifications", icon: "Bell" },
       {
         to: "/admins",

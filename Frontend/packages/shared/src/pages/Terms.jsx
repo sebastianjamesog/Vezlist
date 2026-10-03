@@ -178,19 +178,10 @@ export default function Terms() {
             >
               Support
             </Link>{" "}
-            or by email at{" "}
-            <a
-              href="mailto:support@vezlist.cc"
-              className="font-semibold text-brand hover:underline"
-            >
-              support@vezlist.cc
-            </a>
-            .
+            and open a ticket for the team.
           </p>
           <Todo>
-            add a dedicated legal contact address once one exists —
-            support@vezlist.cc is the one verified contact channel in this build
-            (see contactChannels in data/mock.js).
+            confirm a legal contact address before launch.
           </Todo>
         </Section>
 

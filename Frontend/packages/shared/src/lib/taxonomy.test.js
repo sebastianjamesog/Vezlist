@@ -8,8 +8,11 @@ import {
   isSubOf,
   subsFor,
   subsForId,
+  setCategories,
 } from "./taxonomy.js";
 import { categories, listings } from "../data/mock.js";
+
+setCategories(categories);
 
 test("every category carries its own sub-categories", () => {
   for (const c of categories) {

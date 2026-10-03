@@ -13,16 +13,21 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class IdentityService implements UserDetailsService {
 
     private final UserRepository users;
     private final PasswordEncoder passwordEncoder;
+    private final JdbcTemplate jdbc;
 
-    public IdentityService(UserRepository users, PasswordEncoder passwordEncoder) {
+    public IdentityService(UserRepository users, PasswordEncoder passwordEncoder, JdbcTemplate jdbc) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;
+        this.jdbc = jdbc;
     }
 
     @Transactional
@@ -55,7 +60,17 @@ public class IdentityService implements UserDetailsService {
                 principal.email(),
                 principal.emailVerified(),
                 principal.roles().stream().map(Enum::name).collect(java.util.stream.Collectors.toUnmodifiableSet()),
-                principal.createdAt());
+                principal.createdAt(),
+                jdbc.queryForObject("SELECT account_type FROM app_users WHERE id = ?", String.class, principal.id()));
+    }
+
+    @Transactional
+    public CurrentUserResponse changeAccountType(VezlistUserPrincipal principal, String accountType) {
+        if (!java.util.Set.of("CREATOR", "BROWSING").contains(accountType))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid account type.");
+        if (jdbc.update("UPDATE app_users SET account_type = ?, updated_at = now() WHERE id = ? AND enabled = true",
+                accountType, principal.id()) != 1) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account unavailable.");
+        return toResponse(principal);
     }
 
     @Transactional(readOnly = true)

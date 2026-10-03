@@ -45,23 +45,29 @@ export function SkeletonGroup({ label = "Loading", className = "", children }) {
 }
 
 /**
- * Matches `components/cards/ListingCard.jsx`'s row layout: a square photo,
- * a two-line title, a meta line, and a chip row. Used for the marketplace
- * feed, saved ads, my-ads, and anywhere else that lists ads in a row.
+ * Matches `components/cards/ListingCard.jsx`'s compact row layout so the
+ * content does not jump when a feed swaps from loading to real cards.
  */
 export function ListingCardSkeleton() {
   return (
-    <div className="flex min-w-0 items-center gap-3 rounded-2xl bg-surface p-3 shadow-card lg:gap-4 lg:p-4">
-      <Skeleton className="size-[96px] shrink-0 rounded-xl lg:size-[112px]" />
-      <div className="min-w-0 flex-1">
-        <Skeleton className="h-[15px] w-[88%] rounded" />
-        <Skeleton className="mt-2 h-[15px] w-[55%] rounded" />
-        <div className="mt-2.5 flex min-h-[22px] items-center gap-1.5">
-          <Skeleton className="h-[14px] w-20 rounded" />
-        </div>
-        <div className="mt-2 flex min-w-0 items-center gap-1.5 lg:mt-3">
-          <Skeleton className="h-[22px] w-14 rounded-lg" />
-          <Skeleton className="h-[22px] w-20 rounded-md" />
+    <div className="listing-card-skeleton-container min-w-0">
+      <div className="listing-card-skeleton flex min-w-0 items-center gap-2 rounded-2xl bg-surface p-2 shadow-card">
+        <Skeleton className="listing-card-skeleton__photo size-[104px] shrink-0 rounded-xl" />
+        <div className="min-w-0 flex-1">
+          <div className="listing-card-skeleton__title min-h-9">
+            <Skeleton className="h-[15px] w-[88%] rounded" />
+            <Skeleton className="mt-1.5 h-[15px] w-[55%] rounded" />
+          </div>
+          <div className="listing-card-skeleton__meta mt-0.5 flex h-[18px] items-center gap-1.5">
+            <Skeleton className="h-3 w-20 rounded" />
+            <Skeleton className="h-4 w-14 rounded" />
+          </div>
+          <div className="listing-card-skeleton__meta mt-0.5 flex h-[18px] min-w-0 items-center gap-1.5">
+            <Skeleton className="h-[18px] w-14 rounded-lg" />
+            <Skeleton className="h-3 w-12 rounded" />
+            <Skeleton className="h-3 min-w-0 flex-1 rounded" />
+            <Skeleton className="ml-auto h-3 w-12 rounded" />
+          </div>
         </div>
       </div>
     </div>

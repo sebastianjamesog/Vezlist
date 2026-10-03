@@ -12,7 +12,6 @@ import { useToast } from "../context/ToastContext";
 import { useAuth } from "../context/AuthContext";
 import * as usersApi from "../lib/api/users";
 import { ApiError } from "../lib/api/client";
-import { profile as profileSeed } from "../data/mock";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -163,13 +162,13 @@ export default function PersonalDetails() {
       <PageBody className="px-4 pb-8 pt-3 lg:max-w-2xl lg:px-8 lg:py-6">
         <form onSubmit={save} noValidate>
           <div className="mb-4 flex items-center gap-4 rounded-card bg-surface p-4 shadow-card">
-            <MediaImage
-              src={avatarUrl ?? profileSeed.avatar}
+            {avatarUrl ? <MediaImage
+              src={avatarUrl}
               alt=""
               width={64}
               height={64}
               className="size-16 shrink-0 rounded-2xl object-cover"
-            />
+            /> : <span aria-hidden="true" className="grid size-16 shrink-0 place-items-center rounded-2xl bg-brand-soft text-2xl font-bold text-brand">{values.name.charAt(0) || "?"}</span>}
             <div className="min-w-0">
               <p className="text-[15px] font-bold text-ink">Profile photo</p>
               <p className="mt-0.5 text-[13px] text-muted">

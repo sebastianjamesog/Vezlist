@@ -1,219 +1,314 @@
 "use client";
 
-import { useState } from "react";
-import { BadgeCheck, Users } from "lucide-react";
-import AdminHeader from "../components/admin/AdminHeader";
-import StatusBadge from "../components/admin/StatusBadge";
-import { RevealButton, useReveal } from "../components/admin/RevealMedia";
-import MediaImage from "../components/media/MediaImage.jsx";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { MapPin, Radio, RefreshCw } from "lucide-react";
+import AdminHeader, { CARD } from "../components/admin/AdminHeader";
+import EmptyState from "../components/ui/EmptyState";
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
-import EmptyState from "../components/ui/EmptyState";
-import Field, { FIELD, border } from "../components/create/Field";
-import { useAdminData } from "../context/AdminDataContext";
-import { useToast } from "../context/ToastContext";
-import { inScope, useSiteScope } from "../lib/adminScope";
-import { compactCount, timeAgo } from "../lib/format";
+import { useAdminAuth } from "../context/AdminAuthContext";
+import { endLiveSession, listLiveSessions } from "../lib/api/livePlans.js";
 
-/**
- * Broadcasts, as covers rather than as rows.
- *
- * This is the one screen where a table would be wrong: the media *is* the
- * moderation signal, and a table of hostnames and durations tells a moderator
- * nothing about whether to pull a stream. So it is a grid, and every tile
- * shows the frame the decision is actually about.
- */
+const ACTIVE = new Set(["PREPARING", "LIVE", "RECONNECTING"]);
+const STATUS = {
+  PREPARING: { label: "Preparing", color: "bg-blue-50 text-blue-800" },
+  LIVE: { label: "Live", color: "bg-red-50 text-red-800" },
+  RECONNECTING: { label: "Reconnecting", color: "bg-amber-50 text-amber-900" },
+  ENDED: { label: "Ended", color: "bg-canvas text-muted" },
+  FAILED: { label: "Failed", color: "bg-red-50 text-red-800" },
+};
+
+function timestamp(value) {
+  if (!value || Number.isNaN(Date.parse(value))) return null;
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 export default function Live() {
-  const { state, dispatch } = useAdminData();
-  const toast = useToast();
-  const { revealed, toggle } = useReveal();
-  const [ending, setEnding] = useState(null);
-  const [reason, setReason] = useState("");
-  const [tab, setTab] = useState("live");
-  // Broadcasting only exists on personals, so scoping to the marketplace
-  // empties this screen — which is the honest answer, not a bug.
-  const [site] = useSiteScope();
+  const { ready, can } = useAdminAuth();
+  const allowed = can("stream.moderate");
+  const [directory, setDirectory] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [ending, setEnding] = useState(false);
+  const [endError, setEndError] = useState(null);
+  const [notice, setNotice] = useState("");
+  const requestId = useRef(0);
+  const endPending = useRef(false);
 
-  const inSite = state.streams.filter((s) => inScope(s, site));
-  const rows = inSite.filter((s) => (tab === "all" ? true : s.status === tab));
-  const liveNow = inSite.filter((s) => s.status === "live").length;
+  const refresh = useCallback(async () => {
+    const current = ++requestId.current;
+    setLoading(true);
+    try {
+      const data = await listLiveSessions(50);
+      if (current === requestId.current) {
+        setDirectory(data);
+        setError(null);
+      }
+    } catch (caught) {
+      if (current === requestId.current)
+        setError(caught.message || "Could not load live sessions.");
+    } finally {
+      if (current === requestId.current) setLoading(false);
+    }
+  }, []);
 
+  useEffect(() => {
+    if (!ready || !allowed) return;
+    // Refresh the server-backed moderation queue when access becomes available.
+    // eslint-disable-next-line react/set-state-in-effect
+    refresh();
+    const timer = setInterval(refresh, 15000);
+    return () => {
+      clearInterval(timer);
+      requestId.current += 1;
+    };
+  }, [ready, allowed, refresh]);
+
+  async function end() {
+    if (!selected || endPending.current || !allowed) return;
+    endPending.current = true;
+    setEnding(true);
+    setEndError(null);
+    try {
+      await endLiveSession(selected.id);
+      setDirectory((current) =>
+        current
+          ? {
+              ...current,
+              items: current.items.filter(
+                (session) => session.id !== selected.id,
+              ),
+              total: Math.max(
+                0,
+                current.total -
+                  (current.items.some((session) => session.id === selected.id)
+                    ? 1
+                    : 0),
+              ),
+            }
+          : current,
+      );
+      setNotice(`${selected.creatorName}'s live session has ended.`);
+      setSelected(null);
+      await refresh();
+    } catch (caught) {
+      setEndError(
+        caught.message || "Could not end this session. Please try again.",
+      );
+    } finally {
+      endPending.current = false;
+      setEnding(false);
+    }
+  }
+
+  if (!ready)
+    return (
+      <p role="status" className="text-muted">
+        Loading admin access...
+      </p>
+    );
+  if (!allowed)
+    return (
+      <>
+        <AdminHeader title="Live sessions" />
+        <p role="alert" className={CARD}>
+          Only administrators and moderators can manage live sessions.
+        </p>
+      </>
+    );
+  const items = directory?.items ?? [];
   return (
     <>
       <AdminHeader
-        title="Live"
-        subtitle={`${liveNow} broadcast${liveNow === 1 ? "" : "s"} running right now`}
-        actions={<RevealButton revealed={revealed} onClick={toggle} />}
-      />
-
-      <div
-        role="group"
-        aria-label="Stream status"
-        className="mb-4 flex w-fit gap-1 rounded-2xl bg-canvas p-1 ring-1 ring-line"
-      >
-        {[
-          { value: "live", label: "Live now" },
-          { value: "ended", label: "Ended" },
-          { value: "all", label: "All" },
-        ].map((t) => (
-          <button
-            key={t.value}
+        title="Live sessions"
+        subtitle={
+          directory
+            ? `${directory.total} active sessions`
+            : "Loading Personals live sessions"
+        }
+        actions={
+          <Button
             type="button"
-            aria-pressed={tab === t.value}
-            onClick={() => setTab(t.value)}
-            className={`rounded-xl px-3.5 py-1.5 text-[13px] font-semibold transition-colors ${
-              tab === t.value
-                ? "bg-surface text-ink shadow-card"
-                : "text-muted hover:text-ink"
-            }`}
+            size="sm"
+            variant="outline"
+            disabled={loading}
+            onClick={refresh}
           >
-            {t.label}
+            <RefreshCw className="size-4" aria-hidden="true" />
+            Refresh
+          </Button>
+        }
+      />
+      <p className="mb-4 text-sm text-muted">
+        Review broadcasts and end a session when moderation is needed. Demo
+        purchases are marked below.
+      </p>
+      {notice && (
+        <p
+          role="status"
+          className="mb-4 rounded-xl bg-green-50 p-3 text-sm text-green-900"
+        >
+          {notice}
+        </p>
+      )}
+      {error && (
+        <p
+          role="alert"
+          className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-900"
+        >
+          {error}{" "}
+          <button
+            type="button"
+            disabled={loading}
+            onClick={refresh}
+            className="font-bold underline"
+          >
+            Try again
           </button>
-        ))}
-      </div>
-
-      {rows.length ? (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
-          {rows.map((stream) => (
-            <article
-              key={stream.id}
-              className="flex flex-col overflow-hidden rounded-card bg-surface shadow-card"
-            >
-              {/* `revealed` is this screen's Reveal button, not discreet
-                  mode — the console has no `[data-discreet]` toggle of its
-                  own. Withheld, MediaImage renders a plain placeholder here
-                  instead of the cover, so the badges below stay sharp
-                  either way without needing their own carve-out. */}
-              <div className="relative aspect-[3/4] overflow-hidden bg-canvas">
-                <MediaImage
-                  revealed={revealed}
-                  fill
-                  src={stream.cover}
-                  alt=""
-                  sizes="(min-width: 1280px) 25vw, (min-width: 768px) 33vw, 50vw"
-                  className="object-cover"
-                />
-              </div>
-
-              <div className="relative -mt-9 flex items-center gap-2 px-3">
-                <StatusBadge
-                  status={stream.status}
-                  dot={stream.status === "live"}
-                />
-                {stream.status === "live" && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 text-[12px] font-semibold text-white">
-                    <Users
-                      className="size-3.5"
-                      strokeWidth={2.6}
-                      aria-hidden="true"
-                    />
-                    {compactCount(stream.viewers)}
+        </p>
+      )}
+      {loading && !directory && (
+        <p role="status" className="py-8 text-center text-muted">
+          Loading live sessions...
+        </p>
+      )}
+      {directory && items.length === 0 && (
+        <EmptyState
+          icon="Radio"
+          title="No live sessions"
+          body="Sessions appear here when creators prepare a broadcast."
+        />
+      )}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {items.map((session) => {
+          const status = STATUS[session.status] ?? {
+            label: session.status,
+            color: "bg-canvas text-muted",
+          };
+          const started = timestamp(session.startedAt);
+          const ends = timestamp(session.endsAt);
+          const ended = timestamp(session.endedAt);
+          return (
+            <article key={session.id} className={`${CARD} min-w-0`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${status.color}`}
+                >
+                  <Radio className="size-3" aria-hidden="true" />
+                  {status.label}
+                </span>
+                {session.demoPurchase && (
+                  <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">
+                    Demo purchase
                   </span>
                 )}
               </div>
-
-              <div className="flex flex-1 flex-col p-3 pt-3.5">
-                <p className="flex items-center gap-1 text-[14px] font-bold leading-tight text-ink">
-                  <span className="truncate">{stream.host}</span>
-                  {stream.verified && (
-                    <BadgeCheck
-                      className="size-4 shrink-0 text-brand"
-                      strokeWidth={2.6}
-                      aria-label="Verified host"
-                    />
-                  )}
+              <h2 className="mt-4 break-words text-lg font-bold text-ink">
+                {session.creatorName}
+              </h2>
+              <p className="mt-1 break-words text-sm text-ink">
+                {session.title}
+              </p>
+              {session.location && (
+                <p className="mt-2 flex items-start gap-1.5 break-words text-xs text-muted">
+                  <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
+                  <span className="min-w-0">{session.location}</span>
                 </p>
-                <p className="line-clamp-2 text-[13px] leading-snug text-muted">
-                  {stream.title}
-                </p>
-                <p className="mt-1 text-[12px] text-muted">
-                  {stream.location} · started {timeAgo(stream.startedMsAgo)}
-                </p>
-
-                <div className="mt-auto flex gap-2 pt-3">
-                  {!stream.verified && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => {
-                        dispatch({ type: "verifyHost", id: stream.id });
-                        toast(`${stream.host} verified`);
-                      }}
-                    >
-                      Verify
-                    </Button>
-                  )}
-                  {stream.status === "live" && (
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      className="flex-1"
-                      onClick={() => setEnding(stream)}
-                    >
-                      End
-                    </Button>
-                  )}
+              )}
+              <dl className="mt-4 space-y-2 text-sm">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted">Duration</dt>
+                  <dd className="text-right font-medium">
+                    {session.durationMinutes} minutes
+                  </dd>
                 </div>
-              </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted">Started</dt>
+                  <dd className="text-right">{started ?? "Not started"}</dd>
+                </div>
+                {(ended || ends) && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted">
+                      {ended ? "Ended" : "Scheduled end"}
+                    </dt>
+                    <dd className="text-right">{ended ?? ends}</dd>
+                  </div>
+                )}
+              </dl>
+              <p className="mt-4 break-all text-xs text-muted">
+                Session: {session.id}
+              </p>
+              {ACTIVE.has(session.status) && (
+                <Button
+                  type="button"
+                  variant="danger"
+                  size="sm"
+                  className="mt-4 w-full"
+                  disabled={ending}
+                  onClick={() => {
+                    setSelected(session);
+                    setEndError(null);
+                  }}
+                  aria-label={`End session for ${session.creatorName}`}
+                >
+                  End session
+                </Button>
+              )}
             </article>
-          ))}
-        </div>
-      ) : (
-        <EmptyState
-          icon="Radio"
-          title="Nothing broadcasting"
-          body={
-            site === "marketplace"
-              ? "Live is a personals feature. Switch the site scope to see broadcasts."
-              : "No streams in this state right now."
-          }
-        />
+          );
+        })}
+      </div>
+      {directory && directory.total > items.length && (
+        <p className="mt-4 text-sm text-muted">
+          Showing {items.length} of {directory.total} sessions.
+        </p>
       )}
-
       <Modal
-        open={Boolean(ending)}
-        title={`End ${ending?.host}'s broadcast?`}
-        subtitle="Viewers are dropped immediately and the host is told why."
+        open={Boolean(selected)}
+        title="End live session?"
+        onClose={() => {
+          if (!ending) setSelected(null);
+        }}
         size="max-w-md"
-        onClose={() => setEnding(null)}
         footer={
           <div className="flex gap-3">
             <Button
+              type="button"
               variant="outline"
-              size="lg"
               className="flex-1"
-              onClick={() => setEnding(null)}
+              disabled={ending}
+              onClick={() => setSelected(null)}
             >
               Cancel
             </Button>
             <Button
+              type="button"
               variant="danger"
-              size="lg"
               className="flex-1"
-              disabled={!reason.trim()}
-              onClick={() => {
-                dispatch({ type: "endStream", id: ending.id, reason });
-                toast("Broadcast ended");
-                setEnding(null);
-                setReason("");
-              }}
+              disabled={ending}
+              onClick={end}
             >
-              End broadcast
+              {ending ? "Ending..." : "End session"}
             </Button>
           </div>
         }
       >
-        <Field label="Reason" hint="Required">
-          <textarea
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            rows={3}
-            autoFocus
-            placeholder="Nudity on stream."
-            className={`${FIELD} ${border(false)} resize-none`}
-          />
-        </Field>
+        <p className="break-words text-sm text-ink">
+          End the session hosted by <strong>{selected?.creatorName}</strong>?
+          Their broadcast will stop and viewers will no longer be able to watch
+          this session.
+        </p>
+        {endError && (
+          <p role="alert" className="mt-4 text-sm text-danger">
+            {endError}
+          </p>
+        )}
       </Modal>
     </>
   );

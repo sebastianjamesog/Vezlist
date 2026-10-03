@@ -1,5 +1,13 @@
 # Vezlist
 
+> Migration status (September 2026): Account sessions, listings, discovery, taxonomy,
+> support tickets, and help articles use the Spring API. Some older sections below
+> still describe the original prototype. In particular, Personals live/status,
+> several console screens, seller/live reports, and billing remain local demo flows
+> or lack backend services. Do not deploy those flows as production features.
+> Set `NEXT_PUBLIC_API_URL` for every production build; without an API origin,
+> authenticated reads and writes cannot work.
+
 Mobile screens from `Base Pages - Main Web.pdf`, built with Next.js 16 (App
 Router) + React 19 + Tailwind v4, deployed to Cloudflare Workers via OpenNext.
 
@@ -754,7 +762,8 @@ The personals site is a different room, not a re-skin of the marketplace:
   to closed, which is also what the server renders, so the first paint of a cold
   visit is the door rather than a flash of the board. The board stays mounted
   behind it — the page is still server-rendered — but carries `inert`, because a
-  gate you can tab straight past is decoration.
+  gate you can tab straight past is decoration. A new visit or reload asks for
+  confirmation again; navigation within Personals keeps the current answer.
 - **Discreet mode** (`app/useDiscreet.js`) — withholds every photo until you ask
   for it, for reading the board with people around: `MediaImage`
   (`components/media/MediaImage.jsx`) does not set `src` while the switch is

@@ -93,6 +93,9 @@ public class Listing {
     @Column(name = "save_count", nullable = false)
     private long saveCount;
 
+    @Column(name = "view_count", nullable = false)
+    private long viewCount;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -282,6 +285,7 @@ public class Listing {
     public Map<String, String> getAttributes() { return Map.copyOf(attributes); }
     public long getVersion() { return version; }
     public long getSaveCount() { return saveCount; }
+    public long getViewCount() { return viewCount; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public Instant getSubmittedAt() { return submittedAt; }
