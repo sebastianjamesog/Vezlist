@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ChartNoAxesCombined,
-  Clapperboard,
   Eye,
   EyeOff,
   LayoutGrid,
@@ -26,14 +25,13 @@ import { useFeed } from "@vezlist/shared/context/FeedContext.jsx";
 // The context, the hook and the grouping function all still say "status": the
 // label on screen is Stories, the identifiers underneath it are not renamed.
 import { useStatus } from "@vezlist/shared/context/StatusContext.jsx";
-import { useToast } from "@vezlist/shared/context/ToastContext.jsx";
 import { groupStatuses } from "@vezlist/shared/lib/status.js";
 import { DEFAULT_FILTERS, activeFilterCount } from "@vezlist/shared/lib/filters.js";
 import { searchListings } from "@vezlist/shared/lib/api/discovery.js";
+import { listLiveCreators } from "@vezlist/shared/lib/api/live.js";
 import { SITE_SCOPE } from "@vezlist/shared/lib/api/client.js";
-import { liveStreams } from "@vezlist/shared/data/mock.js";
 import ListingCard from "@vezlist/shared/components/cards/ListingCard.jsx";
-import { Promos, Shortcuts } from "@vezlist/shared/components/FeedRails.jsx";
+import { Shortcuts } from "@vezlist/shared/components/FeedRails.jsx";
 import { useDiscreet } from "../useDiscreet";
 
 /**
@@ -75,6 +73,7 @@ function buildDiscoveryParams(filters, query, locations, cursor) {
     q: query.trim() || undefined,
     sort: SORT_TO_API[filters.sort],
     verifiedOnly: filters.verifiedOnly || undefined,
+    availableOnly: filters.availableOnly || undefined,
     postedWithin: POSTED_WITHIN_TO_API[filters.postedWithin],
     province: filters.province !== "all" ? filters.province : undefined,
     limit: PAGE_SIZE,
@@ -98,6 +97,8 @@ function toCardListing(row) {
     province: row.provinceLabel,
     location: row.locationLabel,
     price: Number(row.price ?? 0),
+    views: row.viewCount,
+    site: row.site,
     verified: row.verified,
     postedMsAgo: row.publishedAt
       ? Date.now() - new Date(row.publishedAt).getTime()
@@ -138,7 +139,7 @@ const SHORTCUTS = [
   {
     id: "live",
     label: "Live Now",
-    sub: `${liveStreams.length} live`,
+    sub: "See who's active",
     Icon: Radio,
     href: "/live",
     accent: "rose",
@@ -154,15 +155,15 @@ const SHORTCUTS = [
   {
     id: "available",
     label: "Available Now",
-    sub: "On this device only",
+    sub: "Creators available now",
     dot: true,
-    patch: { availableOnly: true },
+    href: "/featured/available",
     accent: "green",
   },
   {
     id: "trending",
     label: "Trending",
-    sub: "This week",
+    sub: "Recent engagement",
     Icon: ChartNoAxesCombined,
     href: "/trending",
     accent: "purple",
@@ -172,7 +173,7 @@ const SHORTCUTS = [
     label: "New Today",
     sub: "Last 24 hours",
     Icon: Sparkles,
-    patch: { postedWithin: "24h", sort: "newest" },
+    href: "/featured/new",
     accent: "amber",
     pill: "NEW",
   },
@@ -184,10 +185,9 @@ export default function Personals() {
   const [pickerTab, setPickerTab] = useState(null);
   const [discreet, setDiscreet] = useDiscreet();
   const { seen, stories } = useStatus();
-  const toast = useToast();
 
-  const { recent, viewed } = groupStatuses(stories, seen);
-  const shownStatuses = [...recent, ...viewed];
+  const { mine, recent, viewed } = groupStatuses(stories, seen);
+  const shownStatuses = [...(mine?.updates.length ? [mine] : []), ...recent, ...viewed];
 
   const patch = (next) => setFilters((f) => ({ ...f, ...next }));
   const filterCount = activeFilterCount(filters);
@@ -205,6 +205,17 @@ export default function Personals() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const [liveCount, setLiveCount] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const refresh = () => listLiveCreators(1)
+      .then((directory) => { if (mounted) setLiveCount(directory.total); })
+      .catch(() => { if (mounted) setLiveCount(null); });
+    refresh();
+    const timer = setInterval(refresh, 15_000);
+    return () => { mounted = false; clearInterval(timer); };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -293,7 +304,9 @@ export default function Personals() {
           />
 
           <Shortcuts
-            items={SHORTCUTS}
+            items={SHORTCUTS.map((shortcut) => shortcut.id === "live"
+              ? { ...shortcut, sub: liveCount == null ? shortcut.sub : `${liveCount} live` }
+              : shortcut)}
             filters={filters}
             onPatch={patch}
             className="mt-3"
@@ -386,22 +399,6 @@ export default function Personals() {
             />
           )}
 
-          <Promos
-            className="mt-3"
-            cards={[
-              {
-                id: "clips",
-                Icon: Clapperboard,
-                iconClass: "text-brand-2",
-                title: "Auto-Clips",
-                sub: "New clips from creators",
-                cta: "Watch Clips",
-                ctaClass: "bg-brand-strong text-white",
-                onClick: () => toast("Clips are not wired up yet"),
-                thumbs: shownStatuses.map((s) => s.avatar),
-              },
-            ]}
-          />
         </div>
       </PageBody>
 

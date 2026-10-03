@@ -24,5 +24,6 @@ public record DiscoveryListingResponse(
         boolean verified,
         String imageUrl,
         int photoCount,
-        Instant publishedAt) {
+        Instant publishedAt,
+        long viewCount) {
 }

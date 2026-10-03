@@ -85,37 +85,35 @@ export function StatusRing({
           height: size - pad * 2,
         }}
       >
-        <MediaImage
-          discreet
-          fill
-          src={avatar}
-          alt={alt}
-          sizes={`${size}px`}
-          className="object-cover"
-        />
+        {avatar ? (
+          <MediaImage
+            discreet
+            fill
+            src={avatar}
+            alt={alt}
+            sizes={`${size}px`}
+            className="object-cover"
+          />
+        ) : (
+          <span
+            className="brand-gradient grid h-full w-full place-items-center font-bold text-white"
+            aria-label={alt}
+          >
+            {alt?.slice(0, 1).toUpperCase() || "?"}
+          </span>
+        )}
       </span>
     </span>
   );
 }
 
 /**
- * One bubble in the story tray: ring above, name clipped to the bubble width.
- *
- * Every bubble is somebody else's now. The tray used to open with a "Your
- * story" tile carrying a + badge, and adding your own story has moved to the
- * account section — so the bubble is only ever a link into the player, and the
- * `own`/`onAdd` branch that made it sometimes a button is gone rather than
- * left here unreachable.
+ * A published creator story, including the current account's own active story.
+ * Story creation remains in the account menu; every bubble opens the player.
  */
 function StoryBubble({ story, seen }) {
-  const label = story.name;
-  // A bubble marked live opens the broadcast. Tapping the LIVE flag and
-  // landing on yesterday's photos is the whole reason the flag can't just be
-  // decoration.
-  const href =
-    story.live && story.liveId
-      ? `/live/${story.liveId}`
-      : `/status/${story.id}`;
+  const label = story.own ? "Your story" : story.name;
+  const href = story.own ? "/status/me" : `/status/${story.id}`;
   const shell =
     "flex w-[64px] shrink-0 flex-col items-center gap-1.5 transition-transform active:scale-95";
 
@@ -129,14 +127,6 @@ function StoryBubble({ story, seen }) {
           seen={seen}
           size={58}
         />
-        {/* The live flag rides over the bottom of the ring, where Instagram
-            puts it: the ring already means "unwatched", so this has to read as
-            a different claim, not a louder one. */}
-        {story.live && (
-          <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-md bg-red-500 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-[0.06em] text-white ring-2 ring-canvas">
-            Live
-          </span>
-        )}
       </span>
       <span
         className={`w-full truncate text-center text-[11px] ${
@@ -156,13 +146,8 @@ function StoryBubble({ story, seen }) {
 }
 
 /**
- * The Instagram tray: unwatched newest-first, then the ones you have already
- * seen. It scrolls sideways and bleeds to both screen edges, so the last
- * bubble reads as "there is more" rather than as the end.
- *
- * The caller hands it one ordered list and nothing else. It used to take a
- * `mine` bubble and an `onAdd` for it; both are gone with the composer tile,
- * which means an empty list is now simply no rail at all.
+ * Scrollable published stories in caller order: your active story first,
+ * then unseen creators and already viewed creators. An empty list hides the rail.
  */
 export function StoryRail({ stories, seen, className = "" }) {
   if (!stories.length) return null;

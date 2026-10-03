@@ -368,6 +368,16 @@ class ListingMediaControllerIntegrationTest {
         }
 
         @Override
+        public URI authorizeDownload(String objectKey, java.time.Duration maximumTtl) {
+            return authorizeDownload(objectKey);
+        }
+
+        @Override
+        public void store(String objectKey, String contentType, byte[] bytes) {
+            files.put(objectKey, new StoredFile(bytes, contentType, ""));
+        }
+
+        @Override
         public void delete(String objectKey) {
             files.remove(objectKey);
             mediaId(objectKey).ifPresent(deleted::add);

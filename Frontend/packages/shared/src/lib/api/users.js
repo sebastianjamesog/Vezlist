@@ -26,12 +26,13 @@ export function getPreferences() {
 }
 
 /** PATCH /api/v1/me/preferences -> UserPreferenceDetails. All four fields are required by the backend. */
-export function updatePreferences({ pushNotifications, emailUpdates, showPhoneOnAds, preciseLocation }) {
+export function updatePreferences({ pushNotifications, emailUpdates, showPhoneOnAds, preciseLocation, availableNow }) {
   return api.patch("/api/v1/me/preferences", {
     pushNotifications,
     emailUpdates,
     showPhoneOnAds,
     preciseLocation,
+    availableNow,
   });
 }
 

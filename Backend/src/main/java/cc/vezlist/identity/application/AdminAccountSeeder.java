@@ -17,13 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
  * console has a real, working login before any real staff accounts are
  * promoted by hand.
  *
- * <p><strong>This must be disabled outside local development.</strong> It is
- * gated behind {@code vezlist.seed-admin} (default {@code true}, overridable
- * via the {@code VEZLIST_SEED_ADMIN} environment variable). There is
- * currently no separate "prod" Spring profile in this project — ops must set
- * {@code VEZLIST_SEED_ADMIN=false} in every deployed environment's
- * configuration until one exists, otherwise this runner will (idempotently)
- * ensure the well-known {@code admin@vezlist.cc} account exists there too.</p>
+ * <p>Disabled by default. Local developers must explicitly enable it and
+ * provide a unique password. An existing non-admin account is never promoted.</p>
  */
 @Component
 public class AdminAccountSeeder implements ApplicationRunner {
@@ -41,8 +36,8 @@ public class AdminAccountSeeder implements ApplicationRunner {
     public AdminAccountSeeder(
             UserRepository users,
             PasswordEncoder passwordEncoder,
-            @Value("${vezlist.seed-admin:true}") boolean seedEnabled,
-            @Value("${vezlist.seed-admin-password:Vezlist#Admin2026}") String seedPassword) {
+            @Value("${vezlist.seed-admin:false}") boolean seedEnabled,
+            @Value("${vezlist.seed-admin-password:}") String seedPassword) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;
         this.seedEnabled = seedEnabled;
@@ -57,6 +52,10 @@ public class AdminAccountSeeder implements ApplicationRunner {
             return;
         }
 
+        if (seedPassword == null || seedPassword.length() < 12) {
+            throw new IllegalStateException("Admin seeding requires a unique password of at least 12 characters.");
+        }
+
         String email = SEED_ADMIN_EMAIL;
         User admin = users.findByEmail(email).orElse(null);
         if (admin == null) {
@@ -69,9 +68,7 @@ public class AdminAccountSeeder implements ApplicationRunner {
         }
 
         if (!admin.getRoles().contains(Role.ADMIN)) {
-            admin.grantRole(Role.ADMIN);
-            users.saveAndFlush(admin);
-            log.info("Granted ADMIN role to existing account '{}'.", email);
+            throw new IllegalStateException("The admin seed email already belongs to a non-admin account.");
         }
     }
 }

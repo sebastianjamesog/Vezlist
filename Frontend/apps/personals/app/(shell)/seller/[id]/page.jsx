@@ -1,17 +1,16 @@
 import CreatorProfile from "./CreatorProfile.jsx";
+import { publicSeller } from "@vezlist/shared/lib/serverPublic.js";
 
-/**
- * Creator ids are real account UUIDs from GET /api/v1/sellers/trending and
- * the ad page's `ownerId`, so there is no static list to pre-render and no
- * mock row to title the page from — the profile loads client-side. There is
- * deliberately no JSON-LD rating here either: there are no reviews behind one
- * (#29), and a Person rich result off a client-rendered name is not worth a
- * server round-trip per crawl.
- */
-export const metadata = {
-  title: "Creator profile",
-  description: "A creator's live posts, views and likes on Vezlist Personals.",
-};
+export async function generateMetadata({ params }) {
+  const { id } = await params;
+  const seller = (await publicSeller(id, "PERSONALS"))?.seller;
+  if (!seller)
+    return { title: "Creator unavailable", robots: { index: false } };
+  return {
+    title: `${seller.displayName} - creator profile`,
+    robots: { index: false },
+  };
+}
 
 export default function Page() {
   return <CreatorProfile />;

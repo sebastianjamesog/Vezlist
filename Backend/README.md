@@ -183,9 +183,10 @@ privacy, worker operation, and verification instructions.
 ## Admin console API (Module 11)
 
 Flyway V13 adds `admin_audit_log` and suspension detail on `app_users`. A
-dev-only `AdminAccountSeeder` (`vezlist.seed-admin`, default `true`, set
-`VEZLIST_SEED_ADMIN=false` outside local dev) idempotently ensures
-`admin@vezlist.cc` / `Vezlist#Admin2026` exists with the ADMIN role.
+dev-only `AdminAccountSeeder` is disabled by default. For local development,
+set `VEZLIST_SEED_ADMIN=true` and provide a unique 12+ character
+`VEZLIST_SEED_ADMIN_PASSWORD` before starting the API. It creates
+`admin@vezlist.cc` with the ADMIN role and refuses to promote an existing user.
 
 All endpoints below are under `/api/v1/admin/**`, require MODERATOR or ADMIN
 for reads, and ADMIN for anything destructive (see `SecurityConfig` and each
@@ -208,9 +209,87 @@ controller's `@PreAuthorize`):
 - `GET /admin/audit?site=&cursor=&limit=` — flattens moderation decisions (`moderation_actions`) and other admin
   actions (`admin_audit_log`: suspend/reinstate, taxonomy CRUD, listing takedown) into one chronological feed.
 
-Billing/payments, live/streaming, a support desk, and CMS-style "content" management have no underlying data
-model in this domain and were intentionally left out of this module; see the module's implementation notes for
-why.
+The payment gateway is deferred. Mux live sessions and demo creator checkout are described below.
+
+## Support tickets and help articles
+
+Flyway V17 stores owner-scoped tickets and messages. Members can create, list, read, and reply under
+`/api/v1/me/tickets`; moderators and admins can list both sites, reply, and resolve tickets under
+`/api/v1/admin/tickets`. A member cannot read or reply to another member's ticket.
+
+Flyway V18 stores help articles. Published articles are public at `GET /api/v1/support/articles`;
+authenticated moderators and admins can manage drafts and publication under
+`/api/v1/support/articles/admin`. Lists use `limit` (1-100) and `offset` pagination.
+
+Both migrations run automatically on backend startup. They create empty tables; no sample support
+conversations or answers are inserted. Content must be authored in the console before it appears publicly.
+
+## Personals live presence and featured discovery
+
+Flyway V19-V21 introduced presence and featured-slot rotations. V25 replaces the old presence
+HTTP endpoints with actual Mux sessions. The old presence table is retained for migration safety.
+`GET /api/v1/live` now lists provider-confirmed live/reconnecting sessions with enabled creator accounts.
+V26 makes live sessions independent of ads; publishing or selecting an ad is not required.
+
+`GET /api/v1/personals/featured?feed=AVAILABLE_NOW|NEW_TODAY|TRENDING` returns up to five ads
+per feed for the current rotation. A listing is assigned to at most one featured feed.
+`all=true` returns up to 60 eligible ads from the same rotation for the full Trending
+grid, in the same score order. Cards include persisted `viewCount` and `saveCount`.
+Availability intent, last-24-hour freshness, and last-four-hour saves determine eligibility.
+Recent featured-slot allocations temper raw saves and favor less-exposed ads. All active ads
+remain in normal Browse, where `availableOnly=true` filters by the creator preference.
+
+Featured discovery remains independent of the live-video directory. Purchased Boost/Bump and a
+real payment gateway remain separate work.
+
+## Live video and session chat
+
+The creator flow is introduction, backend plans, optional direct-payment details, review, demo
+checkout, camera broadcast. Watching is free and public; sending chat requires an enabled account.
+Creators can go live directly from their account without an ad. Admins manage `/live-plans`; admins and moderators can
+end sessions from `/live`. Prices are snapshotted and optimistic versions prevent stale purchases.
+
+### Configuration
+
+1. Set the five `VEZLIST_MUX_*` values in `.env.example` using one Mux environment: Video API token,
+   signed-playback key, and webhook secret. Never put them in frontend environment variables.
+2. Configure Mux webhooks at `https://YOUR_API/api/v1/live/webhooks/mux` for live stream and asset
+   events. Local development needs an HTTPS tunnel for that endpoint. Signature verification,
+   timestamp tolerance, event deduplication, and server reconciliation are implemented.
+3. Mux creates recording assets as part of live streaming. The default recording policy is
+   `UNCONFIRMED` and blocks starts. Only set `VEZLIST_LIVE_RECORDING_POLICY=DELETE_AFTER_LIVE`
+   after accepting temporary provider recordings. This option deletes assets after the session,
+   retries failed cleanup, and exposes no recording playback IDs. It does **not** mean recording
+   never takes place. See [Mux recording behavior](https://www.mux.com/docs/guides/stream-recordings-of-live-streams).
+4. Install FFmpeg with libx264/AAC and set `VEZLIST_FFMPEG_PATH` to its executable. The backend
+   Docker image includes it. Native development must install it separately. Browser WebM/MP4
+   chunks are piped into FFmpeg and directly to Mux RTMPS; media is never written to local disk.
+5. Configure Redis and public `wss://` broadcast/chat URLs in production. The reverse proxy must
+   support WebSocket Upgrade and long connections on `/api/v1/live/broadcast` and `/api/v1/live/chat`.
+   Use exact frontend origins, HTTPS for camera access, and disable local CORS patterns outside development.
+6. Set `VEZLIST_LIVE_DEMO_PURCHASES_ENABLED=true` only where demo checkout is wanted. It does not
+   charge money and still requires a working provider before a session can start.
+
+### Operation and limits
+
+`POST /api/v1/live/sessions` accepts a stable `Idempotency-Key`. Only a verified provider event or
+provider reconciliation makes a session LIVE and starts its server deadline. Ending, expiry,
+suspension stop access. Ad changes do not affect live sessions. Reconnection keeps the original deadline.
+Camera publishing uses short-lived, single-use tickets, a Redis ownership lock, bounded chunk
+buffers, and a default limit of four FFmpeg processes per node. Load test before raising limits;
+deploy media workers with CPU/memory limits and monitor dropped connections and provider errors.
+
+Chat uses Redis pub/sub across API nodes, last-100-message history, rate limiting, duplicate-message
+acknowledgements, and host/moderator deletion and muting. Viewer counts measure connected room
+identities, deduplicate tabs, exclude the host, and expire missed heartbeats after 45 seconds.
+They do not prove every counted browser is actively playing video. Chat history is purged at end;
+database cleanup markers retry after Redis outages, and all ephemeral data has a fallback TTL.
+Guests read chat; signing in enables sending. Tickets go in the first WebSocket frame, never URLs.
+
+Mux HLS delivery goes directly to viewers through Mux's CDN. The player uses adaptive quality,
+native HLS where supported, and HLS.js otherwise, with no replay/seek/download controls. The
+browser bridge and ordinary HLS playback are not sub-second WebRTC. Canada-to-viewer playback
+still needs a real-device/network test with the configured Mux account before launch.
 
 ## Verification commands
 
@@ -220,7 +299,3 @@ mvn -Pintegration verify
 ```
 
 Docker is not required for the fast tests. The integration command uses Testcontainers and requires Docker Desktop.
-
-## Next module
-
-Module 11 - Support: persistent tickets, customer replies, and support-agent APIs.

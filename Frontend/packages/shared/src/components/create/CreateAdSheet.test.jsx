@@ -84,7 +84,7 @@ describe("CreateAdSheet — publication", () => {
         phone: "2505551234",
       }),
     );
-    open(props);
+    await open(props);
     await screen.findByAltText("photo.jpg");
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await screen.findByRole("button", { name: "Property" });
@@ -170,9 +170,9 @@ const oversized = (name) => {
   return file;
 };
 
-const open = (props = {}) => {
+const open = async (props = {}) => {
   signIn({ role: "creator" });
-  return renderApp(
+  const rendered = renderApp(
     <CreateAdSheet
       open
       onClose={props.onClose ?? (() => {})}
@@ -180,6 +180,10 @@ const open = (props = {}) => {
       {...props}
     />,
   );
+  await waitFor(() =>
+    expect(document.querySelector('input[type="file"]')).not.toBeNull(),
+  );
+  return rendered;
 };
 
 const fileInput = () => document.querySelector('input[type="file"]');
@@ -187,7 +191,7 @@ const fileInput = () => document.querySelector('input[type="file"]');
 describe("CreateAdSheet — photo pipeline", () => {
   test("an accepted photo is routed through createImageBitmap + drawImage + toDataURL, never passed through raw", async () => {
     const user = userEvent.setup();
-    open();
+    await open();
     const file = png("beach.jpg");
 
     await user.upload(fileInput(), file);
@@ -207,7 +211,7 @@ describe("CreateAdSheet — photo pipeline", () => {
 
   test("a file over the size limit is refused with a clear message, not silently dropped", async () => {
     const user = userEvent.setup();
-    open();
+    await open();
 
     await user.upload(fileInput(), oversized("huge.jpg"));
 
@@ -225,7 +229,7 @@ describe("CreateAdSheet — photo pipeline", () => {
     // filter, so user-event's own default filtering (which *does* enforce
     // it) would make this test pass for the wrong reason.
     const user = userEvent.setup({ applyAccept: false });
-    open();
+    await open();
     const file = new File(["not a photo"], "resume.pdf", {
       type: "application/pdf",
     });
@@ -239,7 +243,7 @@ describe("CreateAdSheet — photo pipeline", () => {
 
   test("more than MAX_IMAGES photos in one pick are truncated with a clear message", async () => {
     const user = userEvent.setup();
-    open();
+    await open();
     const files = Array.from({ length: MAX_IMAGES + 2 }, (_, i) =>
       png(`p${i}.jpg`),
     );
@@ -259,7 +263,7 @@ describe("CreateAdSheet — photo pipeline", () => {
       return { width: 800, height: 600, close: vi.fn() };
     });
     const user = userEvent.setup();
-    open();
+    await open();
 
     await user.upload(fileInput(), [png("good.jpg"), png("corrupt.jpg")]);
 
@@ -272,7 +276,7 @@ describe("CreateAdSheet — photo pipeline", () => {
 describe("CreateAdSheet — reorder", () => {
   test("'Make cover' moves a photo to the front; the rest keep their relative order", async () => {
     const user = userEvent.setup();
-    open();
+    await open();
 
     await user.upload(fileInput(), [png("a.jpg"), png("b.jpg"), png("c.jpg")]);
     await screen.findByAltText("c.jpg");
@@ -296,7 +300,7 @@ describe("CreateAdSheet — reorder", () => {
 
   test("the move-earlier / move-later buttons nudge a photo one place, and are keyboard-operable", async () => {
     const user = userEvent.setup();
-    open();
+    await open();
 
     await user.upload(fileInput(), [png("a.jpg"), png("b.jpg"), png("c.jpg")]);
     await screen.findByAltText("c.jpg");
@@ -322,7 +326,7 @@ describe("CreateAdSheet — reorder", () => {
   });
 
   test("the cover photo (position 1) offers no move controls of its own — 'Make cover' on another photo is the only way to displace it", async () => {
-    open();
+    await open();
     const user = userEvent.setup();
     await user.upload(fileInput(), [png("a.jpg"), png("b.jpg")]);
     await screen.findByAltText("b.jpg");
@@ -336,7 +340,7 @@ describe("CreateAdSheet — reorder", () => {
   });
 
   test("a single photo offers no reorder controls at all — nothing to reorder against", async () => {
-    open();
+    await open();
     const user = userEvent.setup();
     await user.upload(fileInput(), [png("only.jpg")]);
     await screen.findByAltText("only.jpg");
@@ -348,7 +352,7 @@ describe("CreateAdSheet — reorder", () => {
 describe("CreateAdSheet — draft persistence", () => {
   test("a photo picked mid-flow survives a simulated reload", async () => {
     const user = userEvent.setup();
-    const first = open();
+    const first = await open();
     await user.upload(fileInput(), png("beach.jpg"));
     await screen.findByAltText("beach.jpg");
 
@@ -358,13 +362,13 @@ describe("CreateAdSheet — draft persistence", () => {
 
     // A fresh instance, the same way a full page reload would remount the
     // whole tree — nothing here is the same component instance as above.
-    open();
+    await open();
     expect(await screen.findByAltText("beach.jpg")).toBeTruthy();
   });
 
   test("typed fields survive the same reload, not only photos", async () => {
     const user = userEvent.setup();
-    const first = open();
+    const first = await open();
     await user.upload(fileInput(), png("beach.jpg"));
     await screen.findByAltText("beach.jpg");
     await user.click(screen.getByRole("button", { name: "Next" }));
@@ -383,7 +387,7 @@ describe("CreateAdSheet — draft persistence", () => {
     // the previous one left off — only the *fields* are restored, not the
     // step position — so getting back to Details to see the title is the
     // same one tap a poster who reopens the sheet would make.
-    open();
+    await open();
     await screen.findByAltText("beach.jpg");
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(await screen.findByDisplayValue("Kayak")).toBeTruthy();
@@ -391,7 +395,7 @@ describe("CreateAdSheet — draft persistence", () => {
 
   test("discard clears the persisted draft, not just the on-screen one", async () => {
     const user = userEvent.setup();
-    const first = open();
+    const first = await open();
     await user.upload(fileInput(), png("beach.jpg"));
     await screen.findByAltText("beach.jpg");
 
@@ -401,7 +405,7 @@ describe("CreateAdSheet — draft persistence", () => {
     await waitFor(() => expect(localStorage.getItem(DRAFT_KEY)).toBe(null));
     first.unmount();
 
-    open();
+    await open();
     // Back to the empty state — nothing left to restore.
     expect(
       await screen.findByRole("button", { name: /Add your photos/ }),
@@ -410,12 +414,12 @@ describe("CreateAdSheet — draft persistence", () => {
   });
 
   test("a fresh draft with no category chosen leaves nothing to restore", async () => {
-    const first = open();
+    const first = await open();
     // Sheet mounted, nothing picked or typed.
     await waitFor(() => expect(localStorage.getItem(DRAFT_KEY)).toBe(null));
     first.unmount();
 
-    open();
+    await open();
     expect(
       await screen.findByRole("button", { name: /Add your photos/ }),
     ).toBeTruthy();
@@ -424,7 +428,7 @@ describe("CreateAdSheet — draft persistence", () => {
 
 describe("CreateAdSheet — catalog category selection", () => {
   test("a fresh draft does not silently choose the first category", async () => {
-    open();
+    await open();
     await userEvent.upload(fileInput(), png("photo.jpg"));
     await screen.findByAltText("photo.jpg");
     await waitFor(() => {
@@ -449,7 +453,7 @@ describe("CreateAdSheet — catalog category selection", () => {
       }),
     );
     const onPublish = vi.fn();
-    open({ onPublish });
+    await open({ onPublish });
     await screen.findByAltText("photo.jpg");
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await userEvent.click(screen.getByRole("button", { name: "Next" }));

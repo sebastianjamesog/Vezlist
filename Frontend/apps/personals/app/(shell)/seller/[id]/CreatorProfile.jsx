@@ -6,7 +6,6 @@ import { useParams } from "next/navigation";
 import {
   BadgeCheck,
   CalendarDays,
-  Eye,
   Flag,
   Megaphone,
   Radio,
@@ -21,11 +20,12 @@ import ReportDialog from "@vezlist/shared/components/ReportDialog.jsx";
 import MediaImage from "@vezlist/shared/components/media/MediaImage.jsx";
 import { useReports } from "@vezlist/shared/context/ReportsContext.jsx";
 import { useToast } from "@vezlist/shared/context/ToastContext.jsx";
-import { compactCount, timeAgo } from "@vezlist/shared/lib/format.js";
+import { compactCount } from "@vezlist/shared/lib/format.js";
 import { getSellerProfile } from "@vezlist/shared/lib/api/sellers.js";
 import { SITE_SCOPE, ApiError } from "@vezlist/shared/lib/api/client.js";
 import { FEED_PATH } from "@vezlist/shared/lib/sites.js";
 import { liveStreamFor } from "@vezlist/shared/lib/live.js";
+import { useLiveSessions } from "@vezlist/shared/components/live/useLiveSessions.js";
 import CreatorAvatar from "../../../CreatorAvatar.jsx";
 
 /** The server caps a profile page at 50 posts. */
@@ -109,14 +109,16 @@ function LiveBanner({ stream }) {
       className="group mt-4 flex items-center gap-3 overflow-hidden rounded-card bg-surface p-2.5 shadow-card ring-1 ring-red-500/30 transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
     >
       <span className="relative aspect-[3/4] w-14 shrink-0 overflow-hidden rounded-lg">
-        <MediaImage
-          discreet
-          fill
-          src={stream.cover}
-          alt=""
-          sizes="56px"
-          className="object-cover"
-        />
+        {(stream.imageUrl || stream.avatarUrl) && (
+          <MediaImage
+            discreet
+            fill
+            src={stream.imageUrl || stream.avatarUrl}
+            alt=""
+            sizes="56px"
+            className="object-cover"
+          />
+        )}
         <span className="absolute inset-0 grid place-items-center bg-black/30">
           <Radio className="size-5 text-white" strokeWidth={2.4} />
         </span>
@@ -125,18 +127,14 @@ function LiveBanner({ stream }) {
         <span className="flex items-center gap-1.5">
           <span className="flex items-center gap-1 rounded bg-red-500 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-[0.06em] text-white">
             <span className="size-1.5 animate-pulse rounded-full bg-white motion-reduce:animate-none" />
-            Live
-          </span>
-          <span className="flex items-center gap-0.5 text-[10px] font-semibold tabular-nums text-muted">
-            <Eye className="size-3" strokeWidth={2.4} />
-            {compactCount(stream.viewers)} watching
+            {stream.status === "RECONNECTING" ? "Reconnecting" : "Live"}
           </span>
         </span>
         <span className="mt-1 block truncate text-[13px] font-bold text-ink">
           {stream.title}
         </span>
         <span className="block truncate text-[11px] text-muted">
-          Started {timeAgo(stream.startedMsAgo).toLowerCase()}
+          Watch this creator's live session
         </span>
       </span>
       <span className="shrink-0 rounded-full bg-red-500 px-3 py-1.5 text-[12px] font-bold text-white transition-colors group-hover:bg-red-600">
@@ -184,6 +182,7 @@ export default function CreatorProfile() {
   const { id } = useParams();
   const { isBlocked, block, unblock, reportOf } = useReports();
   const toast = useToast();
+  const sessions = useLiveSessions();
 
   const [page, setPage] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -247,7 +246,7 @@ export default function CreatorProfile() {
   const { seller, items, activeListingCount, viewCount, likeCount } = page;
   const blocked = isBlocked(seller.id);
   const reported = reportOf("user", seller.id);
-  const live = blocked ? null : liveStreamFor(seller.displayName);
+  const live = blocked ? null : liveStreamFor(seller.id, sessions);
   // Profile-photo upload is future work, so most creators have no avatar yet:
   // stand in their first post's photo rather than bare initials — unless
   // they're blocked, when their posts are hidden and so is this.
@@ -381,7 +380,7 @@ export default function CreatorProfile() {
             ) : (
               <EmptyState
                 icon="Megaphone"
-                title="No live posts"
+                title="No posts yet"
                 body="This creator has nothing posted right now."
               />
             )}

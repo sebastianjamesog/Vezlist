@@ -1,3 +1,5 @@
+import { vi } from "vitest";
+import * as authApi from "@vezlist/shared/lib/api/auth.js";
 import { render } from "@testing-library/react";
 import { AuthProvider } from "@vezlist/shared/context/AuthContext.jsx";
 import { AccountProvider } from "@vezlist/shared/context/AccountContext.jsx";
@@ -69,39 +71,17 @@ export function renderAdmin(ui, options) {
   return render(ui, { wrapper: AdminProviders, ...options });
 }
 
-/**
- * Sign the browser in before a render.
- *
- * `AccountContext`'s account-type toggle (creator/browsing) still lives in a
- * cookie on the parent domain, under its own key (`vezlist_role`) —
- * `AuthContext` moved identity itself to the real backend (a `Spring
- * Session` cookie the browser can't read; it hydrates from `GET
- * /api/v1/auth/me` instead), but never claimed the creator/browsing
- * preference, which has no backend counterpart. So this only ever sets the
- * role cookie now — there is no session cookie for a test to fake its way
- * into, and a screen gated on `signedIn` rather than a capability needs its
- * own `authApi` mock, not this helper.
- *
- * `vezlist_session` is still written too, harmlessly, for any lingering
- * caller that reads it directly rather than through `AccountContext`.
- *
- * Must be called *before* `renderApp`: `usePersisted` reads the store once on
- * mount and only re-reads on focus.
- */
+/** Supply the backend identity before rendering the real AuthProvider. */
 export function signIn({ role = "creator", ...rest } = {}) {
   const session = {
+    id: "test-poster",
     name: "Test Poster",
     email: "poster@example.com",
-    role,
-    signedInAt: "just now",
+    accountType: role === "creator" ? "CREATOR" : "BROWSING",
+    roles: ["USER"],
     ...rest,
   };
-  document.cookie = `vezlist_session=${encodeURIComponent(
-    JSON.stringify(session),
-  )}; path=/`;
-  document.cookie = `vezlist_role=${encodeURIComponent(
-    JSON.stringify(role),
-  )}; path=/`;
+  vi.spyOn(authApi, "me").mockResolvedValue(session);
   return session;
 }
 

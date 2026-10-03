@@ -81,6 +81,48 @@ class ListingControllerIntegrationTest {
     }
 
     @Test
+    void registeredViewsPersistAndRefreshWithoutCountingDetailOrFeedReads() {
+        Session owner = register("listing-views-" + UUID.randomUUID() + "@example.test");
+        String activeId = createDraft(owner, "MARKETPLACE");
+        String draftId = createDraft(owner, "MARKETPLACE");
+        jdbc.update("UPDATE listings SET status = 'ACTIVE', published_at = now(), "
+                + "expires_at = now() + interval '1 day' WHERE id = ?::uuid", activeId);
+        String path = "/api/v1/listings/" + activeId;
+
+        assertThat(rest.getForEntity(url(path + "?site=MARKETPLACE"), Map.class).getBody())
+                .containsEntry("viewCount", 0);
+        assertThat(rest.getForEntity(url("/api/v1/listings?site=MARKETPLACE"), Map.class).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+        assertThat(jdbc.queryForObject("SELECT view_count FROM listings WHERE id = ?::uuid", Long.class, activeId))
+                .isZero();
+
+        String requestId = UUID.randomUUID().toString();
+        ResponseEntity<Map> first = exchange(path + "/views?site=MARKETPLACE", HttpMethod.POST,
+                null, owner, requestId, Map.class);
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(first.getBody()).containsExactlyEntriesOf(Map.of("viewCount", 1));
+        assertThat(exchange(path + "/views?site=MARKETPLACE", HttpMethod.POST,
+                null, owner, requestId, Map.class).getBody()).containsEntry("viewCount", 1);
+        assertThat(exchange(path + "/views?site=MARKETPLACE", HttpMethod.POST,
+                null, owner, UUID.randomUUID().toString(), Map.class).getBody())
+                .containsEntry("viewCount", 2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_views WHERE listing_id = ?::uuid",
+                Long.class, activeId)).isEqualTo(2);
+        assertThat(rest.getForEntity(url(path + "?site=MARKETPLACE"), Map.class).getBody())
+                .containsEntry("viewCount", 2);
+
+        ResponseEntity<Map> counts = rest.getForEntity(url("/api/v1/listings/views?site=MARKETPLACE&ids="
+                + activeId + "," + draftId), Map.class);
+        assertThat(counts.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(counts.getBody()).containsExactlyEntriesOf(Map.of(activeId, 2));
+        assertThat(rest.getForEntity(url("/api/v1/listings/views?site=PERSONALS&ids=" + activeId),
+                Map.class).getBody()).isEmpty();
+        assertThat(exchange("/api/v1/listings/" + draftId + "/views?site=MARKETPLACE",
+                HttpMethod.POST, null, owner, UUID.randomUUID().toString(), Map.class).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
     void draftLifecycleIsOwnedScopedAndIdempotent() {
         Session owner = register("listing-owner-" + UUID.randomUUID() + "@example.test");
         Session other = register("listing-other-" + UUID.randomUUID() + "@example.test");

@@ -6,6 +6,7 @@ import cc.vezlist.identity.application.IdentityService;
 import cc.vezlist.identity.application.VezlistUserPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +21,7 @@ import org.springframework.security.web.context.HttpSessionSecurityContextReposi
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -90,6 +92,13 @@ public class AuthController {
         return identityService.toResponse((VezlistUserPrincipal) authentication.getPrincipal());
     }
 
+    record AccountTypeRequest(@jakarta.validation.constraints.NotNull @jakarta.validation.constraints.Pattern(regexp = "CREATOR|BROWSING") String accountType) {}
+
+    @PatchMapping("/account-type")
+    CurrentUserResponse accountType(Authentication authentication, @Valid @RequestBody AccountTypeRequest request) {
+        return identityService.changeAccountType((VezlistUserPrincipal) authentication.getPrincipal(), request.accountType());
+    }
+
     @PostMapping("/logout")
     ResponseEntity<Void> logout(Authentication authentication, HttpServletRequest request, HttpServletResponse response) {
         if (authentication != null && authentication.getPrincipal() instanceof VezlistUserPrincipal principal) {
@@ -111,6 +120,12 @@ public class AuthController {
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);
-        request.getSession(true).setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, context);
+        HttpSession session = request.getSession(false);
+        if (session == null) {
+            session = request.getSession(true);
+        } else {
+            request.changeSessionId();
+        }
+        session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, context);
     }
 }

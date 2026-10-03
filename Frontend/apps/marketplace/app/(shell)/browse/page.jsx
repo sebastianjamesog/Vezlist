@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import BrowseScreen from "./BrowseScreen.jsx";
 import Loading from "./loading.jsx";
-import { categories, listings } from "@vezlist/shared/data/mock.js";
+import { publicCategories, publicDiscovery, safeJsonLd } from "@vezlist/shared/lib/serverPublic.js";
 import { MARKETPLACE_URL } from "@vezlist/shared/lib/sites.js";
 
 /**
@@ -17,7 +17,8 @@ import { MARKETPLACE_URL } from "@vezlist/shared/lib/sites.js";
  * canonicalises down to that clean URL (or to bare `/browse` with no `cat` at
  * all) instead of minting a new indexable permutation per combination.
  */
-function canonicalFor(catId) {
+async function canonicalFor(catId) {
+  const categories = await publicCategories("MARKETPLACE") ?? [];
   const category = catId ? categories.find((c) => c.id === catId) : null;
   return {
     category,
@@ -28,10 +29,10 @@ function canonicalFor(catId) {
 export async function generateMetadata({ searchParams }) {
   const sp = await searchParams;
   const catId = typeof sp.cat === "string" ? sp.cat : undefined;
-  const { category, path } = canonicalFor(catId);
+  const { category, path } = await canonicalFor(catId);
   const title = category ? `${category.label} ads` : "Browse ads";
   const description = category
-    ? `Browse ${category.label.toLowerCase()} ads for sale near you on Vezlist, updated daily.`
+    ? `Browse ${category.label.toLowerCase()} ads on Vezlist.`
     : "Browse every ad on Vezlist — vehicles, jobs, services, electronics and more — filtered by category and location.";
   return {
     title,
@@ -47,10 +48,9 @@ export async function generateMetadata({ searchParams }) {
 // this is the server-rendered approximation a crawler that never runs JS
 // still gets — the same category cut the shell would open on, before any
 // further client-side narrowing.
-function browseJsonLd(category) {
-  const items = (
-    category ? listings.filter((l) => l.categoryId === category.id) : listings
-  ).slice(0, 20);
+async function browseJsonLd(category) {
+  const page = await publicDiscovery("MARKETPLACE", null, category?.id);
+  const items = page?.items?.slice(0, 20) ?? [];
   if (!items.length) return null;
   return {
     "@context": "https://schema.org",
@@ -59,8 +59,7 @@ function browseJsonLd(category) {
       "@type": "ListItem",
       position: i + 1,
       name: l.title,
-      url: `${MARKETPLACE_URL}/ad/${l.adId}`,
-      image: l.image,
+      url: `${MARKETPLACE_URL}/ad/${l.id}`,
     })),
   };
 }
@@ -70,14 +69,14 @@ function browseJsonLd(category) {
 export default async function Page({ searchParams }) {
   const sp = await searchParams;
   const catId = typeof sp.cat === "string" ? sp.cat : undefined;
-  const { category } = canonicalFor(catId);
-  const jsonLd = browseJsonLd(category);
+  const { category } = await canonicalFor(catId);
+  const jsonLd = await browseJsonLd(category);
   return (
     <>
       {jsonLd && (
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }}
         />
       )}
       <Suspense fallback={<Loading />}>

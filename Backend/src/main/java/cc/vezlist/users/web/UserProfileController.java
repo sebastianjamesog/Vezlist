@@ -69,7 +69,7 @@ public class UserProfileController {
             @Valid @RequestBody PreferencesUpdateRequest request) {
         return profileService.updatePreferences(
                 principal.id(), request.pushNotifications(), request.emailUpdates(),
-                request.showPhoneOnAds(), request.preciseLocation());
+                request.showPhoneOnAds(), request.preciseLocation(), request.availableNow());
     }
 
     @PatchMapping("/password")

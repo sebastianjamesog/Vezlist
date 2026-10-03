@@ -7,258 +7,285 @@ import {
   useEffect,
   useMemo,
   useReducer,
+  useRef,
   useState,
 } from "react";
+import { useAuth } from "./AuthContext";
 import { usePersistedIds, usePersistedObject } from "../lib/persisted";
-import {
-  EMPTY_REACTIONS,
-  STORY_TTL_MS,
-  isUpdateActive,
-  reactionFor,
-  reactionsReducer,
-} from "../lib/status";
-import { stories as seedStories } from "../data/mock";
+import { EMPTY_REACTIONS, reactionFor, reactionsReducer } from "../lib/status";
+import { IS_PERSONALS } from "../lib/sites";
+import * as storiesApi from "../lib/api/stories";
 
-/**
- * Status state that has to agree across screens: whose updates you've watched
- * (which is what drives the ring colour), and this device's own reactions to
- * updates it has looked at.
- */
 const StatusContext = createContext(null);
 
-// Versioned like every other storage key this app writes (`vezlist:ads:v1`,
-// `vezlist:admin:v1`...) — this one had not been until now, which meant a
-// shape this hook stops writing would sit in `localStorage` forever, read
-// forever after. `usePersistedIds`'s own guard already drops anything that
-// is not an array of strings, so nothing here actually breaks today; this is
-// the seam for the day it does.
-const KEY = "vezlist:status-seen:v1";
-// See `SavedContext` — the pre-version name, migrated forward on first read.
-const LEGACY_KEY = "vezlist:status-seen";
-
-// A second, independent key for reactions — a hand-edited or stale
-// `status-seen` value has never been able to corrupt what a viewer reacted
-// with, and mixing the two into one object would change that.
-const REACTIONS_KEY = "vezlist:status-reactions:v1";
-
-// A third key, for the updates this device has posted to its own story.
-// Separate from the two above for the same reason those are separate from
-// each other: what you posted, what you watched and what you reacted with
-// fail independently, and one corrupt value should not take the other two
-// with it. Stored as the delta only — the seed story in `mock.js` is never
-// copied in, so editing that seed in dev is never masked by yesterday's
-// storage. Same rule `tickets.js` follows.
-const MY_STORY_KEY = "vezlist:my-story:v1";
-
+/** Server media is never persisted in browser storage. Seen/reactions remain device-only. */
 export function StatusProvider({ children }) {
-  const [seen, setSeen, ready] = usePersistedIds(KEY, LEGACY_KEY);
-
+  const { user, ready: authReady } = useAuth();
+  const userId = user?.id ?? null;
+  const canManage = user?.accountType === "CREATOR";
+  const [seen, setSeen, seenReady] = usePersistedIds(
+    "vezlist:status-seen:v1",
+    "vezlist:status-seen",
+  );
   const markSeen = useCallback(
-    (id) => setSeen((s) => (s.includes(id) ? s : [...s, id])),
+    (id) =>
+      setSeen((previous) =>
+        previous.includes(id) ? previous : [...previous, id],
+      ),
     [setSeen],
   );
   const clearSeen = useCallback(() => setSeen([]), [setSeen]);
-
-  /**
-   * Reactions, kept the same shape `TicketsProvider` keeps tickets in: a
-   * pure reducer over the delta this device has created, folded over a
-   * stored copy exactly once. See `lib/status.js` for why a reaction never
-   * leaves this store — there is no server for it to travel to.
-   */
-  const [reactions, rawDispatch] = useReducer(
-    reactionsReducer,
-    EMPTY_REACTIONS,
-  );
+  const [reactions, dispatch] = useReducer(reactionsReducer, EMPTY_REACTIONS);
   const [storedReactions, setStoredReactions, reactionsLoaded] =
-    usePersistedObject(REACTIONS_KEY);
+    usePersistedObject("vezlist:status-reactions:v1");
   const [reactionsHydrated, setReactionsHydrated] = useState(false);
-
-  // Read once, then never again — see `TicketsContext` for why the guard is
-  // state rather than a ref.
   useEffect(() => {
     if (!reactionsLoaded || reactionsHydrated) return;
-    if (storedReactions) {
-      rawDispatch({ type: "rehydrate", state: storedReactions });
-    }
+    if (storedReactions)
+      dispatch({ type: "rehydrate", state: storedReactions });
     setReactionsHydrated(true);
   }, [reactionsLoaded, reactionsHydrated, storedReactions]);
-
-  // ...and write back on every change afterwards, never before.
   useEffect(() => {
-    if (!reactionsHydrated) return;
-    setStoredReactions(reactions);
-    // `setStoredReactions` is stable; `reactions` is the whole point.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reactions, reactionsHydrated]);
+    if (reactionsHydrated) setStoredReactions(reactions);
+  }, [reactions, reactionsHydrated, setStoredReactions]);
+  const react = useCallback(
+    (storyId, updateId, emoji) =>
+      dispatch({ type: "react", storyId, updateId, emoji }),
+    [],
+  );
 
-  const react = useCallback((storyId, updateId, emoji) => {
-    rawDispatch({ type: "react", storyId, updateId, emoji });
+  const [feed, setFeed] = useState([]);
+  const [extra, setExtra] = useState({});
+  const [mine, setMine] = useState({ ownerId: null, items: [], credits: 0 });
+  const [loadedFor, setLoadedFor] = useState(undefined);
+  const [error, setError] = useState(null);
+  const [now, setNow] = useState(null);
+  const request = useRef(0);
+  const creatorIds = useRef(new Set());
+
+  const refreshStories = useCallback(async () => {
+    if (!authReady) return;
+    const sequence = ++request.current;
+    if (!IS_PERSONALS) {
+      setLoadedFor(userId);
+      return;
+    }
+    const owners = [...creatorIds.current];
+    const [publicResult, ownResult, ...creatorResults] =
+      await Promise.allSettled([
+        storiesApi.listStories({ limit: 100 }),
+        userId && canManage
+          ? storiesApi.listMyStories()
+          : Promise.resolve({ items: [], credits: 0 }),
+        ...owners.map((owner) => storiesApi.listCreatorStories(owner)),
+      ]);
+    if (sequence !== request.current) return;
+    const failed =
+      publicResult.status === "rejected"
+        ? publicResult.reason
+        : ownResult.status === "rejected"
+          ? ownResult.reason
+          : null;
+    if (publicResult.status === "fulfilled")
+      setFeed(publicResult.value.items ?? []);
+    if (ownResult.status === "fulfilled")
+      setMine({ ownerId: userId, ...ownResult.value });
+    setExtra((previous) => {
+      const next = { ...previous };
+      creatorResults.forEach((result, index) => {
+        if (
+          result.status === "fulfilled" &&
+          creatorIds.current.has(owners[index])
+        )
+          next[owners[index]] = result.value.items ?? [];
+      });
+      return next;
+    });
+    setError(
+      failed
+        ? failed.message || "Stories could not be loaded. Please try again."
+        : null,
+    );
+    setLoadedFor(userId);
+    setNow(Date.now());
+  }, [authReady, userId, canManage]);
+
+  useEffect(() => {
+    refreshStories();
+    const timer = setInterval(refreshStories, 60_000);
+    window.addEventListener("focus", refreshStories);
+    return () => {
+      ++request.current;
+      clearInterval(timer);
+      window.removeEventListener("focus", refreshStories);
+    };
+  }, [refreshStories]);
+
+  const loadCreatorStories = useCallback(async (ownerId) => {
+    creatorIds.current.add(ownerId);
+    // Keep a bounded cache of direct links outside the public feed's first page.
+    if (creatorIds.current.size > 10)
+      creatorIds.current.delete(creatorIds.current.values().next().value);
+    const result = await storiesApi.listCreatorStories(ownerId);
+    setExtra((previous) =>
+      Object.fromEntries(
+        Object.entries({ ...previous, [ownerId]: result.items ?? [] }).filter(
+          ([owner]) => creatorIds.current.has(owner),
+        ),
+      ),
+    );
+    setNow(Date.now());
+    return result;
   }, []);
 
-  /**
-   * The updates this device has posted to its own story.
-   *
-   * Kept here rather than in the composer because three screens read it —
-   * the player rolls through it, the profile row counts it and the composer
-   * appends to it — and a piece of state three screens share is not local
-   * state. It never mutates the imported `stories` array: that is the bug
-   * class issue #37 exists to remove, and a story pushed into a module-level
-   * array is gone the moment the page reloads.
-   */
-  const [storedMine, setStoredMine, mineLoaded] =
-    usePersistedObject(MY_STORY_KEY);
+  const ownItems = useMemo(
+    () => (mine.ownerId === userId && userId ? mine.items : []),
+    [mine, userId],
+  );
+  const rows = useMemo(() => {
+    const unique = new Map();
+    for (const item of feed) unique.set(item.id, item);
+    // A direct creator fetch replaces that owner's feed rows, including deletions.
+    for (const [ownerId, items] of Object.entries(extra)) {
+      for (const [id, item] of unique)
+        if (item.ownerId === ownerId) unique.delete(id);
+      for (const item of items) unique.set(item.id, item);
+    }
+    if (mine.ownerId === userId && userId && canManage) {
+      for (const [id, item] of unique)
+        if (item.ownerId === userId) unique.delete(id);
+      for (const item of ownItems) unique.set(item.id, item);
+    }
+    return [...unique.values()];
+  }, [feed, extra, ownItems, mine.ownerId, userId, canManage]);
 
-  /**
-   * The clock the 24-hour expiry is measured against.
-   *
-   * State set from an effect, never read during a render. A story you posted
-   * carries a real `postedAt`, so unlike the fixtures — whose age is a fixed
-   * number baked into `mock.js` — deciding whether it is still current means
-   * asking what time it is, and asking that while rendering is how this repo
-   * has produced hydration mismatches before. `null` until the effect runs,
-   * which costs nothing: `storedMine` is null until its own effect reads
-   * localStorage too, so there is nothing to expire on the renders where the
-   * clock is unknown.
-   */
-  const [now, setNow] = useState(null);
-  useEffect(() => setNow(Date.now()), []);
-
-  /**
-   * ...moved on, once, at the moment something actually expires.
-   *
-   * The obvious version of this is an interval, and it is the wrong shape.
-   * `now` is a dependency of the memo below, which is a dependency of the
-   * merged `stories`, which is a dependency of the context value — so a
-   * clock that ticks on a timer re-renders every screen holding `useStatus`
-   * on that timer, forever, to discover nothing changed. A phone left on the
-   * board overnight would do that a thousand times.
-   *
-   * A story has exactly one moment where its answer changes, and it is
-   * known in advance: the oldest live update's `postedAt` plus the TTL. So
-   * the clock sleeps until then and wakes once, which re-renders once, at
-   * which point the next deadline is computed from what is left. With
-   * nothing stored, or nothing left to expire, no timer is scheduled at all.
-   *
-   * The second of slack is so the timeout cannot land a millisecond early
-   * and re-schedule itself in a tight loop; `STORY_TTL_MS` is 24 hours, well
-   * inside `setTimeout`'s 24.8-day ceiling, so the delay never overflows.
-   */
+  // Expire even when an open tab has lost its network connection.
   useEffect(() => {
-    if (now === null) return undefined;
-    const stored = Array.isArray(storedMine?.updates) ? storedMine.updates : [];
-    const next = stored
-      .map((u) => (typeof u?.postedAt === "number" ? u.postedAt : null))
-      .filter((at) => at !== null)
-      .map((at) => at + STORY_TTL_MS)
-      .filter((at) => at > now);
-    if (!next.length) return undefined;
+    if (now === null) return;
+    const deadlines = rows
+      .filter((row) => row.status === "PUBLISHED")
+      .map((row) => Date.parse(row.expiresAt))
+      .filter((time) => time > now);
+    if (!deadlines.length) return;
     const timer = setTimeout(
       () => setNow(Date.now()),
-      Math.min(...next) - now + 1000,
+      Math.max(1, Math.min(...deadlines) - Date.now()),
     );
     return () => clearTimeout(timer);
-  }, [now, storedMine]);
+  }, [rows, now]);
 
-  const myUpdates = useMemo(() => {
-    const stored = Array.isArray(storedMine?.updates) ? storedMine.updates : [];
-    if (now === null) return stored;
-    return stored.filter((u) => isUpdateActive(u, now));
-  }, [storedMine, now]);
-
-  /**
-   * ...and the same cut, written back to the store.
-   *
-   * Filtering on read is what makes an expired update invisible; this is
-   * what stops it living in `localStorage` for the rest of the device's
-   * life. The two are deliberately not one step — the filter has to keep
-   * working on the render before this effect commits — but leaving only the
-   * filter would mean a year of dead photos accumulating in a slot that is
-   * never cleaned, each one a base64 data URI.
-   *
-   * Returns `prev` unchanged when nothing has expired, so the identity is
-   * the same, React bails out of the re-render, and `usePersisted`'s
-   * write-back effect never fires. Without that, every wake of the clock
-   * above would rewrite the slot with what it already held.
-   */
-  useEffect(() => {
-    if (now === null || !mineLoaded) return;
-    setStoredMine((prev) => {
-      const updates = Array.isArray(prev?.updates) ? prev.updates : [];
-      const live = updates.filter((u) => isUpdateActive(u, now));
-      return live.length === updates.length ? prev : { ...prev, updates: live };
-    });
-  }, [now, mineLoaded, setStoredMine]);
-
-  const postStory = useCallback(
-    (update) =>
-      setStoredMine((prev) => {
-        const updates = Array.isArray(prev?.updates) ? prev.updates : [];
-        return { ...prev, updates: [...updates, update] };
-      }),
-    [setStoredMine],
-  );
-
-  const removeStory = useCallback(
-    (updateId) =>
-      setStoredMine((prev) => {
-        const updates = Array.isArray(prev?.updates) ? prev.updates : [];
-        return { ...prev, updates: updates.filter((u) => u.id !== updateId) };
-      }),
-    [setStoredMine],
-  );
-
-  /**
-   * The seed with this device's own posts folded into the `own` story.
-   *
-   * Every screen that used to `import { stories } from "../data/mock"` reads
-   * this instead, so there is one merged list rather than a seed in some
-   * places and a seed-plus-posts in others. Newest first inside the own
-   * story, matching the order the player advances in.
-   */
   const stories = useMemo(() => {
-    if (!myUpdates.length) return seedStories;
-    return seedStories.map((story) =>
-      story.own
-        ? { ...story, updates: [...myUpdates, ...(story.updates ?? [])] }
-        : story,
-    );
-  }, [myUpdates]);
+    const groups = new Map();
+    if (userId)
+      groups.set(userId, {
+        id: "me",
+        ownerId: userId,
+        name: user.name,
+        own: true,
+        avatar: null,
+        updates: [],
+        msAgo: 0,
+      });
+    if (now === null) return [...groups.values()];
+    const active = rows
+      .filter(
+        (row) =>
+          row.status === "PUBLISHED" &&
+          Date.parse(row.expiresAt) > now &&
+          row.mediaUrl,
+      )
+      .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
+    for (const row of active) {
+      const own = row.ownerId === userId;
+      const age = Math.max(0, now - Date.parse(row.publishedAt));
+      if (!groups.has(row.ownerId))
+        groups.set(row.ownerId, {
+          id: row.ownerId,
+          ownerId: row.ownerId,
+          name: row.creatorName || "Creator",
+          own,
+          avatar: row.avatarUrl,
+          msAgo: age,
+          updates: [],
+        });
+      const group = groups.get(row.ownerId);
+      if (!group.avatar)
+        group.avatar =
+          row.avatarUrl || (row.mediaType === "IMAGE" ? row.mediaUrl : null);
+      group.updates.push({
+        id: row.id,
+        mediaType: row.mediaType,
+        image: row.mediaType === "IMAGE" ? row.mediaUrl : null,
+        video: row.mediaType === "VIDEO" ? row.mediaUrl : null,
+        postedAt: Date.parse(row.publishedAt),
+        expiresAt: Date.parse(row.expiresAt),
+        msAgo: age,
+        caption: "",
+      });
+    }
+    return [...groups.values()];
+  }, [rows, userId, user, now]);
 
+  const removeStory = useCallback(async (id) => {
+    await storiesApi.deleteStory(id);
+    setFeed((previous) => previous.filter((item) => item.id !== id));
+    setMine((previous) => ({
+      ...previous,
+      items: previous.items.filter((item) => item.id !== id),
+    }));
+    setExtra((previous) =>
+      Object.fromEntries(
+        Object.entries(previous).map(([owner, items]) => [
+          owner,
+          items.filter((item) => item.id !== id),
+        ]),
+      ),
+    );
+  }, []);
+  const myUpdates = useMemo(
+    () => stories.find((story) => story.own)?.updates ?? [],
+    [stories],
+  );
+  const dataReady = authReady && loadedFor === userId;
   const value = useMemo(
     () => ({
       seen,
-      // False until the stored ids land, which is one tick after hydration.
-      ready,
+      ready: seenReady && dataReady,
       markSeen,
       clearSeen,
       isSeen: (id) => seen.includes(id),
-      // This device's own reactions — never anyone else's, because there is
-      // nowhere for anyone else's to come from.
       reactionsReady: reactionsHydrated,
       react,
       reactionFor: (storyId, updateId) =>
         reactionFor(reactions, storyId, updateId),
-      // The seed with this device's own posts merged in, plus the two verbs
-      // that change it. `myUpdates` is handed out on its own as well, because
-      // the profile row wants a count and not the whole tray.
       stories,
       myUpdates,
-      myStoryReady: mineLoaded,
-      postStory,
+      myStoryReady: dataReady,
+      canManage,
+      credits:
+        canManage && mine.ownerId === userId && userId ? mine.credits : 0,
+      error,
+      refreshStories,
+      loadCreatorStories,
       removeStory,
     }),
     [
       seen,
-      ready,
+      seenReady,
+      dataReady,
       markSeen,
       clearSeen,
-      reactions,
       reactionsHydrated,
       react,
+      reactions,
       stories,
       myUpdates,
-      mineLoaded,
-      postStory,
+      mine,
+      userId,
+      canManage,
+      error,
+      refreshStories,
+      loadCreatorStories,
       removeStory,
     ],
   );
@@ -269,7 +296,8 @@ export function StatusProvider({ children }) {
 }
 
 export function useStatus() {
-  const ctx = useContext(StatusContext);
-  if (!ctx) throw new Error("useStatus must be used inside <StatusProvider>");
-  return ctx;
+  const context = useContext(StatusContext);
+  if (!context)
+    throw new Error("useStatus must be used inside <StatusProvider>");
+  return context;
 }

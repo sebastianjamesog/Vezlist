@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useAccount } from "../context/AccountContext";
 import { ACCOUNT_ROLES } from "../lib/accountRoles";
 import SubPageBar from "./layout/SubPageBar";
@@ -26,6 +27,8 @@ export default function RequireCapability({
   fallback = "/profile",
 }) {
   const { can, setRole } = useAccount();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState(null);
   if (can(capability)) return children;
 
   const creator = ACCOUNT_ROLES.creator;
@@ -52,10 +55,29 @@ export default function RequireCapability({
             <Button
               size="lg"
               className="w-full"
-              onClick={() => setRole("creator")}
+              disabled={pending}
+              onClick={async () => {
+                setPending(true);
+                setError(null);
+                try {
+                  await setRole("creator");
+                } catch (error) {
+                  setError(
+                    error.message ||
+                      "Could not change account type. Please try again.",
+                  );
+                } finally {
+                  setPending(false);
+                }
+              }}
             >
-              Become an ads creator
+              {pending ? "Saving…" : "Become an ads creator"}
             </Button>
+            {error && (
+              <p role="alert" className="text-sm text-red-600">
+                {error}
+              </p>
+            )}
             <Link
               href={fallback}
               className="block py-2 text-[14px] font-semibold text-muted hover:text-ink"

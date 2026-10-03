@@ -7,6 +7,7 @@ RUN mvn -B -q package -DskipTests
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && apt-get clean
 RUN useradd --system --uid 10001 vezlist
 COPY --from=build /workspace/target/vezlist-api-*.jar app.jar
 USER vezlist

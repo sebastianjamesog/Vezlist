@@ -83,6 +83,18 @@ class S3ObjectStorageIntegrationTest {
             assertThat(downloaded.statusCode()).isEqualTo(200);
             assertThat(downloaded.body()).isEqualTo(content);
 
+            String readyKey = "stories/validated-object";
+            storage.store(readyKey, "image/jpeg", content);
+            URI bounded = storage.authorizeDownload(readyKey, Duration.ofSeconds(30));
+            assertThat(bounded.getQuery()).contains("X-Amz-Expires=30");
+            assertThat(storage.authorizeDownload(readyKey, Duration.ofDays(1)).getQuery()).contains("X-Amz-Expires=120");
+            assertThatThrownBy(() -> storage.authorizeDownload(readyKey, Duration.ZERO)).isInstanceOf(IllegalArgumentException.class);
+            HttpResponse<byte[]> validated = HttpClient.newHttpClient().send(
+                    HttpRequest.newBuilder(bounded).GET().build(), HttpResponse.BodyHandlers.ofByteArray());
+            assertThat(validated.statusCode()).isEqualTo(200);
+            assertThat(validated.body()).isEqualTo(content);
+            storage.delete(readyKey);
+
             storage.delete(key);
             assertThatThrownBy(() -> storage.describe(key))
                     .isInstanceOf(StorageException.class);

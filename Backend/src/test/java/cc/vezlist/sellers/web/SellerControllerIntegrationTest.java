@@ -41,6 +41,7 @@ class SellerControllerIntegrationTest {
     }
     @Autowired private TestRestTemplate rest;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private cc.vezlist.listings.application.ListingViewService views;
     @MockitoBean private ObjectStorage storage;
     @LocalServerPort private int port;
 
@@ -74,7 +75,7 @@ class SellerControllerIntegrationTest {
         assertThat(invalid.getBody()).containsEntry("code", "SELLER_QUERY_INVALID");
     }
 
-    @Test void trendingRanksCreatorsByLikesAndViewsAndCountsAViewOncePerViewer() {
+    @Test void trendingUsesPersistedCountsAndRepeatedViewRequestsAreIdempotent() {
         UUID quiet = user();
         UUID popular = user();
         listing(quiet, "PERSONALS", "ACTIVE", "Quiet post");
@@ -82,9 +83,13 @@ class SellerControllerIntegrationTest {
         listing(popular, "MARKETPLACE", "ACTIVE", "Other-site post");
         jdbc.update("UPDATE listings SET save_count = 2 WHERE id = ?", hit);
 
-        // Two opens by the same anonymous client count as one view; the owner's own open is never counted.
+        // Public reads (including server rendering) do not double count explicit view registration.
         rest.getForEntity(url("/api/v1/listings/" + hit + "?site=PERSONALS"), Map.class);
         rest.getForEntity(url("/api/v1/listings/" + hit + "?site=PERSONALS"), Map.class);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM listing_views WHERE listing_id = ?", Long.class, hit)).isZero();
+        UUID request = UUID.randomUUID();
+        views.register(hit, cc.vezlist.shared.domain.SiteScope.PERSONALS, request, null);
+        views.register(hit, cc.vezlist.shared.domain.SiteScope.PERSONALS, request, null);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM listing_views WHERE listing_id = ?", Long.class, hit))
                 .isEqualTo(1L);
 

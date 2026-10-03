@@ -3,6 +3,9 @@ const nextConfig = {
   // @vezlist/shared ships .jsx source, not a build, so Next has to compile it.
   transpilePackages: ["@vezlist/shared"],
   env: { NEXT_PUBLIC_SITE: "marketplace" },
+  // Dev's persisted Turbopack cache held a PostCSS transform from before an
+  // installed dependency existed, and reused the failed resolution after restart.
+  experimental: { turbopackFileSystemCacheForDev: false },
   // `unoptimized` rather than the default loader: this app deploys through
   // OpenNext to Cloudflare Workers, and the Workers adapter only serves
   // `/_next/image` when the project defines a Cloudflare Images binding or a

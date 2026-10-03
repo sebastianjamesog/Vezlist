@@ -64,6 +64,8 @@ export const PERMISSIONS = {
   "taxonomy.edit": OWNER,
   "broadcast.send": OWNER,
   "settings.edit": OWNER,
+  "storyPlans.manage": OWNER,
+  "livePlans.manage": OWNER,
   "admins.manage": OWNER,
   "analytics.view": EVERYONE,
 };

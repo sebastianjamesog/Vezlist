@@ -22,5 +22,6 @@ public record SavedListingResponse(
         String imageUrl,
         int photoCount,
         Instant publishedAt,
-        Instant savedAt) {
+        Instant savedAt,
+        long viewCount) {
 }

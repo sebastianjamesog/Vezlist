@@ -50,13 +50,6 @@ async function profileApi(page, site, { failCounts = false } = {}) {
     }
     return route.fulfill({ status: 404, json: { code: "NOT_FOUND" } });
   });
-  await page.addInitScript(() => {
-    document.cookie = `vezlist_role=${encodeURIComponent(JSON.stringify("creator"))}; path=/`;
-    localStorage.setItem(
-      "vezlist:age-gate:v1",
-      JSON.stringify({ confirmed: true }),
-    );
-  });
   return {
     requests,
     recoverCounts: () => {
@@ -72,10 +65,14 @@ test("profile card uses real account data and exact site counts, without demo cl
     testInfo.project.name === "personals" ? "PERSONALS" : "MARKETPLACE";
   const { requests } = await profileApi(page, site);
   await page.goto("/profile");
+  if (site === "PERSONALS") {
+    await page.getByRole("button", { name: /I am 18 or older.*Enter/ }).click();
+  }
   const card = page.getByRole("region", { name: "Your profile" });
   await expect(
     card.getByRole("heading", { name: "Actual Member" }),
   ).toBeVisible();
+  await expect(card.getByText("Ads creator", { exact: true })).toBeVisible();
   await expect(card.getByText("Ottawa, ON", { exact: true })).toBeVisible();
   await expect(card.getByText("7", { exact: true })).toBeVisible();
   await expect(card.getByText("13", { exact: true })).toBeVisible();
@@ -99,6 +96,9 @@ test("a failed count stays unavailable and can be retried without losing identit
     testInfo.project.name === "personals" ? "PERSONALS" : "MARKETPLACE";
   const { recoverCounts } = await profileApi(page, site, { failCounts: true });
   await page.goto("/profile");
+  if (site === "PERSONALS") {
+    await page.getByRole("button", { name: /I am 18 or older.*Enter/ }).click();
+  }
   const card = page.getByRole("region", { name: "Your profile" });
   await expect(
     card.getByRole("heading", { name: "Actual Member" }),

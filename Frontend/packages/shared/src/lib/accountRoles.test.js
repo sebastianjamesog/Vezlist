@@ -10,6 +10,7 @@ import {
   can,
   isCreatorRole,
   normaliseRole,
+  roleForSession,
 } from "./accountRoles.js";
 
 test("the two public roles are the two the screens branch on", () => {
@@ -78,4 +79,13 @@ test("signing up makes a creator; a guest is what browsing means", () => {
   assert.equal(DEFAULT_ROLE, "user");
   assert.notEqual(SIGNUP_ROLE, DEFAULT_ROLE);
   assert.ok(ACCOUNT_ROLES[SIGNUP_ROLE]);
+});
+
+test("a signed-in member without a saved preference is an ads creator", () => {
+  assert.equal(roleForSession(null, false), "user");
+  assert.equal(roleForSession(null, true), "creator");
+  assert.equal(roleForSession("invalid", true), "creator");
+  assert.equal(roleForSession("__proto__", true), "creator");
+  assert.equal(roleForSession("user", true), "user");
+  assert.equal(roleForSession("creator", true), "creator");
 });

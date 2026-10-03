@@ -3,6 +3,7 @@
   "private": true,
   "description": "Orchestration only. Backend/ and Frontend/ remain the real projects (Maven / npm workspaces respectively).",
   "scripts": {
+    "seed:featured": "node Backend/scripts/seed-featured.mjs",
     "backend:infra": "docker compose --env-file Backend/.env -f Backend/compose.yml up -d",
     "backend:api": "mvn -f Backend/pom.xml spring-boot:run",
     "backend": "npm run backend:infra && npm run backend:api",

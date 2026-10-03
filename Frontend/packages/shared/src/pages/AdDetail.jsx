@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useNavigate } from "../lib/nav";
 import { useParams } from "next/navigation";
@@ -26,13 +26,15 @@ import { useReports } from "../context/ReportsContext";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useSaved } from "../context/SavedContext.jsx";
 import { getListingDetail } from "../lib/api/discovery.js";
+import { recordListingView } from "../lib/api/views.js";
 import { getSellerProfile } from "../lib/api/sellers.js";
 import { SITE_SCOPE } from "../lib/api/client.js";
 import { ApiError } from "../lib/api/client.js";
 import { categoryPath } from "../lib/taxonomy";
 import { timeAgo } from "../lib/format";
-import { FEED_PATH } from "../lib/sites";
+import { FEED_PATH, IS_PERSONALS } from "../lib/sites";
 import { usePersistedObject } from "../lib/persisted";
+import useLiveViewCount, { publishLiveViewCount } from "../lib/useLiveViewCount.js";
 import MediaImage from "../components/media/MediaImage.jsx";
 import PhotoMark from "../components/media/PhotoMark.jsx";
 import {
@@ -141,6 +143,8 @@ export default function AdDetail() {
   const [error, setError] = useState(null);
   const [notFound, setNotFound] = useState(false);
   const [savePending, setSavePending] = useState(false);
+  const recordedViews = useRef(new Set());
+  const liveViewCount = useLiveViewCount(listing?.id, listing?.viewCount, SITE_SCOPE);
 
   const [active, setActive] = useState(0);
   const [reporting, setReporting] = useState(false);
@@ -178,6 +182,35 @@ export default function AdDetail() {
     if (id) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => {
+    if (listing?.id !== id || recordedViews.current.has(id)) return undefined;
+
+    function recordOpen() {
+      // Personals mounts its page behind an inert age gate. Wait until the
+      // visitor enters before treating that page load as an ad view.
+      if (IS_PERSONALS && document.documentElement.dataset.ageGate !== "ok") return;
+      if (recordedViews.current.has(id)) return;
+      recordedViews.current.add(id);
+      recordListingView(id, SITE_SCOPE, crypto.randomUUID())
+        .then(({ viewCount }) => {
+          publishLiveViewCount(id, viewCount, SITE_SCOPE);
+          setListing((current) => current?.id === id ? { ...current, viewCount } : current);
+        })
+        .catch(() => {});
+    }
+
+    recordOpen();
+    if (IS_PERSONALS && !recordedViews.current.has(id)) {
+      const observer = new MutationObserver(recordOpen);
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["data-age-gate"],
+      });
+      return () => observer.disconnect();
+    }
+    return undefined;
+  }, [id, listing?.id]);
 
   const reveal = (channel) => () => {
     const at = Date.now();
@@ -422,8 +455,8 @@ export default function AdDetail() {
               </span>
               <span>
                 {postedLabel}
-                {listing.viewCount != null &&
-                  ` — Viewed ${listing.viewCount.toLocaleString("en-US")} times`}
+                {liveViewCount != null &&
+                  ` — Viewed ${liveViewCount.toLocaleString("en-US")} times`}
               </span>
             </p>
 

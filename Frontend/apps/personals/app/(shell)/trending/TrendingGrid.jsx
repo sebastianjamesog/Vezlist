@@ -11,7 +11,7 @@ import { compactCount } from "@vezlist/shared/lib/format.js";
 import { getTrendingSellers } from "@vezlist/shared/lib/api/sellers.js";
 import { SITE_SCOPE } from "@vezlist/shared/lib/api/client.js";
 import { liveStreamFor } from "@vezlist/shared/lib/live.js";
-import { trendingCreators } from "@vezlist/shared/data/mock.js";
+import { useLiveSessions } from "@vezlist/shared/components/live/useLiveSessions.js";
 import CreatorAvatar from "../../CreatorAvatar.jsx";
 
 /**
@@ -21,28 +21,12 @@ import CreatorAvatar from "../../CreatorAvatar.jsx";
  */
 const LIMIT = 30;
 
-/**
- * `next dev` only: top the list up to LIMIT with mock creators so the grid
- * looks full against a near-empty local database. Production shows exactly
- * what the API returns. Mixed in by the server's own score (views + 5×likes)
- * so real and mock creators rank together.
- */
-const FILL_WITH_MOCKS = process.env.NODE_ENV === "development";
-const score = (c) => c.viewCount + 5 * c.likeCount;
-
-function withMocks(rows) {
-  if (!FILL_WITH_MOCKS) return rows;
-  const fill = trendingCreators.slice(0, Math.max(0, LIMIT - rows.length));
-  return [...rows, ...fill].sort((a, b) => score(b) - score(a));
-}
-
 /** Same shape as the Live now tile: the cover is the card, text on a scrim. */
-function CreatorTile({ creator, rank }) {
-  const live = liveStreamFor(creator.displayName);
+function CreatorTile({ creator, rank, live }) {
   return (
     <Link
       href={`/seller/${creator.id}`}
-      aria-label={`${creator.displayName}${live ? " (live now)" : ""} — ${creator.viewCount} views, ${creator.likeCount} likes`}
+      aria-label={`${creator.displayName}${live?.status === "LIVE" ? " (live now)" : ""} — ${creator.viewCount} views, ${creator.likeCount} likes`}
       className="group relative block overflow-hidden rounded-lg transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
     >
       <div className="relative aspect-[4/5] w-full overflow-hidden bg-line">
@@ -66,7 +50,7 @@ function CreatorTile({ creator, rank }) {
       <span className="absolute left-1.5 top-1.5 rounded bg-black/55 px-1 py-px text-[8px] font-extrabold tabular-nums text-white backdrop-blur-sm">
         #{rank}
       </span>
-      {live && (
+      {live?.status === "LIVE" && (
         <span className="absolute right-1.5 top-1.5 flex items-center gap-0.5 rounded bg-red-500 px-1 py-px text-[8px] font-extrabold uppercase tracking-[0.06em] text-white">
           <span className="size-1 animate-pulse rounded-full bg-white motion-reduce:animate-none" />
           Live
@@ -79,7 +63,11 @@ function CreatorTile({ creator, rank }) {
             name={creator.displayName}
             src={creator.avatarUrl}
             size={16}
-            className={live ? "ring-2 ring-red-500" : "ring-1 ring-white/50"}
+            className={
+              live?.status === "LIVE"
+                ? "ring-2 ring-red-500"
+                : "ring-1 ring-white/50"
+            }
           />
           <p className="min-w-0 truncate text-[10px] font-bold leading-tight text-white lg:text-xs">
             {creator.displayName}
@@ -116,6 +104,7 @@ function Panel({ children }) {
 
 export default function TrendingGrid() {
   const { isBlocked } = useReports();
+  const sessions = useLiveSessions();
   const [creators, setCreators] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -127,7 +116,7 @@ export default function TrendingGrid() {
     setError(null);
     getTrendingSellers({ site: SITE_SCOPE, limit: LIMIT })
       .then((rows) => {
-        if (!cancelled) setCreators(withMocks(rows ?? []));
+        if (!cancelled) setCreators(rows ?? []);
       })
       .catch((err) => {
         if (!cancelled) setError(err);
@@ -173,7 +162,7 @@ export default function TrendingGrid() {
       <EmptyState
         icon="UsersRound"
         title="No trending creators yet"
-        body="Nobody has a live post right now. Check back soon."
+        body="No creators with active posts yet. Check back soon."
       />
     );
   }
@@ -181,7 +170,12 @@ export default function TrendingGrid() {
   return (
     <Panel>
       {shown.map((c, i) => (
-        <CreatorTile key={c.id} creator={c} rank={i + 1} />
+        <CreatorTile
+          key={c.id}
+          creator={c}
+          rank={i + 1}
+          live={liveStreamFor(c.id, sessions)}
+        />
       ))}
     </Panel>
   );

@@ -37,6 +37,7 @@ const BACKEND_TOGGLE_KEYS = {
   email: "emailUpdates",
   phone: "showPhoneOnAds",
   location: "preciseLocation",
+  available: "availableNow",
 };
 
 function messageFor(error) {
@@ -125,10 +126,12 @@ export default function Settings() {
       email: serverPrefs.emailUpdates,
       phone: serverPrefs.showPhoneOnAds,
       location: serverPrefs.preciseLocation,
+      available: serverPrefs.availableNow,
     }),
   };
   const [confirm, setConfirm] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [rolePending, setRolePending] = useState(false);
 
   const loadPreferences = () => {
     setPrefsError(null);
@@ -149,6 +152,7 @@ export default function Settings() {
       emailUpdates: serverPrefs.emailUpdates,
       showPhoneOnAds: serverPrefs.showPhoneOnAds,
       preciseLocation: serverPrefs.preciseLocation,
+      availableNow: serverPrefs.availableNow,
     };
     const key = BACKEND_TOGGLE_KEYS[id];
     next[key] = !next[key];
@@ -156,7 +160,9 @@ export default function Settings() {
     try {
       const saved = await usersApi.updatePreferences(next);
       setServerPrefs(saved);
-      toast(`${settingsGroups.flatMap((g) => g.items).find((i) => i.id === id)?.label ?? "Preference"} ${next[key] ? "on" : "off"}`);
+      toast(
+        `${settingsGroups.flatMap((g) => g.items).find((i) => i.id === id)?.label ?? "Preference"} ${next[key] ? "on" : "off"}`,
+      );
     } catch (error) {
       toast(messageFor(error));
     } finally {
@@ -174,8 +180,21 @@ export default function Settings() {
       setConfirm("downgrade");
       return;
     }
-    setRole(id);
-    toast(`Account type: ${ACCOUNT_ROLES[id].label}`);
+    saveRole(id);
+  }
+
+  async function saveRole(id) {
+    if (rolePending) return;
+    setRolePending(true);
+    try {
+      await setRole(id);
+      setConfirm(null);
+      toast(`Account type: ${ACCOUNT_ROLES[id].label}`);
+    } catch (error) {
+      toast(messageFor(error));
+    } finally {
+      setRolePending(false);
+    }
   }
 
   return (
@@ -241,6 +260,7 @@ export default function Settings() {
                   <button
                     key={option.id}
                     onClick={() => switchRole(option.id)}
+                    disabled={rolePending}
                     aria-label={`Switch to ${option.label}`}
                     className={`${rowClass} transition-colors hover:bg-canvas`}
                   >
@@ -258,7 +278,10 @@ export default function Settings() {
           {prefsError && (
             <section className="mb-5 lg:col-span-2 lg:mb-0">
               <div className="flex items-center justify-between gap-3 rounded-card bg-danger-soft p-4 text-[13px] text-danger shadow-card">
-                <span>Couldn't load your notification and privacy preferences: {prefsError}</span>
+                <span>
+                  Couldn't load your notification and privacy preferences:{" "}
+                  {prefsError}
+                </span>
                 <button
                   type="button"
                   onClick={loadPreferences}
@@ -322,7 +345,7 @@ export default function Settings() {
                         label={item.label}
                         checked={toggles[item.id]}
                         disabled={
-                          (isBacked && (!serverPrefs || prefsPending === item.id))
+                          isBacked && (!serverPrefs || prefsPending === item.id)
                         }
                         onChange={() => {
                           if (isBacked) {
@@ -542,13 +565,9 @@ export default function Settings() {
         open={confirm === "downgrade"}
         title={`Switch to ${ACCOUNT_ROLES.user.label}?`}
         body="My Ads and the creator dashboard go away, and any ad you have running stays up with nowhere to manage it. Switching back takes one tap."
-        confirmLabel="Switch"
+        confirmLabel={rolePending ? "Switching…" : "Switch"}
         destructive
-        onConfirm={() => {
-          setConfirm(null);
-          setRole("user");
-          toast(`Account type: ${ACCOUNT_ROLES.user.label}`);
-        }}
+        onConfirm={() => saveRole("user")}
         onClose={() => setConfirm(null)}
       />
 

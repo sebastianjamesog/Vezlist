@@ -102,13 +102,14 @@ public class UserProfileService {
             boolean pushNotifications,
             boolean emailUpdates,
             boolean showPhoneOnAds,
-            boolean preciseLocation) {
+            boolean preciseLocation,
+            Boolean availableNow) {
         User user = requireUser(userId);
         UserPreferences userPreferences = preferences.findById(userId)
                 .orElseGet(() -> new UserPreferences(user));
         UserPrivacySettings privacy = privacySettings.findById(userId)
                 .orElseGet(() -> new UserPrivacySettings(user));
-        userPreferences.update(pushNotifications, emailUpdates);
+        userPreferences.update(pushNotifications, emailUpdates, availableNow);
         privacy.update(showPhoneOnAds, preciseLocation);
         preferences.save(userPreferences);
         privacySettings.save(privacy);
@@ -158,6 +159,7 @@ public class UserProfileService {
                 userPreferences.isPushNotifications(),
                 userPreferences.isEmailUpdates(),
                 privacy.isShowPhoneOnAds(),
-                privacy.isPreciseLocation());
+                privacy.isPreciseLocation(),
+                userPreferences.isAvailableNow());
     }
 }

@@ -17,6 +17,7 @@ public record DiscoveryCriteria(
         BigDecimal minPrice,
         BigDecimal maxPrice,
         boolean verifiedOnly,
+        boolean availableOnly,
         PostedWithin postedWithin,
         DiscoverySort sort,
         Double latitude,

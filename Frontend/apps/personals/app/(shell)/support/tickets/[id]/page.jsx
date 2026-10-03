@@ -1,18 +1,8 @@
 import TicketDetail from "@vezlist/shared/pages/TicketDetail.jsx";
-import { tickets } from "@vezlist/shared/data/mock.js";
+import RequireAuth from "@vezlist/shared/components/RequireAuth.jsx";
 
-export function generateStaticParams() {
-  return tickets.map(({ id }) => ({ id }));
-}
-
-export async function generateMetadata({ params }) {
-  const { id } = await params;
-  const ticket = tickets.find((t) => t.id === id);
-  return ticket
-    ? { title: `${ticket.title} — Support`, robots: { index: false } }
-    : { title: "Ticket not found" };
-}
+export const metadata = { title: "Support ticket", robots: { index: false } };
 
 export default function Page() {
-  return <TicketDetail />;
+  return <RequireAuth><TicketDetail /></RequireAuth>;
 }

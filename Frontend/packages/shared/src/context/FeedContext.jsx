@@ -55,9 +55,7 @@ export function FeedProvider({ children }) {
       .catch((err) => {
         if (cancelled) return;
         setTaxonomyError(err);
-        // Ready is still true: `taxonomy.js` degrades to its mock fallback on
-        // its own, so a browser with the filter sheet and the category grid
-        // can keep rendering rather than being blocked on this call forever.
+        setCategories([]);
         setTaxonomyReady(true);
       });
     return () => {

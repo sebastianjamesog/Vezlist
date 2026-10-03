@@ -149,6 +149,7 @@ public class SavedListingRepository {
                        listing.location_id,
                        area.label AS location_label,
                        listing.verified AS verified,
+                       listing.view_count,
                        COALESCE(listing.published_at, listing.created_at) AS published_at,
                        saved.saved_at,
                        (SELECT media.object_key
@@ -230,7 +231,8 @@ public class SavedListingRepository {
             String coverObjectKey,
             int photoCount,
             Instant publishedAt,
-            Instant savedAt) {
+            Instant savedAt,
+            long viewCount) {
 
         public CursorAnchor cursorAnchor() {
             return new CursorAnchor(savedAt, id);
@@ -256,7 +258,8 @@ public class SavedListingRepository {
                     rs.getString("cover_object_key"),
                     rs.getInt("photo_count"),
                     rs.getTimestamp("published_at").toInstant(),
-                    rs.getTimestamp("saved_at").toInstant());
+                    rs.getTimestamp("saved_at").toInstant(),
+                    rs.getLong("view_count"));
         }
     }
 }

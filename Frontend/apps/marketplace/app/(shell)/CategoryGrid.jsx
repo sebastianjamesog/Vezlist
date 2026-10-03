@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import Icon from "@vezlist/shared/components/ui/Icon.jsx";
-import { homeCategories } from "@vezlist/shared/data/mock.js";
-import { getCategories } from "@vezlist/shared/lib/taxonomy.js";
+import { useFeed } from "@vezlist/shared/context/FeedContext.jsx";
 import { PERSONALS_URL } from "@vezlist/shared/lib/sites.js";
 import { tones } from "@vezlist/shared/lib/tones.js";
 
@@ -61,28 +60,46 @@ const TONE = {
   fashion: "indigo",
 };
 
+const HOME_CATEGORY_IDS = [
+  "vehicles",
+  "personals",
+  "buy-sell",
+  "property",
+  "services",
+  "electronics",
+  "entertainment",
+  "jobs",
+  "fashion",
+];
+
 export default function CategoryGrid({ className = "" }) {
-  // Read fresh each render rather than cached at module scope: `FeedContext`
-  // swaps the real categories in once GET /api/v1/categories answers, and a
-  // module-level `Map` built at import time would freeze this grid on
-  // whichever list happened to be current when the file first loaded.
-  const byId = new Map(getCategories().map((c) => [c.id, c]));
+  const { categories, taxonomyReady, taxonomyError, reloadTaxonomy } = useFeed();
+  const byId = new Map(categories.map((category) => [category.id, category]));
+  const items = HOME_CATEGORY_IDS.map((id) => id === "personals"
+    ? { id, label: "Personals", icon: "VenusAndMars" }
+    : byId.get(id)).filter(Boolean);
+  if (taxonomyReady && taxonomyError) {
+    return (
+      <div role="alert" className="rounded-card bg-surface p-5 text-center shadow-card">
+        <p>Categories could not be loaded.</p>
+        <button type="button" className="mt-2 font-semibold text-brand underline" onClick={reloadTaxonomy}>
+          Try again
+        </button>
+      </div>
+    );
+  }
+  if (!taxonomyReady) {
+    return <div role="status" className="rounded-card bg-surface p-5 text-center shadow-card">Loading categories…</div>;
+  }
   return (
     <nav
       aria-label={"Browse categories"}
-      className={`grid grid-cols-3 gap-2.5 ${className}`}
+      className={`grid grid-cols-3 gap-3 ${className}`}
     >
-      {homeCategories.map((id) => {
+      {items.map((cat) => {
+        const id = cat.id;
         const personals = id === "personals";
-        // "personals" is not in the taxonomy — it is the other site — so it
-        // brings its own icon and its label comes from the dictionary alone.
-        const cat = personals
-          ? { label: "Personals", icon: "VenusAndMars" }
-          : byId.get(id);
         const Root = personals ? "a" : Link;
-        // The mock data's English label is the fallback: a category added to
-        // the taxonomy and not yet to the dictionaries shows up in English
-        // rather than as a blank tile or a raw key.
         const label = cat.label;
 
         return (
@@ -98,7 +115,7 @@ export default function CategoryGrid({ className = "" }) {
                 ? "Personals — opens the 18+ board on personals.vezlist.cc"
                 : undefined
             }
-            className={`group relative flex min-h-[88px] flex-col items-center justify-center gap-1.5 rounded-card px-2 py-1.5 shadow-card lg:min-h-[124px] lg:gap-2.5 lg:py-4 transition-[transform,box-shadow] duration-200 hover:-translate-y-1 hover:shadow-lift active:scale-[0.98] ${
+            className={`group relative flex min-h-[120px] flex-col items-center justify-center gap-2.5 rounded-[26px] px-2 py-3 shadow-card sm:min-h-[155px] sm:gap-4 transition-[transform,box-shadow] duration-200 hover:-translate-y-1 hover:shadow-lift active:scale-[0.98] ${
               personals
                 ? "bg-surface ring-1 ring-rose-200"
                 : "bg-surface ring-1 ring-transparent"
@@ -119,11 +136,11 @@ export default function CategoryGrid({ className = "" }) {
 
             <span
               aria-hidden="true"
-              className={`grid size-10 shrink-0 place-items-center rounded-2xl lg:size-12 ${tones[TONE[id]] ?? tones.slate}`}
+              className={`grid size-12 shrink-0 place-items-center rounded-2xl sm:size-[60px] ${tones[TONE[id]] ?? tones.slate}`}
             >
               <Icon
                 name={cat.icon}
-                className="size-5 lg:size-6"
+                className="size-6 sm:size-8"
                 strokeWidth={2.1}
               />
             </span>
@@ -133,9 +150,9 @@ export default function CategoryGrid({ className = "" }) {
                 to one line ("Jobs") or two ("Fashion & Clothing"). The clamp
                 cannot centre its own text — it needs display:-webkit-box — so
                 the fixed box does it instead. */}
-            <span className="flex h-[30px] w-full items-center justify-center lg:h-[34px]">
+            <span className="flex h-[32px] w-full items-center justify-center sm:h-[38px]">
               <span
-                className={`line-clamp-2 text-center text-[12px] font-semibold leading-tight lg:text-[13px] ${
+                className={`line-clamp-2 text-center text-[12px] font-semibold leading-tight sm:text-[16px] ${
                   personals ? "text-rose-700" : "text-ink"
                 }`}
               >

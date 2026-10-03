@@ -1,150 +1,72 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import AdminHeader from "../components/admin/AdminHeader";
+import AdminHeader, { CARD } from "../components/admin/AdminHeader";
 import DataTable from "../components/admin/DataTable";
-import StatusBadge from "../components/admin/StatusBadge";
-import Icon from "../components/ui/Icon";
-import { useAdminData } from "../context/AdminDataContext";
-import { inScope, useQueryParam, useSiteScope } from "../lib/adminScope";
-import { timeAgo } from "../lib/format";
+import Button from "../components/ui/Button";
+import { useQueryParam, useSiteScope } from "../lib/adminScope";
+import { listAdminTickets } from "../lib/api/tickets.js";
 
-/**
- * The support queue. Sorted oldest-first by default, because the ticket that
- * has been waiting longest is the one about to become a complaint.
- */
-
-const STATUSES = [
-  { value: "open", label: "Open" },
-  { value: "all", label: "All" },
-  { value: "resolved", label: "Resolved" },
-];
+const SITES = ["MARKETPLACE", "PERSONALS"];
 
 export default function Tickets() {
-  const { state } = useAdminData();
   const router = useRouter();
-  const [status, setStatus] = useQueryParam("status", "open");
-  // Scoped like every other list, so the rail badge and this table agree.
   const [site] = useSiteScope();
+  const [status, setStatus] = useQueryParam("status", "open");
+  const [rows, setRows] = useState(null);
+  const [offsets, setOffsets] = useState({});
+  const [error, setError] = useState(null);
+  const sites = site === "all" ? SITES : [site === "personals" ? "PERSONALS" : "MARKETPLACE"];
 
-  const slaMs = (state.settings.ticketSlaHours ?? 24) * 3_600_000;
-  const assigneeName = (row) =>
-    state.admins.find((a) => a.id === row.assigneeId)?.name ?? null;
-  // Waiting on us, and waiting too long. A ticket an agent has already
-  // answered is waiting on the requester and is not late.
-  const isOverdue = (row) =>
-    row.status === "open" &&
-    row.messages.at(-1)?.from !== "agent" &&
-    row.openedMsAgo > slaMs;
+  const load = useCallback(async () => {
+    setRows(null);
+    setError(null);
+    try {
+      const pages = await Promise.all(sites.map((scope) => listAdminTickets({ site: scope, status: status === "all" ? undefined : status, limit: 50 })));
+      setRows(pages.flatMap((page) => page.items));
+      setOffsets(Object.fromEntries(sites.map((scope, index) => [scope, pages[index].nextOffset])));
+    } catch (caught) {
+      setError(caught);
+    }
+  }, [site, status]);
 
-  const rows = useMemo(
-    () =>
-      state.tickets.filter(
-        (t) => inScope(t, site) && (status === "all" || t.status === status),
-      ),
-    [state.tickets, site, status],
-  );
+  useEffect(() => { load(); }, [load]);
+
+  async function loadMore() {
+    try {
+      const pending = sites.filter((scope) => offsets[scope] != null);
+      const pages = await Promise.all(pending.map((scope) => listAdminTickets({ site: scope, status: status === "all" ? undefined : status, limit: 50, offset: offsets[scope] })));
+      setRows((current) => [...current, ...pages.flatMap((page) => page.items)]);
+      setOffsets((current) => ({ ...current, ...Object.fromEntries(pending.map((scope, index) => [scope, pages[index].nextOffset])) }));
+    } catch (caught) {
+      setError(caught);
+    }
+  }
 
   const columns = [
-    {
-      key: "subject",
-      label: "Subject",
-      render: (row) => (
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-canvas text-brand">
-            <Icon name={row.icon} className="size-[18px]" strokeWidth={2.5} />
-          </span>
-          <div className="min-w-0">
-            <p className="truncate font-bold text-ink">{row.subject}</p>
-            <p className="truncate text-[12.5px] text-muted">#{row.id}</p>
-          </div>
-        </div>
-      ),
-    },
-    { key: "requester", label: "Raised by", width: 160 },
-    {
-      key: "assigneeId",
-      label: "Assigned",
-      width: 150,
-      value: (row) => assigneeName(row) ?? "zzz",
-      render: (row) => {
-        const name = assigneeName(row);
-        return name ? (
-          <span className="text-ink">{name}</span>
-        ) : (
-          <span className="text-muted">Unassigned</span>
-        );
-      },
-    },
-    {
-      key: "messages",
-      label: "Replies",
-      width: 100,
-      value: (row) => row.messages.length,
-      render: (row) => row.messages.length,
-    },
-    {
-      key: "openedMsAgo",
-      label: "Age",
-      width: 130,
-      render: (row) => (
-        <span className="text-muted">{timeAgo(row.openedMsAgo)}</span>
-      ),
-    },
-    {
-      key: "status",
-      label: "Status",
-      width: 120,
-      render: (row) => (
-        <div className="flex flex-wrap gap-1">
-          <StatusBadge status={row.status} />
-          {isOverdue(row) && <StatusBadge status="rejected" label="Overdue" />}
-        </div>
-      ),
-    },
+    { key: "subject", label: "Subject" },
+    { key: "ownerName", label: "Requester" },
+    { key: "site", label: "Site" },
+    { key: "status", label: "Status" },
+    { key: "updatedAt", label: "Updated", render: (row) => new Date(row.updatedAt).toLocaleString() },
   ];
 
   return (
     <>
-      <AdminHeader
-        title="Tickets"
-        subtitle={`${rows.length} ticket${rows.length === 1 ? "" : "s"} in this view`}
-      />
-
-      <div
-        role="group"
-        aria-label="Ticket status"
-        className="mb-4 flex w-fit gap-1 rounded-2xl bg-canvas p-1 ring-1 ring-line"
-      >
-        {STATUSES.map((s) => (
-          <button
-            key={s.value}
-            type="button"
-            aria-pressed={status === s.value}
-            onClick={() => setStatus(s.value)}
-            className={`rounded-xl px-3.5 py-1.5 text-[13px] font-semibold transition-colors ${
-              status === s.value
-                ? "bg-surface text-ink shadow-card"
-                : "text-muted hover:text-ink"
-            }`}
-          >
-            {s.label}
-          </button>
+      <AdminHeader title="Support tickets" subtitle="Tickets from member accounts" actions={<Button size="sm" variant="outline" onClick={load}>Refresh</Button>} />
+      <div className="mb-4 flex gap-2">
+        {["open", "resolved", "all"].map((option) => (
+          <button key={option} type="button" aria-pressed={status === option} onClick={() => setStatus(option)} className={`rounded-xl px-3 py-2 text-sm font-semibold capitalize ${status === option ? "bg-brand text-on-brand" : "bg-surface text-ink"}`}>{option}</button>
         ))}
       </div>
-
-      <DataTable
-        columns={columns}
-        rows={rows}
-        onRowClick={(row) => router.push(`/tickets/${row.id}`)}
-        initialSort={{ key: "openedMsAgo", dir: "desc" }}
-        empty={{
-          icon: "LifeBuoy",
-          title: "Queue is clear",
-          body: "No tickets in this status.",
-        }}
-      />
+      {error && <div role="alert" className={`${CARD} mb-4 text-danger`}>{error.message}</div>}
+      {rows == null ? <p role="status" className="text-muted">Loading tickets…</p> : (
+        <div className={CARD}>
+          <DataTable columns={columns} rows={rows} onRowClick={(row) => router.push(`/tickets/${row.id}`)} />
+          {sites.some((scope) => offsets[scope] != null) && <Button variant="soft" onClick={loadMore} className="mt-4">Load more</Button>}
+        </div>
+      )}
     </>
   );
 }

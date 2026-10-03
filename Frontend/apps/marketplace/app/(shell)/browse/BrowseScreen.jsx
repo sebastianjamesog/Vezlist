@@ -25,6 +25,7 @@ import LocationBar from "@vezlist/shared/components/LocationBar.jsx";
 import FilterSheet from "@vezlist/shared/components/FilterSheet.jsx";
 import FilterButton from "@vezlist/shared/components/FilterButton.jsx";
 import ListingCard from "@vezlist/shared/components/cards/ListingCard.jsx";
+import { ListingCardSkeleton } from "@vezlist/shared/components/ui/Skeleton.jsx";
 import { Promos, Shortcuts } from "@vezlist/shared/components/FeedRails.jsx";
 import { useShell } from "@vezlist/shared/components/layout/AppLayout.jsx";
 import { useFeed } from "@vezlist/shared/context/FeedContext.jsx";
@@ -114,6 +115,8 @@ function toCardListing(row) {
     province: row.provinceLabel,
     location: row.locationLabel,
     price: Number(row.price ?? 0),
+    views: row.viewCount,
+    site: row.site,
     verified: row.verified,
     postedMsAgo: row.publishedAt
       ? Date.now() - new Date(row.publishedAt).getTime()
@@ -435,10 +438,7 @@ export default function BrowseScreen() {
           {loading ? (
             <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2 lg:gap-4 xl:grid-cols-3">
               {[0, 1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="h-[122px] animate-pulse rounded-2xl bg-surface shadow-card lg:h-[136px]"
-                />
+                <ListingCardSkeleton key={i} />
               ))}
             </div>
           ) : error ? (

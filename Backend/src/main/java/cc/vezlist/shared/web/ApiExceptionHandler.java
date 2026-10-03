@@ -20,6 +20,7 @@ import cc.vezlist.media.application.MediaStateException;
 import cc.vezlist.media.application.MediaValidationException;
 import cc.vezlist.saved.application.SavedListingCursorInvalidException;
 import cc.vezlist.saved.application.SavedListingQueryInvalidException;
+import cc.vezlist.support.application.SupportTicketNotFoundException;
 import cc.vezlist.users.application.AdminActionConflictException;
 import cc.vezlist.users.application.AdminUserNotFoundException;
 import cc.vezlist.users.application.CurrentPasswordInvalidException;
@@ -34,6 +35,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -46,6 +48,22 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 @RestControllerAdvice
 public class ApiExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
+    @ExceptionHandler(cc.vezlist.live.application.LiveException.class)
+    ResponseEntity<ApiError> handleLive(cc.vezlist.live.application.LiveException exception, HttpServletRequest request) {
+        return error(exception.status(), exception.code(), exception.getMessage(), List.of(), request);
+    }
+
+    @ExceptionHandler(cc.vezlist.stories.application.StoryException.class)
+    ResponseEntity<ApiError> handleStory(cc.vezlist.stories.application.StoryException exception, HttpServletRequest request) {
+        return error(exception.status(), exception.code(), exception.getMessage(), List.of(), request);
+    }
+
+    @ExceptionHandler(SupportTicketNotFoundException.class)
+    ResponseEntity<ApiError> handleSupportTicketNotFound(
+            SupportTicketNotFoundException exception, HttpServletRequest request) {
+        return error(HttpStatus.NOT_FOUND, "SUPPORT_TICKET_NOT_FOUND", exception.getMessage(), List.of(), request);
+    }
 
     @ExceptionHandler(EmailAlreadyRegisteredException.class)
     ResponseEntity<ApiError> handleDuplicateEmail(
@@ -234,6 +252,15 @@ public class ApiExceptionHandler {
             IllegalArgumentException exception,
             HttpServletRequest request) {
         return error(HttpStatus.BAD_REQUEST, "REQUEST_INVALID", exception.getMessage(), List.of(), request);
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    ResponseEntity<ApiError> handleResponseStatus(
+            ResponseStatusException exception, HttpServletRequest request) {
+        HttpStatus status = HttpStatus.valueOf(exception.getStatusCode().value());
+        String code = status == HttpStatus.NOT_FOUND ? "RESOURCE_NOT_FOUND" : status.name();
+        String message = exception.getReason() != null ? exception.getReason() : status.getReasonPhrase();
+        return error(status, code, message, List.of(), request);
     }
 
     @ExceptionHandler(ConstraintViolationException.class)

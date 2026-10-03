@@ -76,7 +76,7 @@ public class DiscoveryService {
                 request.site(), request.q(), request.category(), request.province(), request.area(),
                 request.minPrice(), request.maxPrice(), request.verifiedOnly(), request.postedWithin(),
                 DiscoverySort.NEAREST, request.latitude(), request.longitude(), request.radiusKm(),
-                null, request.limit());
+                null, request.limit(), null);
         PreparedQuery prepared = prepare(searchRequest, true);
         DiscoveryCriteria criteria = prepared.criteria();
         return timed("map", criteria, () -> repository.mapPins(criteria).stream()
@@ -129,6 +129,7 @@ public class DiscoveryService {
                 decimal(request.minPrice()),
                 decimal(request.maxPrice()),
                 Boolean.toString(Boolean.TRUE.equals(request.verifiedOnly())),
+                Boolean.toString(Boolean.TRUE.equals(request.availableOnly())),
                 postedWithin.name(),
                 sort.name(),
                 number(request.latitude()),
@@ -146,6 +147,7 @@ public class DiscoveryService {
         DiscoveryCriteria criteria = new DiscoveryCriteria(
                 request.site(), query, categoryIds, province, areaIds,
                 request.minPrice(), request.maxPrice(), Boolean.TRUE.equals(request.verifiedOnly()),
+                Boolean.TRUE.equals(request.availableOnly()),
                 postedWithin, sort, request.latitude(), request.longitude(), request.radiusKm(),
                 limit, asOf, cursor);
         return new PreparedQuery(criteria, fingerprint);
@@ -159,7 +161,7 @@ public class DiscoveryService {
                 row.id(), row.site(), row.title(), row.businessName(), row.price(),
                 row.categoryId(), row.categoryLabel(), row.provinceId(), row.provinceLabel(),
                 row.locationId(), row.locationLabel(), row.latitude(), row.longitude(), row.distanceKm(),
-                row.verified(), imageUrl, row.photoCount(), row.publishedAt());
+                row.verified(), imageUrl, row.photoCount(), row.publishedAt(), row.viewCount());
     }
 
     private List<String> normalizeIds(List<String> raw, int maximum, String label) {

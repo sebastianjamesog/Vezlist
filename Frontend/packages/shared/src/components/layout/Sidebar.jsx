@@ -11,7 +11,6 @@ import ConfirmDialog from "../ui/ConfirmDialog";
 import { useToast } from "../../context/ToastContext";
 import { useAuth } from "../../context/AuthContext";
 import { useAccount } from "../../context/AccountContext";
-import { profile } from "../../data/mock";
 import MediaImage from "../media/MediaImage.jsx";
 
 const ROW =
@@ -74,15 +73,15 @@ export default function Sidebar({ onCreate, onPostAd, navPreset }) {
               {({ isActive }) => (
                 <>
                   {item.avatar ? (
-                    <MediaImage
-                      src={user?.avatar ?? profile.avatar}
+                    user?.avatar ? <MediaImage
+                      src={user.avatar}
                       alt=""
                       width={24}
                       height={24}
                       className={`size-6 shrink-0 rounded-full object-cover ring-2 ${
                         isActive ? "ring-brand" : "ring-transparent"
                       }`}
-                    />
+                    /> : <span aria-hidden="true" className="grid size-6 shrink-0 place-items-center rounded-full bg-brand-soft text-xs font-bold text-brand">{user?.name?.charAt(0) || "?"}</span>
                   ) : (
                     <item.Icon
                       className="size-6 shrink-0"

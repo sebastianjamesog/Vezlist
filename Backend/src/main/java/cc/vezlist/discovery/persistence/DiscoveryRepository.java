@@ -81,7 +81,7 @@ public class DiscoveryRepository {
         StringBuilder sql = new StringBuilder("WITH candidates AS ( SELECT ")
                 .append("l.id, l.site_scope, l.title, l.business_name, l.price, ")
                 .append("l.category_id, l.province_id, l.location_id, l.latitude, l.longitude, ")
-                .append("l.verified AS verified, ")
+                .append("l.verified AS verified, l.view_count, ")
                 .append("COALESCE(l.published_at, l.created_at) AS published_at, ")
                 .append("COALESCE(l.price, 0) AS sort_price, ")
                 .append(distance).append(" AS distance_km");
@@ -130,6 +130,10 @@ public class DiscoveryRepository {
         }
         if (criteria.verifiedOnly()) {
             sql.append("AND l.verified = TRUE ");
+        }
+        if (criteria.availableOnly()) {
+            sql.append("AND EXISTS (SELECT 1 FROM user_preferences up WHERE up.user_id = l.owner_id "
+                    + "AND up.available_now = TRUE) ");
         }
         if (criteria.postedAfter() != null) {
             sql.append("AND COALESCE(l.published_at, l.created_at) >= :postedAfter ");
@@ -225,6 +229,7 @@ public class DiscoveryRepository {
             String coverObjectKey,
             int photoCount,
             Instant publishedAt,
+            long viewCount,
             BigDecimal sortPrice) {
 
         public CursorAnchor cursorAnchor() {
@@ -265,6 +270,7 @@ public class DiscoveryRepository {
                     rs.getString("cover_object_key"),
                     rs.getInt("photo_count"),
                     rs.getTimestamp("published_at").toInstant(),
+                    rs.getLong("view_count"),
                     rs.getBigDecimal("sort_price"));
         }
 

@@ -47,7 +47,7 @@ class UserProfileRequestValidationTest {
 
     @Test
     void everyPreferenceMustBeExplicitlyProvided() {
-        PreferencesUpdateRequest request = new PreferencesUpdateRequest(true, null, true, false);
+        PreferencesUpdateRequest request = new PreferencesUpdateRequest(true, null, true, false, false);
 
         assertThat(validator.validate(request)).extracting(violation -> violation.getPropertyPath().toString())
                 .containsExactly("emailUpdates");

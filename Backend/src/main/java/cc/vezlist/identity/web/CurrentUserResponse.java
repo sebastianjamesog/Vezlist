@@ -10,5 +10,6 @@ public record CurrentUserResponse(
         String email,
         boolean emailVerified,
         Set<String> roles,
-        Instant createdAt) {
+        Instant createdAt,
+        String accountType) {
 }

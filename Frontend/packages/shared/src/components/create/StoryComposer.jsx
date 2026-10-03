@@ -1,413 +1,807 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, ImageIcon, Palette, Send, Trash2, Type, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Banknote,
+  Camera,
+  Check,
+  ChevronRight,
+  CreditCard,
+  ImageIcon,
+  LoaderCircle,
+  LockKeyhole,
+  Video,
+  X,
+} from "lucide-react";
 import { useDialogFocus } from "../../lib/useDialogFocus";
 import { useToast } from "../../context/ToastContext";
 import { useStatus } from "../../context/StatusContext";
+import { useAccount } from "../../context/AccountContext";
+import { useNavigate } from "../../lib/nav";
+import { downscaleToDataUri } from "../../lib/media";
+import { dataUriToBlob } from "../../lib/api/media";
 import {
-  describeSize,
-  downscaleToDataUri,
-  validatePhotoFile,
-} from "../../lib/media";
-import {
-  DEFAULT_STORY_BACKGROUND,
-  STORY_BACKGROUNDS,
-  backgroundCss,
-} from "../../lib/storyBackgrounds";
-import {
-  DEFAULT_TEXT_COLOR,
-  DEFAULT_TEXT_POSITION,
-  STORY_TEXT_COLORS,
-  clampTextPosition,
-} from "../../lib/storyText";
+  deleteStory,
+  listMyStories,
+  listStoryPlans,
+  publishStory,
+  uploadStory,
+} from "../../lib/api/stories";
 
-/**
- * The story composer.
- *
- * ── Shape: the canvas is the app ──────────────────────────────────────────
- *
- * This is deliberately built the way Instagram, WhatsApp and Snapchat all
- * build the same screen, because they have converged on it and the
- * convergence is not an accident: the story fills the screen edge to edge,
- * every control floats on top of it, and there is no form. Two earlier passes
- * at this file did have a form — a small preview above a stack of labelled
- * fields — and both were worse for the same reason. You cannot judge where a
- * word will land by looking at a thumbnail of where it will land, and a
- * labelled field for "Text on the story" is a longer way of saying what a
- * caret blinking on the story already says.
- *
- * ── One tool at a time ────────────────────────────────────────────────────
- *
- * `tool` is the whole interaction model: nothing, `"text"`, or
- * `"background"`. Only one strip of controls is ever on screen, which is what
- * keeps the picture visible while you work on it. Tapping the canvas with no
- * tool open starts typing, the way it does everywhere else — the toolbar
- * button is the discoverable path, the tap is the fast one.
- *
- * ── What is not here ──────────────────────────────────────────────────────
- *
- * No separate caption field. The words on the story are the story; a second
- * box asking for a line to print underneath it is a form growing back. Older
- * updates in `mock.js` still carry a `caption` and the player still draws it,
- * so nothing has been taken away from what already exists — this composer
- * simply does not add more of it.
- *
- * Position and colour live in `lib/storyText.js`, backgrounds in
- * `lib/storyBackgrounds.js`, and the photo goes through `lib/media.js` — the
- * same validate-then-downscale path `StepPhotos` uses, which is what strips
- * the GPS tag off a phone photo before it is stored. That matters at least as
- * much here as on an ad: a story is posted from wherever you are standing.
- */
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const VIDEO_TYPES = ["video/mp4", "video/webm"];
+const ACCEPT = [...IMAGE_TYPES, ...VIDEO_TYPES].join(",");
+const primary =
+  "flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#2858e8] px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500";
+const secondary =
+  "min-h-12 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-[#101831] disabled:opacity-50";
+const money = (plan) =>
+  new Intl.NumberFormat("en-CA", {
+    style: "currency",
+    currency: plan.currency || "CAD",
+    maximumFractionDigits: 2,
+  }).format(plan.price);
 
-const MAX_TEXT = 120;
+function videoDuration(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    const finish = (error) => {
+      clearTimeout(timer);
+      const duration = video.duration;
+      video.onloadedmetadata = null;
+      video.onerror = null;
+      video.removeAttribute("src");
+      video.load();
+      URL.revokeObjectURL(url);
+      if (error || !Number.isFinite(duration))
+        reject(
+          new Error(
+            "Could not read this video. Please choose an MP4 or WebM video.",
+          ),
+        );
+      else resolve(duration);
+    };
+    const timer = setTimeout(() => finish(true), 15000);
+    video.preload = "metadata";
+    video.onloadedmetadata = () => finish(false);
+    video.onerror = () => finish(true);
+    video.src = url;
+  });
+}
+
+function MediaPreview({ src, type, className = "" }) {
+  if (type === "VIDEO")
+    return (
+      <video
+        src={src}
+        controls
+        playsInline
+        preload="metadata"
+        className={className}
+      />
+    );
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt="Story preview" className={className} />;
+}
 
 export default function StoryComposer({ onClose }) {
   const toast = useToast();
-  const { postStory } = useStatus();
-  // Always open: the shell mounts this only while it is showing (see
-  // `AppLayout`), which is also what guarantees a fresh draft each time.
-  const ref = useDialogFocus(true, onClose);
-  const fileInput = useRef(null);
-  const canvas = useRef(null);
-  const textarea = useRef(null);
-
-  const [image, setImage] = useState(null);
-  const [background, setBackground] = useState(DEFAULT_STORY_BACKGROUND);
-  const [text, setText] = useState("");
-  const [color, setColor] = useState(DEFAULT_TEXT_COLOR);
-  const [position, setPosition] = useState(DEFAULT_TEXT_POSITION);
-  const [tool, setTool] = useState(null);
+  const navigate = useNavigate();
+  const { refreshStories } = useStatus();
+  const { signedIn, can } = useAccount();
+  const allowed = signedIn && can("status.post");
+  const [step, setStep] = useState("media");
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState("");
+  const [draft, setDraft] = useState(null);
+  const [drafts, setDrafts] = useState([]);
+  const [plans, setPlans] = useState([]);
+  const [demoPurchaseAvailable, setDemoPurchaseAvailable] = useState(false);
+  const [selectedId, setSelectedId] = useState(null);
+  const [credits, setCredits] = useState(0);
+  const [useCredit, setUseCredit] = useState(false);
+  const [method, setMethod] = useState("card");
   const [busy, setBusy] = useState(false);
-  const [dragging, setDragging] = useState(false);
-  const [moved, setMoved] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [error, setError] = useState("");
+  const gallery = useRef(null);
+  const camera = useRef(null);
+  const recorder = useRef(null);
+  const alive = useRef(true);
+  const close = () => {
+    if (!busy) onClose();
+  };
+  const ref = useDialogFocus(true, close);
+  const selectedPlan = plans.find((plan) => plan.id === selectedId);
+  const isDemoPurchase =
+    demoPurchaseAvailable && !useCredit && Number(selectedPlan?.price) > 0;
+  const canPublish = useCredit
+    ? credits > 0
+    : selectedPlan && (Number(selectedPlan.price) === 0 || isDemoPurchase);
 
-  const swatch =
-    STORY_TEXT_COLORS.find((c) => c.id === color) ?? STORY_TEXT_COLORS[0];
-  const editing = tool === "text";
-  const empty = !image && !text.trim();
-
-  // Opening the text tool should put the caret in the words, not leave you to
-  // find them. Focus has to wait for the textarea to exist, which is why this
-  // is an effect and not part of the click that set the tool.
   useEffect(() => {
-    if (editing) textarea.current?.focus();
-  }, [editing]);
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
-  async function pick(event) {
-    const file = event.target.files?.[0];
-    // Always clear the input: picking the same file twice in a row is a no-op
-    // otherwise, because `value` has not changed.
-    event.target.value = "";
-    if (!file) return;
-
-    const problem = validatePhotoFile(file);
-    if (problem) {
-      toast(problem);
+  useEffect(() => {
+    if (!file) {
+      setPreview("");
       return;
     }
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
 
+  useEffect(() => {
+    if (!allowed) {
+      setLoading(false);
+      return;
+    }
+    let active = true;
+    Promise.all([listStoryPlans(), listMyStories()])
+      .then(([catalog, own]) => {
+        if (!active) return;
+        setPlans((catalog.items || []).filter((plan) => plan.enabled));
+        setDemoPurchaseAvailable(catalog.demoPurchaseAvailable === true);
+        setDrafts(
+          (own.items || []).filter((story) =>
+            ["READY", "UPLOADING"].includes(story.status),
+          ),
+        );
+        setCredits(own.credits || 0);
+        setUseCredit((own.credits || 0) > 0);
+      })
+      .catch((err) => {
+        if (active) {
+          setLoadFailed(true);
+          setError(
+            err.message || "Could not load your story plans. Please try again.",
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [allowed, loadAttempt]);
+
+  function retryLoad() {
+    setError("");
+    setLoadFailed(false);
+    setLoading(true);
+    setLoadAttempt((attempt) => attempt + 1);
+  }
+
+  async function pick(event) {
+    const picked = event.target.files?.[0];
+    event.target.value = "";
+    if (!picked || busy) return;
+    setError("");
+    const isVideo = VIDEO_TYPES.includes(picked.type);
+    if (!isVideo && !IMAGE_TYPES.includes(picked.type)) {
+      setError("Choose a JPEG, PNG, WebP, MP4, or WebM file.");
+      return;
+    }
+    if (!picked.size || picked.size > (isVideo ? 50 : 10) * 1024 * 1024) {
+      setError(
+        isVideo
+          ? "Videos must be between 1 byte and 50 MB."
+          : "Photos must be between 1 byte and 10 MB.",
+      );
+      return;
+    }
     setBusy(true);
     try {
-      setImage(await downscaleToDataUri(file));
-    } catch {
-      toast(`Couldn't read that photo (${describeSize(file.size)})`);
+      let prepared = picked;
+      if (isVideo) {
+        if ((await videoDuration(picked)) > 60)
+          throw new Error("Choose a video that is 60 seconds or shorter.");
+      } else {
+        const blob = dataUriToBlob(await downscaleToDataUri(picked));
+        prepared = new File(
+          [blob],
+          `${picked.name.replace(/\.[^.]+$/, "")}.jpg`,
+          { type: "image/jpeg" },
+        );
+      }
+      if (alive.current) {
+        setDraft(null);
+        setFile(prepared);
+      }
+    } catch (err) {
+      if (alive.current) setError(err.message || "Could not read this media.");
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  }
+
+  async function next() {
+    if (busy || loadFailed || loading || (!file && draft?.status !== "READY"))
+      return;
+    setBusy(true);
+    setError("");
+    try {
+      const saved = draft || (await uploadStory(file));
+      setDraft(saved);
+      setDrafts((items) => [
+        saved,
+        ...items.filter((item) => item.id !== saved.id),
+      ]);
+      setFile(null);
+      setStep("payment");
+    } catch (err) {
+      setError(err.message || "Could not save your story. Please try again.");
     } finally {
       setBusy(false);
     }
   }
 
-  /** Turn a pointer position into a percentage of the canvas. */
-  function moveTo(event) {
-    const box = canvas.current?.getBoundingClientRect();
-    if (!box) return;
-    setPosition(
-      clampTextPosition(
-        ((event.clientX - box.left) / box.width) * 100,
-        ((event.clientY - box.top) / box.height) * 100,
-      ),
-    );
-  }
-
-  function startDrag(event) {
-    // Pointer capture keeps the drag alive once the finger leaves the words
-    // and travels over the picture — without it the first quick drag ends the
-    // moment the pointer crosses the element's own edge.
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    setDragging(true);
-    setMoved(true);
-    moveTo(event);
-  }
-
-  /** Arrow keys nudge; Shift makes the step a jump. */
-  function nudge(event) {
-    const step = event.shiftKey ? 10 : 2;
-    const by = {
-      ArrowUp: [0, -step],
-      ArrowDown: [0, step],
-      ArrowLeft: [-step, 0],
-      ArrowRight: [step, 0],
-    }[event.key];
-    if (!by) return;
-    event.preventDefault();
-    setMoved(true);
-    setPosition((p) => clampTextPosition(p.x + by[0], p.y + by[1]));
-  }
-
-  function share() {
-    if (empty) {
-      toast("Add a photo or some words first");
-      return;
+  async function removeDraft(item) {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await deleteStory(item.id);
+      setDrafts((items) => items.filter((entry) => entry.id !== item.id));
+      if (draft?.id === item.id) setDraft(null);
+    } catch (err) {
+      setError(err.message || "Could not remove this draft.");
+    } finally {
+      setBusy(false);
     }
-
-    postStory({
-      // Unique within this device's own story, which is the only place it is
-      // ever looked up. `Date.now()` is read in a handler, never during a
-      // render — a rendered timestamp is a hydration mismatch.
-      id: `me-${Date.now()}`,
-      image,
-      background: image ? null : background,
-      text: text.trim(),
-      color,
-      x: position.x,
-      y: position.y,
-      caption: "",
-      postedAt: Date.now(),
-    });
-
-    onClose();
-    toast("Added to your story — it clears after 24 hours");
   }
 
-  /** A floating round control. Every button in the chrome is one of these. */
-  const chip =
-    "grid size-10 shrink-0 place-items-center rounded-full bg-black/45 text-white backdrop-blur-md transition-transform active:scale-90";
+  async function publish() {
+    if (busy || !draft || !canPublish) return;
+    setBusy(true);
+    setError("");
+    try {
+      await publishStory(
+        draft.id,
+        useCredit
+          ? { useCredit: true }
+          : {
+              planId: selectedPlan.id,
+              planVersion: selectedPlan.version,
+              useCredit: false,
+              ...(isDemoPurchase ? { demoPurchase: true } : {}),
+            },
+      );
+      setDrafts((items) => items.filter((item) => item.id !== draft.id));
+      setStep("success");
+      await refreshStories().catch(() => {});
+    } catch (err) {
+      if (err.status === 409) {
+        setSelectedId(null);
+        const catalog = await listStoryPlans().catch(() => null);
+        setDemoPurchaseAvailable(catalog?.demoPurchaseAvailable === true);
+        if (catalog)
+          setPlans((catalog.items || []).filter((plan) => plan.enabled));
+        const own = await listMyStories().catch(() => null);
+        if (own) {
+          setCredits(own.credits || 0);
+          setUseCredit(false);
+        }
+        setError(
+          "Your plan or story credits changed. Please review the options and select again.",
+        );
+      } else
+        setError(
+          err.message ||
+            "Your story could not be published. Your draft is saved.",
+        );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function postAnother() {
+    setDraft(null);
+    setFile(null);
+    setSelectedId(null);
+    setStep("media");
+    const own = await listMyStories().catch(() => null);
+    if (own) {
+      setCredits(own.credits || 0);
+      setUseCredit((own.credits || 0) > 0);
+    }
+  }
 
   return (
     <div
       ref={ref}
-      className="absolute inset-0 z-[1000] bg-black lg:fixed lg:grid lg:place-items-center lg:bg-black/70 lg:p-6"
+      className="absolute inset-0 z-[1010] bg-[#f8fbff] lg:fixed lg:grid lg:place-items-center lg:bg-slate-950/60 lg:p-5"
     >
-      <div
+      <section
         role="dialog"
         aria-modal="true"
-        aria-label="New story"
+        aria-labelledby="story-composer-title"
         tabIndex={-1}
-        className="relative size-full overflow-hidden outline-none lg:aspect-[9/16] lg:h-[min(860px,94vh)] lg:w-auto lg:rounded-3xl lg:shadow-2xl"
+        className="flex h-full w-full flex-col bg-gradient-to-b from-white to-[#f4f9ff] text-[#101831] outline-none lg:max-h-[820px] lg:max-w-[440px] lg:overflow-hidden lg:rounded-3xl lg:shadow-2xl"
       >
-        {/* ---- The story itself, edge to edge -------------------------- */}
-        <div
-          ref={canvas}
-          onPointerMove={(e) => dragging && moveTo(e)}
-          onPointerUp={() => setDragging(false)}
-          onPointerCancel={() => setDragging(false)}
-          // Tapping bare canvas starts typing, the way it does in every other
-          // story editor. It is the fast path; the Aa button is the one you
-          // can find without being told.
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !editing) setTool("text");
-          }}
-          style={
-            image ? undefined : { backgroundImage: backgroundCss(background) }
-          }
-          className="absolute inset-0 bg-cover bg-center"
-        >
-          {image && (
-            // A plain <img>: this is a data URI the browser already holds in
-            // memory, so there is nothing for next/image to optimise and no
-            // remote host to allow-list.
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={image}
-              alt=""
-              className="absolute inset-0 size-full object-cover"
-            />
-          )}
-
-          {/* While typing, the words are a transparent textarea sitting where
-              they will end up, so what you type is literally what you get. */}
-          {editing ? (
-            <textarea
-              ref={textarea}
-              value={text}
-              onChange={(e) => setText(e.target.value.slice(0, MAX_TEXT))}
-              onBlur={() => setTool(null)}
-              rows={2}
-              placeholder="Type something"
-              aria-label="Text on the story"
-              style={{ color: swatch.css, textShadow: swatch.shadow }}
-              className="absolute inset-x-6 top-1/2 -translate-y-1/2 resize-none bg-transparent text-center text-[30px] font-extrabold leading-tight outline-none placeholder:text-white/50"
-            />
-          ) : (
-            text.trim() && (
-              <button
-                type="button"
-                onPointerDown={startDrag}
-                onPointerUp={() => setDragging(false)}
-                onKeyDown={nudge}
-                onDoubleClick={() => setTool("text")}
-                aria-label={`Text: ${text}. At ${Math.round(position.x)}% across and ${Math.round(position.y)}% down. Drag or use the arrow keys to move it; double-click to edit.`}
-                style={{
-                  left: `${position.x}%`,
-                  top: `${position.y}%`,
-                  color: swatch.css,
-                  // The shadow travels with the colour: a dark glow under
-                  // black letters does nothing, which is exactly when
-                  // legibility matters most.
-                  textShadow: swatch.shadow,
-                }}
-                className={`absolute z-10 max-w-[84%] -translate-x-1/2 -translate-y-1/2 touch-none whitespace-pre-wrap rounded-2xl px-3 py-1.5 text-center text-[30px] font-extrabold leading-tight outline-none focus-visible:ring-2 focus-visible:ring-white ${
-                  dragging
-                    ? "cursor-grabbing ring-2 ring-white/60"
-                    : "cursor-grab"
-                }`}
-              >
-                {text}
-              </button>
-            )
-          )}
-
-          {/* One hint, until the words have been moved once. A hint that
-              outlives its lesson is clutter printed on the picture. */}
-          {!editing && text.trim() && !moved && (
-            <span className="pointer-events-none absolute inset-x-0 bottom-28 flex justify-center">
-              <span className="rounded-full bg-black/55 px-3 py-1.5 text-[12px] font-bold text-white backdrop-blur-md">
-                Drag the text anywhere
-              </span>
-            </span>
-          )}
-
-          {!editing && empty && (
-            <p className="pointer-events-none absolute inset-x-10 top-1/2 -translate-y-1/2 text-center text-[15px] font-semibold text-white/70">
-              Tap to type, or add a photo
-            </p>
-          )}
-        </div>
-
-        {/* ---- Top chrome ---------------------------------------------- */}
-        <div className="absolute inset-x-0 top-0 flex items-start justify-between p-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+        <header className="flex min-h-16 shrink-0 items-center gap-3 border-b border-blue-50 px-4 pt-[env(safe-area-inset-top)]">
           <button
-            onClick={editing ? () => setTool(null) : onClose}
-            aria-label={editing ? "Done editing text" : "Close"}
-            className={chip}
-          >
-            {editing ? (
-              <Check className="size-5" strokeWidth={2.6} />
-            ) : (
-              <X className="size-5" strokeWidth={2.4} />
-            )}
-          </button>
-
-          {/* The tools hide while typing: the keyboard is up, the colour
-              strip is the only choice that matters, and a row of icons over
-              a half-typed sentence is noise. */}
-          {!editing && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setTool("text")}
-                aria-label="Add text"
-                className={chip}
-              >
-                <Type className="size-5" strokeWidth={2.6} />
-              </button>
-
-              {!image && (
-                <button
-                  onClick={() =>
-                    setTool((t) => (t === "background" ? null : "background"))
+            type="button"
+            disabled={busy}
+            onClick={
+              step === "payment"
+                ? () => {
+                    setStep("media");
+                    setError("");
                   }
-                  aria-label="Background colour"
-                  aria-pressed={tool === "background"}
-                  className={`${chip} ${tool === "background" ? "ring-2 ring-white" : ""}`}
-                >
-                  <Palette className="size-5" strokeWidth={2.4} />
-                </button>
-              )}
-
-              <input
-                ref={fileInput}
-                type="file"
-                accept="image/*"
-                onChange={pick}
-                className="hidden"
-              />
-              <button
-                onClick={() => fileInput.current?.click()}
-                disabled={busy}
-                aria-label={image ? "Replace photo" : "Add a photo"}
-                className={`${chip} disabled:opacity-50`}
-              >
-                <ImageIcon className="size-5" strokeWidth={2.4} />
+                : close
+            }
+            aria-label={
+              step === "payment" ? "Back to media" : "Close story composer"
+            }
+            className="grid size-10 place-items-center rounded-full hover:bg-blue-50 disabled:opacity-50"
+          >
+            <ArrowLeft className="size-5" />
+          </button>
+          <h1 id="story-composer-title" className="text-lg font-extrabold">
+            {step === "success" ? "Story published" : "Post Story"}
+          </h1>
+        </header>
+        <div className="flex-1 overflow-y-auto px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5">
+          {!allowed ? (
+            <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
+              <h2 className="font-bold">Ad creators can post stories</h2>
+              <p className="mt-2 text-sm text-slate-600">
+                {signedIn
+                  ? "Use an ad creator account to share your story."
+                  : "Sign in to your ad creator account to continue."}
+              </p>
+              <button onClick={close} className={`${primary} mt-5`}>
+                Close
               </button>
-
-              {image && (
-                <button
-                  onClick={() => setImage(null)}
-                  aria-label="Remove photo"
-                  className={chip}
-                >
-                  <Trash2 className="size-[18px]" strokeWidth={2.4} />
-                </button>
-              )}
             </div>
+          ) : (
+            <>
+              {step !== "success" && (
+                <ol
+                  aria-label="Story progress"
+                  className="mb-7 flex items-start justify-between"
+                >
+                  {["Add media", "Payment", "Published"].map((label, index) => (
+                    <li
+                      key={label}
+                      aria-current={
+                        (step === "media" ? 0 : 1) === index
+                          ? "step"
+                          : undefined
+                      }
+                      className="relative flex flex-1 flex-col items-center gap-2 text-[11px] font-semibold text-slate-500"
+                    >
+                      {index < 2 && (
+                        <span className="absolute left-1/2 right-[-50%] top-3 h-px bg-blue-100" />
+                      )}
+                      <span
+                        className={`relative grid size-6 place-items-center rounded-full ${(step === "media" ? 0 : 1) >= index ? "bg-[#2858e8] text-white" : "bg-slate-100 text-slate-500"}`}
+                      >
+                        {index + 1}
+                      </span>
+                      <span>{label}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              {error && (
+                <p
+                  role="alert"
+                  className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+                >
+                  {error}
+                  {loadFailed && (
+                    <button
+                      type="button"
+                      onClick={retryLoad}
+                      className="ml-2 font-bold underline focus-visible:ring-2 focus-visible:ring-blue-500"
+                    >
+                      Try again
+                    </button>
+                  )}
+                </p>
+              )}
+              {loading ? (
+                <p
+                  role="status"
+                  className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500"
+                >
+                  <LoaderCircle className="size-4 animate-spin" />
+                  Loading story plans...
+                </p>
+              ) : loadFailed ? null : step === "media" ? (
+                <>
+                  <input
+                    ref={gallery}
+                    aria-label="Add media from gallery"
+                    type="file"
+                    accept={ACCEPT}
+                    onChange={pick}
+                    className="hidden"
+                  />
+                  <input
+                    ref={camera}
+                    aria-label="Take photo"
+                    type="file"
+                    accept={IMAGE_TYPES.join(",")}
+                    capture="environment"
+                    onChange={pick}
+                    className="hidden"
+                  />
+                  <input
+                    ref={recorder}
+                    aria-label="Record video"
+                    type="file"
+                    accept={VIDEO_TYPES.join(",")}
+                    capture="environment"
+                    onChange={pick}
+                    className="hidden"
+                  />
+                  <div className="flex items-start gap-3">
+                    <div className="relative aspect-[9/16] w-[43%] shrink-0 overflow-hidden rounded-xl border-2 border-blue-400 bg-blue-50 p-0.5">
+                      {preview || draft?.mediaUrl ? (
+                        <>
+                          <MediaPreview
+                            src={preview || draft.mediaUrl}
+                            type={
+                              file
+                                ? file.type.startsWith("video/")
+                                  ? "VIDEO"
+                                  : "IMAGE"
+                                : draft.mediaType
+                            }
+                            className="size-full rounded-lg bg-slate-900 object-contain"
+                          />
+                          <button
+                            disabled={busy}
+                            onClick={() => {
+                              setFile(null);
+                              setDraft(null);
+                            }}
+                            aria-label="Remove selected media"
+                            className="absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-full bg-white text-slate-900 shadow"
+                          >
+                            <X className="size-4" />
+                          </button>
+                        </>
+                      ) : (
+                        <div className="flex h-full flex-col items-center justify-center gap-2 px-3 text-center text-blue-400">
+                          <ImageIcon className="size-8" />
+                          <span className="text-xs">Your story preview</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-1 flex-col gap-3">
+                      {[
+                        {
+                          label: "Add from Gallery",
+                          icon: ImageIcon,
+                          input: gallery,
+                        },
+                        { label: "Take Photo", icon: Camera, input: camera },
+                        { label: "Record Video", icon: Video, input: recorder },
+                      ].map(({ label, icon: Icon, input }) => (
+                        <button
+                          key={label}
+                          disabled={busy}
+                          onClick={() => input.current?.click()}
+                          className="flex min-h-[62px] items-center gap-3 rounded-xl border border-slate-100 bg-white px-3 py-4 text-left text-xs font-semibold shadow-sm hover:border-blue-300 disabled:opacity-50"
+                        >
+                          <Icon className="size-5 shrink-0" />
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="mb-5 mt-4 flex gap-3 rounded-xl bg-blue-50 p-3 text-sm text-blue-700">
+                    <ImageIcon className="mt-0.5 size-5 shrink-0" />
+                    <p>
+                      <strong>Add Photo / Video</strong>
+                      <span className="mt-1 block text-xs text-slate-600">
+                        Vertical 9:16 recommended. Photos up to 10 MB; videos up
+                        to 50 MB and 60 seconds.
+                      </span>
+                    </p>
+                  </div>
+                  <p className="mb-5 text-xs leading-relaxed text-slate-500">
+                    Visible to everyone for 24 hours after publishing. One photo
+                    or video per story.
+                  </p>
+                  <button
+                    disabled={busy || (!file && !draft)}
+                    onClick={next}
+                    className={primary}
+                  >
+                    {busy ? (
+                      <>
+                        <LoaderCircle className="size-4 animate-spin" />
+                        Preparing your story...
+                      </>
+                    ) : (
+                      "Next"
+                    )}
+                  </button>
+                  {drafts.length > 0 && (
+                    <div className="mt-7">
+                      <h2 className="mb-3 text-sm font-bold">Saved drafts</h2>
+                      <div className="space-y-2">
+                        {drafts.map((item, index) => (
+                          <div
+                            key={item.id}
+                            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-2"
+                          >
+                            <button
+                              disabled={busy || item.status !== "READY"}
+                              onClick={() => {
+                                setDraft(item);
+                                setFile(null);
+                                setError("");
+                              }}
+                              className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                            >
+                              {item.mediaUrl ? (
+                                <MediaPreview
+                                  src={item.mediaUrl}
+                                  type={item.mediaType}
+                                  className="h-14 w-10 rounded-md bg-slate-100 object-cover"
+                                />
+                              ) : (
+                                <span className="grid h-14 w-10 shrink-0 place-items-center rounded-md bg-slate-100 text-slate-400">
+                                  <ImageIcon
+                                    className="size-5"
+                                    aria-hidden="true"
+                                  />
+                                </span>
+                              )}
+                              <span className="min-w-0 break-words text-sm font-medium">
+                                {item.mediaType === "VIDEO" ? "Video" : "Photo"}{" "}
+                                {item.status === "READY"
+                                  ? "draft"
+                                  : "incomplete upload"}{" "}
+                                {index + 1}
+                                <span className="block text-xs font-normal text-slate-500">
+                                  {item.status === "READY"
+                                    ? "Continue to plans"
+                                    : "Delete this upload and select the file again."}
+                                </span>
+                              </span>
+                            </button>
+                            <button
+                              disabled={busy}
+                              onClick={() => removeDraft(item)}
+                              aria-label={`Delete draft ${index + 1}`}
+                              className="grid size-10 shrink-0 place-items-center text-slate-500"
+                            >
+                              <X className="size-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : step === "payment" ? (
+                <>
+                  <h2 className="mb-3 text-lg font-extrabold">Choose a plan</h2>
+                  <div
+                    role="radiogroup"
+                    aria-label="Story plan"
+                    className="space-y-3"
+                  >
+                    {credits > 0 && (
+                      <label
+                        className={`flex cursor-pointer items-center gap-3 rounded-xl border p-4 ${useCredit ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white"}`}
+                      >
+                        <input
+                          type="radio"
+                          name="story-plan"
+                          checked={useCredit}
+                          onChange={() => {
+                            setUseCredit(true);
+                            setSelectedId(null);
+                          }}
+                          disabled={busy}
+                          className="size-4 accent-blue-600"
+                        />
+                        <span className="text-sm font-bold">
+                          Use a story credit
+                          <span className="mt-1 block text-xs font-normal text-slate-500">
+                            {credits} remaining · publishes for 24 hours
+                          </span>
+                        </span>
+                      </label>
+                    )}
+                    {plans.map((plan) => (
+                      <label
+                        key={plan.id}
+                        className={`flex cursor-pointer items-center gap-3 rounded-xl border p-4 ${!useCredit && selectedId === plan.id ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white"}`}
+                      >
+                        <input
+                          type="radio"
+                          name="story-plan"
+                          checked={!useCredit && selectedId === plan.id}
+                          onChange={() => {
+                            setUseCredit(false);
+                            setSelectedId(plan.id);
+                          }}
+                          disabled={busy}
+                          className="size-4 shrink-0 accent-blue-600"
+                        />
+                        <span className="min-w-0 flex-1 break-words text-sm font-bold">
+                          {plan.name}
+                          <span className="mt-1 block text-xs font-normal text-slate-500">
+                            {plan.storyCount}{" "}
+                            {plan.storyCount === 1 ? "story" : "stories"} · each
+                            visible for 24 hours
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-sm font-extrabold">
+                          {money(plan)}
+                          <span className="block text-right text-[10px] font-normal text-slate-500">
+                            {plan.currency}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  {!plans.length && !credits && (
+                    <p className="rounded-xl bg-blue-50 p-4 text-sm text-slate-600">
+                      No story packs are available right now. You can save your
+                      draft and return later.
+                    </p>
+                  )}
+                  {selectedPlan?.storyCount > 1 && !useCredit && (
+                    <p className="mt-3 text-xs text-slate-500">
+                      One story is published now. The remaining credits can be
+                      used for future stories.
+                    </p>
+                  )}
+                  {demoPurchaseAvailable && !useCredit && (
+                    <p className="mb-5 mt-4 rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs leading-relaxed text-slate-600">
+                      <strong className="block text-blue-700">
+                        Demo purchase — no charge
+                      </strong>
+                      Choose a pack to test publishing. No payment details are
+                      needed and no money is collected.
+                    </p>
+                  )}
+                  {!canPublish && !demoPurchaseAvailable && (
+                    <>
+                      <h2 className="mb-3 mt-6 text-lg font-extrabold">
+                        Payment method
+                      </h2>
+                      <div
+                        role="radiogroup"
+                        aria-label="Payment method"
+                        className="overflow-hidden rounded-xl border border-slate-100 bg-white"
+                      >
+                        {[
+                          {
+                            id: "ltc",
+                            label: "Crypto (Litecoin - LTC)",
+                            icon: Banknote,
+                          },
+                          {
+                            id: "card",
+                            label: "Credit / Debit Card",
+                            icon: CreditCard,
+                          },
+                          { id: "cash", label: "Cash (ATM)", icon: Banknote },
+                        ].map(({ id, label, icon: Icon }) => (
+                          <label
+                            key={id}
+                            className="flex cursor-pointer items-center gap-3 border-b border-slate-100 p-4 last:border-0"
+                          >
+                            <Icon className="size-5 text-slate-600" />
+                            <span className="flex-1 text-sm">{label}</span>
+                            <input
+                              type="radio"
+                              name="story-payment"
+                              checked={method === id}
+                              onChange={() => setMethod(id)}
+                              className="size-4 accent-blue-600"
+                            />
+                            <ChevronRight className="size-4 text-slate-400" />
+                          </label>
+                        ))}
+                      </div>
+                      <p className="mb-5 mt-4 rounded-xl bg-blue-50 p-3 text-xs leading-relaxed text-slate-600">
+                        <strong className="block text-blue-700">
+                          Payments coming soon
+                        </strong>
+                        Your draft is saved. Paid packs will be available when
+                        payments launch.
+                      </p>
+                    </>
+                  )}
+                  <div className="mt-6 space-y-3">
+                    <button
+                      disabled={busy || !canPublish}
+                      onClick={publish}
+                      className={primary}
+                    >
+                      {busy ? (
+                        <>
+                          <LoaderCircle className="size-4 animate-spin" />
+                          Publishing...
+                        </>
+                      ) : canPublish ? (
+                        isDemoPurchase ? (
+                          "Demo purchase & publish"
+                        ) : (
+                          "Publish story"
+                        )
+                      ) : (
+                        <>
+                          <LockKeyhole className="size-4" />
+                          {selectedPlan
+                            ? `Pay ${money(selectedPlan)}`
+                            : "Choose a plan"}
+                        </>
+                      )}
+                    </button>
+                    <button
+                      disabled={busy}
+                      onClick={() => {
+                        toast(
+                          "Your story draft is saved. You can continue it later.",
+                        );
+                        onClose();
+                      }}
+                      className={`${secondary} w-full`}
+                    >
+                      Save draft & close
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex min-h-[430px] flex-col items-center text-center">
+                  <div className="relative mb-7 mt-10 grid size-28 place-items-center rounded-full bg-gradient-to-br from-green-400 to-green-700 shadow-lg shadow-green-200">
+                    <Check className="size-16 text-white" strokeWidth={3} />
+                    <span className="absolute -left-5 top-3 size-2 rotate-45 bg-yellow-400" />
+                    <span className="absolute -right-5 bottom-4 size-2 rotate-12 bg-blue-500" />
+                    <span className="absolute -right-1 -top-5 size-2 rotate-45 bg-pink-400" />
+                  </div>
+                  <h2 className="text-2xl font-extrabold">
+                    Your story is live!
+                  </h2>
+                  <p className="mt-3 text-sm text-slate-500">
+                    It will be visible to everyone for 24 hours.
+                  </p>
+                  <div className="mt-auto w-full space-y-3 pt-12">
+                    <button
+                      onClick={() => {
+                        onClose();
+                        navigate("/status/me");
+                      }}
+                      className={primary}
+                    >
+                      View My Stories
+                    </button>
+                    <button
+                      onClick={postAnother}
+                      className="min-h-12 w-full rounded-xl bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700"
+                    >
+                      Post Another Story
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
-
-        {/* ---- Colour strip, while typing ------------------------------ */}
-        {editing && (
-          <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-3 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            {STORY_TEXT_COLORS.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                // The textarea must not lose focus — and therefore must not
-                // close the tool — when a colour is tapped.
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setColor(c.id)}
-                aria-label={`${c.label} text`}
-                aria-pressed={c.id === color}
-                style={{ backgroundColor: c.css }}
-                className={`size-8 shrink-0 rounded-full border-2 border-white/70 transition-transform active:scale-90 ${
-                  c.id === color ? "scale-125 ring-2 ring-white" : ""
-                }`}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* ---- Background strip ---------------------------------------- */}
-        {tool === "background" && !editing && (
-          <div className="absolute inset-x-0 bottom-24 flex items-center justify-center gap-3 px-4">
-            {STORY_BACKGROUNDS.map((b) => (
-              <button
-                key={b.id}
-                type="button"
-                onClick={() => setBackground(b.id)}
-                aria-label={`${b.label} background`}
-                aria-pressed={b.id === background}
-                style={{ backgroundImage: b.css }}
-                className={`size-9 shrink-0 rounded-full border-2 border-white/70 bg-cover transition-transform active:scale-90 ${
-                  b.id === background ? "scale-125 ring-2 ring-white" : ""
-                }`}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* ---- Share ---------------------------------------------------- */}
-        {!editing && (
-          <div className="absolute inset-x-0 bottom-0 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            <button
-              onClick={share}
-              disabled={busy || empty}
-              className="flex w-full items-center justify-center gap-2 rounded-full bg-white py-3.5 text-[16px] font-extrabold text-ink shadow-lift transition-transform active:scale-[0.98] disabled:opacity-45"
-            >
-              <Send className="size-[18px]" strokeWidth={2.6} />
-              {busy ? "Reading photo…" : "Share to your story"}
-            </button>
-          </div>
-        )}
-      </div>
+      </section>
     </div>
   );
 }

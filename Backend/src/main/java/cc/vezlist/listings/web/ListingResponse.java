@@ -53,7 +53,7 @@ public record ListingResponse(
                 listing.getCategory().getId(), listing.getCategory().getLabel(),
                 listing.getProvinceId(), province.getLabel(), location.getId(), location.getLabel(),
                 listing.getContactEmail(), listing.getContactPhone(), listing.getLatitude(), listing.getLongitude(),
-                listing.getAttributes(), listing.getVersion(), 0, listing.getSaveCount(), media,
+                listing.getAttributes(), listing.getVersion(), listing.getViewCount(), listing.getSaveCount(), media,
                 listing.getCreatedAt(), listing.getUpdatedAt(), listing.getSubmittedAt(),
                 listing.getPublishedAt(), listing.getExpiresAt(), listing.isVerified(), listing.isVerificationRequested());
     }

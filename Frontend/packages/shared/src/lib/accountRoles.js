@@ -7,10 +7,8 @@
  * matrix, read by the shell to decide which tabs exist and by the profile to
  * decide which menu it draws.
  *
- * Same honesty as the rest of this build: there is no server, so this shapes
- * what the UI offers. It is not a security boundary — the client owns the
- * store. On a real backend the matrix moves to the server and stays here only
- * to hide buttons.
+ * This matrix shapes the UI. Account type is persisted by the backend,
+ * which independently checks creator permissions on story mutations.
  *
  * The console has its own tiers in `adminRoles.js`; these are the public ones
  * and the two never mix.
@@ -85,7 +83,13 @@ export function can(role, capability) {
 
 /** A stored role that is no longer in the table falls back rather than breaking a screen. */
 export function normaliseRole(role) {
-  return ACCOUNT_ROLES[role] ? role : DEFAULT_ROLE;
+  return Object.hasOwn(ACCOUNT_ROLES, role) ? role : DEFAULT_ROLE;
 }
 
 export const isCreatorRole = (role) => normaliseRole(role) === "creator";
+
+/** A missing browser preference must not demote a signed-in member. */
+export function roleForSession(storedRole, signedIn) {
+  if (Object.hasOwn(ACCOUNT_ROLES, storedRole)) return storedRole;
+  return signedIn ? SIGNUP_ROLE : DEFAULT_ROLE;
+}

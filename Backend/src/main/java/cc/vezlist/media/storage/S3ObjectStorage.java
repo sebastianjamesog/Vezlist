@@ -3,6 +3,7 @@ package cc.vezlist.media.storage;
 import java.io.InputStream;
 import java.net.URI;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -11,6 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.stereotype.Component;
 
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -94,10 +96,17 @@ public class S3ObjectStorage implements ObjectStorage {
 
     @Override
     public URI authorizeDownload(String objectKey) {
+        return authorizeDownload(objectKey, properties.downloadUrlTtl());
+    }
+
+    @Override
+    public URI authorizeDownload(String objectKey, Duration maximumTtl) {
+        Duration ttl = maximumTtl.compareTo(properties.downloadUrlTtl()) < 0 ? maximumTtl : properties.downloadUrlTtl();
+        if (ttl.isNegative() || ttl.isZero()) throw new IllegalArgumentException("Media has expired.");
         try {
             PresignedGetObjectRequest signed = presigner.presignGetObject(
                     GetObjectPresignRequest.builder()
-                            .signatureDuration(properties.downloadUrlTtl())
+                            .signatureDuration(ttl)
                             .getObjectRequest(GetObjectRequest.builder()
                                     .bucket(properties.bucket())
                                     .key(objectKey)
@@ -107,6 +116,13 @@ public class S3ObjectStorage implements ObjectStorage {
         } catch (RuntimeException exception) {
             throw new StorageException("The image could not be made available.", exception);
         }
+    }
+
+    @Override
+    public void store(String objectKey, String contentType, byte[] bytes) {
+        ensureBucket();
+        s3.putObject(PutObjectRequest.builder().bucket(properties.bucket()).key(objectKey)
+                .contentType(contentType).contentLength((long) bytes.length).build(), RequestBody.fromBytes(bytes));
     }
 
     @Override

@@ -32,11 +32,12 @@ function validateTicket({ subject, body }) {
 export default function Tickets() {
   const toast = useToast();
   const navigate = useNavigate();
-  const { tickets, open } = useTickets();
+  const { tickets, ready, error, refresh, nextOffset, loadMore, open } = useTickets();
   const [tab, setTab] = useState("all");
   const [composing, setComposing] = useState(false);
   const [form, setForm] = useState(EMPTY_TICKET);
   const [errors, setErrors] = useState({});
+  const [pending, setPending] = useState(false);
   const rows =
     tab === "all" ? tickets : tickets.filter((t) => t.status === tab);
 
@@ -56,17 +57,24 @@ export default function Tickets() {
    * reload and never touched on the server that renders the detail page's
    * id straight off the URL.
    */
-  function submitTicket(e) {
+  async function submitTicket(e) {
     e.preventDefault();
     const found = validateTicket(form);
     setErrors(found);
     if (Object.keys(found).length) return;
 
-    const id = open(form);
-    setForm(EMPTY_TICKET);
-    setComposing(false);
-    toast("Ticket opened");
-    navigate(`/support/tickets/${id}`);
+    setPending(true);
+    try {
+      const id = await open(form);
+      setForm(EMPTY_TICKET);
+      setComposing(false);
+      toast("Ticket opened");
+      navigate(`/support/tickets/${id}`);
+    } catch (caught) {
+      setErrors({ body: caught.message || "Could not open the ticket. Try again." });
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
@@ -104,7 +112,14 @@ export default function Tickets() {
           ))}
         </div>
 
-        {rows.length ? (
+        {!ready ? (
+          <p role="status" className="text-muted">Loading tickets…</p>
+        ) : error ? (
+          <div role="alert" className="rounded-card bg-surface p-5 shadow-card">
+            <p>Could not load tickets.</p>
+            <Button onClick={refresh} variant="soft">Try again</Button>
+          </div>
+        ) : rows.length ? (
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {rows.map((t) => (
               <Link
@@ -148,6 +163,9 @@ export default function Tickets() {
             }
           />
         )}
+        {nextOffset != null && (
+          <Button variant="soft" onClick={loadMore} className="mt-4">Load more</Button>
+        )}
       </PageBody>
 
       <Modal
@@ -157,8 +175,8 @@ export default function Tickets() {
         onClose={() => setComposing(false)}
         size="max-w-md"
         footer={
-          <Button type="submit" form="new-ticket" size="lg" className="w-full">
-            Open ticket
+          <Button type="submit" form="new-ticket" size="lg" className="w-full" disabled={pending}>
+            {pending ? "Opening…" : "Open ticket"}
           </Button>
         }
       >

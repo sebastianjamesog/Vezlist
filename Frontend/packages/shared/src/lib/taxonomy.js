@@ -1,4 +1,3 @@
-import { categories as mockCategories } from "../data/mock.js";
 
 /**
  * The category tree, and the four questions every screen asks of it.
@@ -27,13 +26,13 @@ import { categories as mockCategories } from "../data/mock.js";
  * module already treats as the easy one rather than an error.
  */
 
-let categories = mockCategories;
+let categories = [];
 let byId = new Map(categories.map((c) => [c.id, c]));
 let byLabel = new Map(categories.map((c) => [c.label, c]));
 
 /** Swap in the real category list once the API has answered. */
 export function setCategories(list) {
-  categories = Array.isArray(list) && list.length ? list : mockCategories;
+  categories = Array.isArray(list) ? list : [];
   byId = new Map(categories.map((c) => [c.id, c]));
   byLabel = new Map(categories.map((c) => [c.label, c]));
 }

@@ -87,7 +87,7 @@ export default function Home() {
         data-scroll
         className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-top pb-nav lg:px-8 lg:pb-6"
       >
-        <div className="mx-auto flex w-full max-w-lg flex-1 flex-col pb-2">
+        <div className="mx-auto flex w-full max-w-[645px] flex-1 flex-col pb-2">
           {/* Mark and name sit on one line, not stacked, because a screen that
               has given up scrolling buys its vertical space back wherever it
               can — and a horizontal lockup is how the logo is drawn anyway.
@@ -163,14 +163,14 @@ export default function Home() {
             aria-labelledby="home-categories"
             className="mt-2.5 flex flex-1 flex-col"
           >
-            <div className="mb-1.5">
+            <div className="mb-2.5">
               <h2
                 id="home-categories"
-                className="text-[17px] font-bold leading-tight text-ink"
+                className="text-[21px] font-bold leading-tight text-ink"
               >
                 Browse categories
               </h2>
-              <p className="mt-0.5 hidden text-[13px] text-muted [@media(min-height:720px)]:block">
+              <p className="mt-1 text-[16px] text-muted">
                 Pick where you want to start.
               </p>
             </div>

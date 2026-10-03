@@ -9,10 +9,8 @@ import { ArrowRight, Eye, EyeOff, Lock, ShieldCheck } from "lucide-react";
 import Button from "../components/ui/Button";
 import SegmentedControl from "../components/ui/SegmentedControl";
 import Wordmark from "../components/layout/Wordmark";
-import Icon from "../components/ui/Icon";
 import Field, { FIELD, border } from "../components/create/Field";
-import { ACCOUNT_ROLES, SIGNUP_ROLE } from "../lib/accountRoles";
-import { demoAccounts } from "../data/mock";
+import { SIGNUP_ROLE } from "../lib/accountRoles";
 import { validateAuth } from "../lib/auth";
 import { ApiError } from "../lib/api/client";
 
@@ -82,47 +80,12 @@ export default function Login() {
     if (ready && signedIn) navigate(next, { replace: true });
   }, [ready, signedIn, navigate, next]);
 
-  /**
-   * Sign in as one of the demo accounts.
-   *
-   * It skips `validateAuth` deliberately: the credentials are ours and already
-   * valid, and putting them through the form validator would only invent a way
-   * for a typo in mock data to render an error on a button the reader has no
-   * way to fix.
-   *
-   * No name is passed. In sign-in mode `signIn` takes the mock profile's name
-   * rather than anything handed to it — there is no server to ask who this
-   * email belongs to — so passing "Ads creator" as a person's name would be
-   * ignored at best and displayed at worst. Both demos are Sarah, which is
-   * whose ads, saved items and tickets the rest of the app is full of.
-   *
-   * The role, though, is passed explicitly, and that is the point of these two
-   * buttons: signup always makes a creator now, so this is the only way to see
-   * the browsing view without switching down in Settings first.
-   */
-  async function signInAs(account) {
-    setPending(true);
-    try {
-      await signIn(
-        { email: account.email, password: account.password, role: account.role },
-        "signin",
-      );
-      navigate(next, { replace: true });
-    } catch (error) {
-      setErrors({ password: messageFor(error) });
-    } finally {
-      setPending(false);
-    }
-  }
-
   async function submit(e) {
     e.preventDefault();
     // Signing up makes an ads creator, and does not ask: nobody needs an
     // account to browse, so the only reason to make one is to post. Signing in
-    // deliberately sends no role at all.
-    // The session already knows what this browser last held, and sending one
-    // from here would demote a returning creator to a browsing account every
-    // time they came back.
+    // sends no role: a saved choice stays in place, while a browser with no
+    // choice defaults a signed-in member to Ads creator.
     const payload = signup ? { ...values, role: SIGNUP_ROLE } : values;
     const found = validateAuth(payload, mode);
     setErrors(found);
@@ -291,56 +254,6 @@ export default function Login() {
             We never post anything without asking.
           </p>
 
-          {/* Demo accounts. Below the form and visually quieter than it, because
-              the form is still the thing this screen is for — but on the card
-              rather than under it, since on this build they are the only way to
-              reach the browsing view at all. Each row signs in as its role, and
-              prints the credentials so they can be typed in by hand instead. */}
-          <div className="mt-5 border-t border-line pt-4">
-            <p className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
-              Or try a demo account
-            </p>
-
-            <div className="space-y-2">
-              {demoAccounts.map((account) => (
-                <button
-                  key={account.id}
-                  type="button"
-                  disabled={pending}
-                  onClick={() => signInAs(account)}
-                  className="flex w-full items-center gap-3 rounded-2xl border border-line bg-surface p-3 text-left transition-all hover:-translate-y-0.5 hover:border-brand hover:shadow-card active:scale-[0.98] disabled:opacity-60"
-                >
-                  <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-soft text-brand">
-                    <Icon
-                      name={ACCOUNT_ROLES[account.role].icon}
-                      className="size-[18px]"
-                      strokeWidth={2.3}
-                    />
-                  </span>
-
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[14px] font-bold text-ink">
-                      {account.label}
-                    </span>
-                    <span className="mt-0.5 block truncate text-[12px] text-muted">
-                      {account.blurb}
-                    </span>
-                    {/* Selectable, so they can be copied into the form above.
-                        A slash separator rather than two lines: the pair is one
-                        credential and reads as one. */}
-                    <span className="mt-1 block truncate font-mono text-[11px] text-muted">
-                      {account.email} / {account.password}
-                    </span>
-                  </span>
-
-                  <ArrowRight
-                    className="size-4 shrink-0 text-muted"
-                    strokeWidth={2.4}
-                  />
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
         <p className="mt-6 text-center text-[13px] text-muted">

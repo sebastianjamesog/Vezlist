@@ -2,13 +2,13 @@ package cc.vezlist.listings.web;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import cc.vezlist.identity.application.VezlistUserPrincipal;
 import cc.vezlist.listings.application.ListingService;
-import cc.vezlist.listings.application.ListingViewRecorder;
+import cc.vezlist.listings.application.ListingViewService;
 import cc.vezlist.shared.domain.SiteScope;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -31,11 +31,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1")
 public class ListingController {
     private final ListingService listingService;
-    private final ListingViewRecorder viewRecorder;
+    private final ListingViewService listingViews;
 
-    public ListingController(ListingService listingService, ListingViewRecorder viewRecorder) {
+    public ListingController(ListingService listingService, ListingViewService listingViews) {
         this.listingService = listingService;
-        this.viewRecorder = viewRecorder;
+        this.listingViews = listingViews;
     }
 
     @PostMapping("/listings")
@@ -69,13 +69,23 @@ public class ListingController {
     ListingResponse detail(
             @AuthenticationPrincipal VezlistUserPrincipal principal,
             @PathVariable UUID listingId,
+            @RequestParam SiteScope site) {
+        return listingService.detail(listingId, site, principal == null ? null : principal.id());
+    }
+
+    @PostMapping("/listings/{listingId}/views")
+    ListingViewCountResponse registerView(
+            @AuthenticationPrincipal VezlistUserPrincipal principal,
+            @PathVariable UUID listingId,
             @RequestParam SiteScope site,
-            HttpServletRequest request) {
-        UUID viewerId = principal == null ? null : principal.id();
-        ListingResponse listing = listingService.detail(listingId, site, viewerId);
-        viewRecorder.record(listing.id(), listing.ownerId(), viewerId,
-                request.getRemoteAddr(), request.getHeader("User-Agent"));
-        return listing;
+            @RequestHeader("Idempotency-Key") UUID requestId) {
+        return new ListingViewCountResponse(listingViews.register(
+                listingId, site, requestId, principal == null ? null : principal.id()));
+    }
+
+    @GetMapping("/listings/views")
+    Map<UUID, Long> viewCounts(@RequestParam SiteScope site, @RequestParam List<UUID> ids) {
+        return listingViews.activeCounts(ids, site);
     }
 
     @GetMapping("/me/listings")

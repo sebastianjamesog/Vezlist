@@ -124,6 +124,7 @@ function withQuery(path, query = {}) {
 export const api = {
   get: (path, query) => apiFetch(withQuery(path, query)),
   post: (path, body, opts) => apiFetch(path, { ...opts, method: "POST", body }),
+  put: (path, body, opts) => apiFetch(path, { ...opts, method: "PUT", body }),
   patch: (path, body, opts) => apiFetch(path, { ...opts, method: "PATCH", body }),
   delete: (path, query) => apiFetch(withQuery(path, query), { method: "DELETE" }),
 };
