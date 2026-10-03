@@ -19,7 +19,9 @@ public class SellerRepository {
     public SellerRow findPublicSeller(UUID sellerId, SiteScope site) {
         List<SellerRow> rows = jdbc.query("""
                 SELECT u.id, u.display_name, p.avatar_url, u.created_at, u.seller_verified,
-                       COUNT(l.id) AS active_listing_count
+                       COUNT(l.id) AS active_listing_count,
+                       COALESCE(SUM(l.save_count), 0) AS like_count,
+                       COALESCE(SUM(l.view_count), 0) AS view_count
                 FROM app_users u
                 LEFT JOIN user_profiles p ON p.user_id = u.id
                 LEFT JOIN listings l ON l.owner_id = u.id
@@ -51,8 +53,50 @@ public class SellerRepository {
                 """, new ListingRowMapper(), sellerId, site.name(), limit);
     }
 
+    /**
+     * Creators ranked by the engagement on their live posts: every view counts
+     * once, every like (a save) counts five times, because a like is a much
+     * stronger signal than an open. Ties go to more likes, then more posts.
+     * Only enabled accounts with at least one ACTIVE, unexpired post appear.
+     */
+    public List<TrendingRow> findTrending(SiteScope site, int limit) {
+        return jdbc.query("""
+                WITH live AS (
+                    SELECT l.id, l.owner_id, l.save_count,
+                           l.view_count AS views,
+                           COALESCE(l.published_at, l.created_at) AS published_at
+                    FROM listings l
+                    WHERE l.site_scope = ? AND l.status = 'ACTIVE'
+                      AND (l.expires_at IS NULL OR l.expires_at > now())
+                ), stats AS (
+                    SELECT owner_id, COUNT(*) AS post_count,
+                           SUM(save_count) AS like_count, SUM(views) AS view_count
+                    FROM live GROUP BY owner_id
+                )
+                SELECT u.id, u.display_name, p.avatar_url, u.seller_verified,
+                       s.post_count, s.view_count, s.like_count,
+                       (SELECT lm.object_key FROM live t
+                        JOIN listing_media lm ON lm.listing_id = t.id AND lm.status = 'READY'
+                        WHERE t.owner_id = u.id
+                        ORDER BY t.save_count DESC, t.views DESC, t.published_at DESC,
+                                 lm.position ASC, lm.created_at ASC
+                        LIMIT 1) AS cover_object_key
+                FROM stats s
+                JOIN app_users u ON u.id = s.owner_id AND u.enabled = TRUE
+                LEFT JOIN user_profiles p ON p.user_id = u.id
+                ORDER BY s.view_count + s.like_count * 5 DESC, s.like_count DESC,
+                         s.post_count DESC, u.id
+                LIMIT ?
+                """, (rs, rowNum) -> new TrendingRow(rs.getObject("id", UUID.class), rs.getString("display_name"),
+                rs.getString("avatar_url"), rs.getBoolean("seller_verified"), rs.getLong("post_count"),
+                rs.getLong("view_count"), rs.getLong("like_count"), rs.getString("cover_object_key")),
+                site.name(), limit);
+    }
+
     public record SellerRow(UUID id, String displayName, String avatarUrl, Instant memberSince,
-                            boolean verified, long activeListingCount) { }
+                            boolean verified, long activeListingCount, long likeCount, long viewCount) { }
+    public record TrendingRow(UUID id, String displayName, String avatarUrl, boolean verified,
+                              long postCount, long viewCount, long likeCount, String coverObjectKey) { }
     public record ListingRow(UUID id, SiteScope site, String title, String businessName, BigDecimal price,
                              String categoryId, String categoryLabel, String provinceId, String provinceLabel,
                              String locationId, String locationLabel, boolean verified, String coverObjectKey,
@@ -60,7 +104,8 @@ public class SellerRepository {
     private static final class SellerRowMapper implements RowMapper<SellerRow> {
         @Override public SellerRow mapRow(ResultSet rs, int rowNum) throws SQLException {
             return new SellerRow(rs.getObject("id", UUID.class), rs.getString("display_name"), rs.getString("avatar_url"),
-                    rs.getTimestamp("created_at").toInstant(), rs.getBoolean("seller_verified"), rs.getLong("active_listing_count"));
+                    rs.getTimestamp("created_at").toInstant(), rs.getBoolean("seller_verified"), rs.getLong("active_listing_count"),
+                    rs.getLong("like_count"), rs.getLong("view_count"));
         }
     }
     private static final class ListingRowMapper implements RowMapper<ListingRow> {

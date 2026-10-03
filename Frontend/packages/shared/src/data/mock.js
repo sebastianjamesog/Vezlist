@@ -1597,16 +1597,16 @@ export const liveStreams = [
   },
   {
     id: "lv2",
-    host: "Clara Bennett",
+    host: "Chloe Dubois",
     title: "Late-night studio session",
     viewers: 862,
     startedMsAgo: 42 * 60_000,
-    location: "Greater Toronto Area",
+    location: "Halifax",
     verified: true,
   },
   {
     id: "lv3",
-    host: "Fabian Ruiz",
+    host: "Aisha Rahman",
     title: "Walking the canal, ask me anything",
     viewers: 317,
     startedMsAgo: 9 * 60_000,
@@ -1624,7 +1624,7 @@ export const liveStreams = [
   },
   {
     id: "lv5",
-    host: "Michael T.",
+    host: "Noah Fischer",
     title: "City lights from the roof",
     viewers: 154,
     startedMsAgo: 4 * 60_000,
@@ -1646,6 +1646,52 @@ export const liveStreams = [
   cover: shot(`live-${i + 1}`),
   chat: liveChatSeed,
 }));
+
+/**
+ * Filler for the Live now grid on `next dev` only, so the page looks full
+ * while you design it. `allLiveStreams` is what the Live page and the player
+ * read: the real mock set in production, the set plus this in development.
+ * `liveStreamFor` still reads `liveStreams` alone, so filler hosts never mark
+ * a real creator as live.
+ */
+const liveFillerTitles = [
+  "Morning run by the seawall", "Cooking ramen from scratch", "Rooftop sunset chat",
+  "Vinyl night — requests open", "Painting a mural, part 2", "Coffee and questions",
+  "Night market walk", "Guitar covers till late", "Studio tour + Q&A",
+  "Rainy day reading", "Thrift haul try-on", "Late-night drive",
+  "Beach bonfire hangout", "Plant care live", "Learning salsa, send help",
+  "Baking sourdough", "Skyline from the 30th floor", "Game night, come say hi",
+  "Stargazing at the lake", "Pottery wheel session", "Street food crawl",
+  "Sketching strangers (nicely)", "Sunday jazz and brunch", "Hiking the ridge trail",
+];
+const liveFillerHosts = [
+  "Jade W.", "Marco P.", "Anika R.", "Tomas V.", "Bea L.", "Kofi A.",
+  "Sana M.", "Hugo D.", "Ivy C.", "Ravi N.", "Lena F.", "Ezra H.",
+  "Mila J.", "Omar S.", "Tess G.", "Arjun K.", "Nora B.", "Felix T.",
+  "Gia E.", "Caleb O.", "Yara Q.", "Milo Z.", "Aria U.", "Dante Y.",
+];
+const liveFillerPlaces = [
+  "Metro Vancouver", "Greater Toronto", "Montréal", "Calgary",
+  "Ottawa", "Hamilton / Niagara", "Victoria", "Edmonton",
+];
+
+const liveStreamFiller = liveFillerTitles.map((title, i) => ({
+  id: `lv-mock-${i + 1}`,
+  host: liveFillerHosts[i],
+  title,
+  viewers: 40 + ((i * 137) % 1900),
+  startedMsAgo: (3 + ((i * 17) % 110)) * 60_000,
+  location: liveFillerPlaces[i % liveFillerPlaces.length],
+  verified: i % 3 === 0,
+  avatar: img(`live-mock-host-${i + 1}`, 160),
+  cover: shot(`live-mock-${i + 1}`),
+  chat: liveChatSeed,
+}));
+
+export const allLiveStreams =
+  process.env.NODE_ENV === "development"
+    ? [...liveStreams, ...liveStreamFiller]
+    : liveStreams;
 
 /* ---------------------------------------------------------------------------
    Console-only seeds.
@@ -1852,3 +1898,28 @@ export const broadcasts = [
     reach: 6130,
   },
 ];
+
+/**
+ * Filler for the Personals Trending grid on `next dev` only — a fresh local
+ * database has a handful of creators, which leaves the grid mostly empty
+ * while you design it. Same shape as GET /api/v1/sellers/trending rows. The
+ * ids are not accounts: tapping one opens "That creator doesn't exist".
+ */
+const trendingCreatorNames = [
+  "Maya Chen", "Lucas Moreau", "Zara Okafor", "Elena Rossi", "Kai Tanaka",
+  "Amara Singh", "Diego Alvarez", "Freya Lind", "Yusuf Demir", "Isla Murray",
+  "Mateo Silva", "Leila Haddad", "Jonah Park", "Nadia Petrova", "Rafael Costa",
+  "Hana Kim", "Theo Walsh", "Aaliyah Brooks", "Soren Berg", "Imani Mensah",
+  "Luca Bianchi", "Mei Lin", "Owen Price",
+];
+
+export const trendingCreators = trendingCreatorNames.map((name, i) => ({
+  id: `mock-creator-${i + 1}`,
+  displayName: name,
+  avatarUrl: null,
+  verified: i % 4 === 0,
+  postCount: 2 + ((i * 7) % 9),
+  viewCount: 40 + ((i * 53) % 260),
+  likeCount: 2 + ((i * 11) % 31),
+  coverUrl: `https://picsum.photos/seed/trending-${i + 1}/480/600`,
+}));

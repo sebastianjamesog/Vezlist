@@ -165,7 +165,7 @@ const SHORTCUTS = [
     label: "Trending",
     sub: "Recent engagement",
     Icon: ChartNoAxesCombined,
-    href: "/featured/trending",
+    href: "/trending",
     accent: "purple",
   },
   {
