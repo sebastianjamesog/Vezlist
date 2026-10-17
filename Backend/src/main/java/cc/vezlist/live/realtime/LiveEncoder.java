@@ -1,6 +1,7 @@
 package cc.vezlist.live.realtime;
 
 import java.io.IOException;
+import cc.vezlist.live.application.GcoreStreamUrls;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,15 +24,17 @@ public class LiveEncoder {
         return available;
     }
     public Process start(String streamKey,String mimeType) throws IOException {
-        if(streamKey==null || !streamKey.matches("[A-Za-z0-9_-]{1,512}")) throw new IllegalArgumentException("Invalid provider stream key");
+        String ingestUrl=GcoreStreamUrls.ingest(streamKey);
         String format=demuxer(mimeType);
         return new ProcessBuilder(List.of(executable,"-hide_banner","-loglevel","error","-nostdin",
-            "-protocol_whitelist","pipe","-f",format,"-i","pipe:0","-map","0:v:0","-map","0:a:0?",
+            // Browser containers declare their codecs up front; avoid the default multi-second probe.
+            "-protocol_whitelist","pipe","-analyzeduration","1000000","-probesize","1048576",
+            "-f",format,"-i","pipe:0","-map","0:v:0","-map","0:a:0?",
             "-vf","scale=w='min(1280,iw)':h='min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
             "-c:v","libx264","-preset","veryfast","-tune","zerolatency","-threads","2","-pix_fmt","yuv420p",
             "-r","30","-g","60","-keyint_min","60","-b:v","2000k","-maxrate","2500k","-bufsize","4000k",
             "-c:a","aac","-b:a","128k","-ar","48000","-flvflags","no_duration_filesize","-f","flv",
-            "rtmps://global-live.mux.com:443/app/"+streamKey))
+            ingestUrl))
             .redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start();
     }
     static String demuxer(String mimeType) {

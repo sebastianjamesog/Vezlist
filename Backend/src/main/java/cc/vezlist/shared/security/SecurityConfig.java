@@ -34,8 +34,7 @@ public class SecurityConfig {
 
         return http
                 .cors(cors -> { })
-                .csrf(csrfConfigurer -> csrfConfigurer.csrfTokenRepository(csrf)
-                        .ignoringRequestMatchers("/api/v1/live/webhooks/mux"))
+                .csrf(csrfConfigurer -> csrfConfigurer.csrfTokenRepository(csrf))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
@@ -44,7 +43,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/admin/live-plans", "/api/v1/admin/live-plans/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/v1/live/plans", "/api/v1/live/sessions/*",
                                 "/api/v1/live/chat", "/api/v1/live/broadcast").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/live/webhooks/mux", "/api/v1/live/sessions/*/viewer-ticket").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/live/sessions/*/viewer-ticket").permitAll()
                         .requestMatchers("/api/v1/admin/story-plans", "/api/v1/admin/story-plans/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/v1/stories", "/api/v1/stories/plans", "/api/v1/stories/creator/*").permitAll()
                         .requestMatchers("/api/v1/moderation/**").hasAnyRole("MODERATOR", "ADMIN")

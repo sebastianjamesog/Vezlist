@@ -9,6 +9,8 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
+import java.util.function.LongSupplier;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -21,15 +23,26 @@ import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorato
 @Component
 public class LiveBroadcastWebSocket extends BinaryWebSocketHandler {
     private final LiveSessionService live; private final LiveEncoder encoder; private final StringRedisTemplate redis; private final ObjectMapper json;
-    private final Semaphore slots; private final int maximum;
+    static final int MAX_BUFFERED_BYTES=4*1024*1024, MAX_BUFFERED_FRAMES=128;
+    static final long MAX_BUFFER_AGE_NANOS=TimeUnit.SECONDS.toNanos(15);
+    private record VideoChunk(byte[] bytes,long receivedAt) {}
+    private final Semaphore slots; private final int maximum; private final LongSupplier nanoClock;
     private final Map<String,Broadcast> sockets=new ConcurrentHashMap<>();
     private static final class Broadcast {
         final WebSocketSession socket; final long connected=System.currentTimeMillis(); final String lock=UUID.randomUUID().toString();
-        final BlockingQueue<byte[]> queue=new ArrayBlockingQueue<>(8); final AtomicBoolean closed=new AtomicBoolean();
+        final BlockingQueue<VideoChunk> queue=new ArrayBlockingQueue<>(MAX_BUFFERED_FRAMES); final AtomicBoolean closed=new AtomicBoolean();
+        int bufferedBytes; volatile long writingSince;
         volatile LiveSessionService.BroadcastGrant grant; volatile Process process; volatile boolean slot; volatile long chunkAt=System.currentTimeMillis();
         Broadcast(WebSocketSession socket) { this.socket=new ConcurrentWebSocketSessionDecorator(socket,2000,16384); }
     }
-    public LiveBroadcastWebSocket(LiveSessionService live,LiveEncoder encoder,StringRedisTemplate redis,ObjectMapper json,@Value("${vezlist.live.max-broadcasts-per-node:4}") int maximum) { this.live=live; this.encoder=encoder; this.redis=redis; this.json=json; this.maximum=Math.max(1,maximum); this.slots=new Semaphore(this.maximum); }
+    @Autowired
+    public LiveBroadcastWebSocket(LiveSessionService live,LiveEncoder encoder,StringRedisTemplate redis,ObjectMapper json,@Value("${vezlist.live.max-broadcasts-per-node:4}") int maximum) {
+        this(live,encoder,redis,json,maximum,System::nanoTime);
+    }
+    LiveBroadcastWebSocket(LiveSessionService live,LiveEncoder encoder,StringRedisTemplate redis,ObjectMapper json,int maximum,LongSupplier nanoClock) {
+        this.live=live; this.encoder=encoder; this.redis=redis; this.json=json; this.maximum=Math.max(1,maximum);
+        this.slots=new Semaphore(this.maximum); this.nanoClock=nanoClock;
+    }
     @Override public synchronized void afterConnectionEstablished(WebSocketSession socket) throws Exception {
         socket.setBinaryMessageSizeLimit(512*1024); socket.setTextMessageSizeLimit(2048);
         if(sockets.size()>=maximum+8) { socket.close(CloseStatus.SERVICE_OVERLOAD); return; }
@@ -60,21 +73,44 @@ public class LiveBroadcastWebSocket extends BinaryWebSocketHandler {
     }
     @Override protected void handleBinaryMessage(WebSocketSession socket,BinaryMessage message) {
         Broadcast b=sockets.get(socket.getId()); if(b==null) return;
-        if(b.grant==null||b.process==null||b.closed.get()) { fail(b,"NOT_READY","Authenticate before sending video."); return; }
-        if(!message.isLast()||message.getPayloadLength()>512*1024) { fail(b,"CHUNK_TOO_LARGE","Video chunks are too large. Reconnect your camera."); return; }
-        byte[] bytes=new byte[message.getPayloadLength()]; message.getPayload().get(bytes);
-        b.chunkAt=System.currentTimeMillis();
-        if(!b.queue.offer(bytes)) fail(b,"BROADCAST_TOO_SLOW","Your connection cannot keep up. Reconnect to try again.");
+        synchronized(b) {
+            if(b.closed.get()) return;
+            if(b.grant==null||b.process==null) { fail(b,"NOT_READY","Authenticate before sending video."); return; }
+            int length=message.getPayloadLength();
+            if(!message.isLast()||length>512*1024) { fail(b,"CHUNK_TOO_LARGE","Video chunks are too large. Reconnect your camera."); return; }
+            if(length==0) { fail(b,"INVALID_BROADCAST","Empty video chunks are not supported."); return; }
+            // Count queued AND currently writing bytes. Frame count separately bounds tiny-frame floods.
+            if(length>MAX_BUFFERED_BYTES-b.bufferedBytes || b.queue.remainingCapacity()==0) {
+                fail(b,"BROADCAST_TOO_SLOW","The video encoder or streaming service is not accepting video fast enough. Please reconnect."); return;
+            }
+            byte[] bytes=new byte[length]; message.getPayload().get(bytes);
+            b.bufferedBytes+=length; b.chunkAt=System.currentTimeMillis();
+            b.queue.add(new VideoChunk(bytes,nanoClock.getAsLong()));
+        }
     }
     private void write(Broadcast b) {
         try(var input=b.process.getOutputStream()) {
-            while(!b.closed.get()) { byte[] data=b.queue.poll(1,TimeUnit.SECONDS); if(data!=null) { input.write(data); input.flush(); } }
+            while(!b.closed.get()) {
+                VideoChunk chunk=b.queue.poll(1,TimeUnit.SECONDS);
+                if(chunk==null) continue;
+                try {
+                    b.writingSince=nanoClock.getAsLong();
+                    if(!b.closed.get()) { input.write(chunk.bytes()); input.flush(); }
+                } finally {
+                    synchronized(b) { b.bufferedBytes-=chunk.bytes().length; b.writingSince=0; }
+                }
+            }
         } catch(Exception ex) { if(ex instanceof InterruptedException) Thread.currentThread().interrupt(); if(!b.closed.get()) fail(b,"BROADCAST_INTERRUPTED","The video connection was interrupted. Please reconnect."); }
     }
     @Scheduled(fixedDelay=5000) public void maintain() {
         for(Broadcast b:sockets.values()) try {
             if(b.grant==null) { if(System.currentTimeMillis()-b.connected>10000) stop(b); continue; }
             if(System.currentTimeMillis()-b.chunkAt>20000 || !live.isBroadcastAllowed(b.grant.sessionId(),b.grant.ownerId())) { fail(b,"LIVE_ENDED","The live session has ended or the camera disconnected."); continue; }
+            long now=nanoClock.getAsLong(), writingSince=b.writingSince; VideoChunk oldest=b.queue.peek();
+            if((writingSince!=0 && now-writingSince>MAX_BUFFER_AGE_NANOS)
+                    || (oldest!=null && now-oldest.receivedAt()>MAX_BUFFER_AGE_NANOS)) {
+                fail(b,"BROADCAST_STALLED","The video encoder or streaming service stopped accepting video. Please reconnect."); continue;
+            }
             Long kept=redis.execute(new DefaultRedisScript<>("if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('EXPIRE',KEYS[1],30) else return 0 end",Long.class),List.of(lockKey(b)),b.lock);
             if(!Long.valueOf(1).equals(kept)) fail(b,"BROADCAST_INTERRUPTED","Broadcast ownership expired. Please reconnect.");
         } catch(Exception ex) { fail(b,"BROADCAST_INTERRUPTED","The broadcast connection was interrupted. Please reconnect."); }
@@ -83,12 +119,22 @@ public class LiveBroadcastWebSocket extends BinaryWebSocketHandler {
     @Override public void afterConnectionClosed(WebSocketSession socket,CloseStatus status) { Broadcast b=sockets.get(socket.getId()); if(b!=null) stop(b); }
     @Override public void handleTransportError(WebSocketSession socket,Throwable error) { Broadcast b=sockets.get(socket.getId()); if(b!=null) stop(b); }
     private void send(Broadcast b,Object data) { try { if(b.socket.isOpen()) b.socket.sendMessage(new TextMessage(json.writeValueAsString(data))); } catch(Exception ex) { stop(b); } }
-    private void fail(Broadcast b,String code,String message) { send(b,Map.of("type","error","code",code,"message",message)); stop(b); }
+    private void fail(Broadcast b,String code,String message) {
+        if(b.closed.get()) return;
+        if(code.equals("BROADCAST_TOO_SLOW") || code.equals("BROADCAST_STALLED")) {
+            synchronized(b) {
+                org.slf4j.LoggerFactory.getLogger(getClass()).warn("Live broadcast {} stopped: {} (bufferedBytes={}, queuedFrames={})",
+                        b.grant==null?null:b.grant.sessionId(),code,b.bufferedBytes,b.queue.size());
+            }
+        }
+        send(b,Map.of("type","error","code",code,"message",message)); stop(b);
+    }
     private String lockKey(Broadcast b) { return LiveChatStore.prefix(b.grant.sessionId())+"broadcast"; }
     private void stop(Broadcast b) {
         synchronized(b) {
         if(!b.closed.compareAndSet(false,true)) return;
-        sockets.remove(b.socket.getId()); b.queue.clear();
+        sockets.remove(b.socket.getId());
+        VideoChunk queued; while((queued=b.queue.poll())!=null) b.bufferedBytes-=queued.bytes().length;
         if(b.process!=null) {
             if(b.slot) b.process.onExit().thenRun(slots::release);
             b.process.destroy();

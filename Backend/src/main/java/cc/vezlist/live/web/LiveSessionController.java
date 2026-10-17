@@ -26,6 +26,4 @@ public class LiveSessionController {
     @GetMapping("/sessions/{id}") public LiveSessionService.SessionDTO session(@PathVariable UUID id){return live.publicSession(id);}
     @PostMapping("/sessions/{id}/end") public LiveSessionService.SessionDTO end(@AuthenticationPrincipal VezlistUserPrincipal actor,@PathVariable UUID id){return live.end(actor.id(),id,false);}
     @PostMapping("/sessions/{id}/broadcast-ticket") public LiveSessionService.BroadcastTicket ticket(@AuthenticationPrincipal VezlistUserPrincipal actor,@PathVariable UUID id){return live.ticket(actor.id(),id);}
-    @PostMapping("/webhooks/mux") @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void webhook(@RequestHeader(value="Mux-Signature",required=false) String signature,@RequestBody String body){live.webhook(signature,body);}
 }

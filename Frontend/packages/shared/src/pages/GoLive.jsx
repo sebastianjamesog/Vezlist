@@ -119,6 +119,8 @@ export default function GoLive() {
   const allowed = signedIn && can("live.host");
   const [step, setStep] = useState("intro");
   const [catalog, setCatalog] = useState(null);
+  const [catalogStatus, setCatalogStatus] = useState("idle");
+  const [catalogRefresh, setCatalogRefresh] = useState(0);
   const [title, setTitle] = useState("");
   const [planId, setPlanId] = useState(null);
   const [paymentDetails, setPaymentDetails] = useState(
@@ -145,6 +147,15 @@ export default function GoLive() {
   const selectedPlan = catalog?.items?.find(
     (plan) => plan.id === planId && plan.enabled,
   );
+  const selectedTerms = JSON.stringify(
+    selectedPlan && [
+      selectedPlan.id,
+      selectedPlan.version,
+      selectedPlan.price,
+      selectedPlan.currency,
+      selectedPlan.durationMinutes,
+    ],
+  );
   const terminal =
     session &&
     (["ENDED", "FAILED"].includes(session.status) ||
@@ -152,6 +163,7 @@ export default function GoLive() {
   const canStart = Boolean(
     selectedPlan &&
     stream &&
+    catalogStatus === "ready" &&
     catalog?.streamingAvailable &&
     (Number(selectedPlan.price) === 0 || catalog.demoPurchaseAvailable),
   );
@@ -216,6 +228,59 @@ export default function GoLive() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (step !== "payment" || !allowed) return;
+    let active = true;
+    let refreshing = false;
+    const refresh = async () => {
+      if (!active || refreshing || busyRef.current) return;
+      refreshing = true;
+      setCatalogStatus("checking");
+      try {
+        const next = await listLivePlans();
+        if (!active || busyRef.current) return;
+        const nextPlan = next.items?.find(
+          (plan) => plan.id === planId && plan.enabled,
+        );
+        const nextTerms = JSON.stringify(
+          nextPlan && [
+            nextPlan.id,
+            nextPlan.version,
+            nextPlan.price,
+            nextPlan.currency,
+            nextPlan.durationMinutes,
+          ],
+        );
+        setCatalog(next);
+        setCatalogStatus("ready");
+        if (!nextPlan || nextTerms !== selectedTerms) {
+          setPlanId(null);
+          setStep("plan");
+          setError(
+            "Your plan changed. Review the current plans before continuing.",
+          );
+        }
+      } catch {
+        if (active) setCatalogStatus("error");
+      } finally {
+        refreshing = false;
+      }
+    };
+    const refreshVisible = () => {
+      if (document.visibilityState !== "hidden") refresh();
+    };
+    refresh();
+    const timer = setInterval(refreshVisible, 10000);
+    window.addEventListener("focus", refreshVisible);
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      window.removeEventListener("focus", refreshVisible);
+      document.removeEventListener("visibilitychange", refreshVisible);
+    };
+  }, [step, allowed, planId, selectedTerms, catalogRefresh]);
 
   useEffect(() => {
     if (!session?.id || terminal) return;
@@ -458,8 +523,20 @@ export default function GoLive() {
   }
 
   return (
-    <main className="min-h-dvh bg-[radial-gradient(circle_at_top,#e8f5ff,#f6faff_52%,#eef5fc)] px-3 py-3 text-[#10183d] sm:px-6 sm:py-7">
-      <div className="mx-auto flex min-h-[calc(100dvh-1.5rem)] w-full max-w-[440px] flex-col overflow-hidden rounded-[26px] border border-white bg-white/95 shadow-[0_18px_65px_rgba(22,64,120,.11)] sm:min-h-[min(820px,calc(100dvh-3.5rem))]">
+    <main
+      className={
+        step === "active"
+          ? "min-h-dvh bg-[#f4f8ff] px-2 py-3 text-[#10183d] sm:px-6 sm:py-6"
+          : "min-h-dvh bg-[radial-gradient(circle_at_top,#e8f5ff,#f6faff_52%,#eef5fc)] px-3 py-3 text-[#10183d] sm:px-6 sm:py-7"
+      }
+    >
+      <div
+        className={
+          step === "active"
+            ? "mx-auto flex w-full max-w-[480px] flex-col overflow-hidden rounded-[28px] border border-white bg-white shadow-xl shadow-slate-900/5"
+            : "mx-auto flex min-h-[calc(100dvh-1.5rem)] w-full max-w-[440px] flex-col overflow-hidden rounded-[26px] border border-white bg-white/95 shadow-[0_18px_65px_rgba(22,64,120,.11)] sm:min-h-[min(820px,calc(100dvh-3.5rem))]"
+        }
+      >
         <header className="flex min-h-14 items-center border-b border-blue-50 px-3">
           <button
             onClick={back}
@@ -482,7 +559,13 @@ export default function GoLive() {
           </h1>
           <span className="size-10" />
         </header>
-        <div className="flex-1 space-y-5 px-4 pb-6 pt-5 sm:px-5">
+        <div
+          className={
+            step === "active"
+              ? "flex-1 space-y-4 px-2 pb-3 pt-2"
+              : "flex-1 space-y-5 px-4 pb-6 pt-5 sm:px-5"
+          }
+        >
           {error && (
             <div
               role="alert"
@@ -977,6 +1060,22 @@ export default function GoLive() {
                         "Live streaming is not available yet. Please try again later."}
                     </div>
                   )}
+                  {catalogStatus === "error" && (
+                    <p role="alert" className="text-sm text-amber-900">
+                      Could not check live availability. Check status again
+                      before starting.
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setCatalogRefresh((value) => value + 1)}
+                    disabled={pending || catalogStatus === "checking"}
+                    className="text-sm font-semibold text-blue-700 disabled:opacity-50"
+                  >
+                    {catalogStatus === "checking"
+                      ? "Checking live status..."
+                      : "Check live status"}
+                  </button>
                   <p className="text-xs leading-relaxed text-slate-500">
                     Viewers watch for free. The session ends automatically when
                     your selected time runs out.
@@ -1006,122 +1105,173 @@ export default function GoLive() {
               )}
               {step === "active" && session && (
                 <>
-                  <div className="relative overflow-hidden rounded-2xl bg-slate-900 text-white">
-                    <div className="aspect-[9/12]">
-                      {stream && !terminal ? (
-                        <CameraPreview
-                          stream={stream}
-                          className="size-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-full flex-col items-center justify-center gap-5 bg-[radial-gradient(circle,#7e374a,#10182a)] p-6 text-center">
-                          <Radio className="size-16 text-rose-500" />
-                          <h2 className="text-2xl font-extrabold">
+                  <section
+                    aria-label="Your live broadcast"
+                    className="relative isolate h-[calc(100dvh-112px)] max-h-[800px] min-h-[480px] overflow-hidden rounded-[28px] bg-slate-950 text-white shadow-xl shadow-slate-900/15"
+                  >
+                    {stream && !terminal ? (
+                      <CameraPreview
+                        stream={stream}
+                        className="absolute inset-0 size-full object-cover"
+                      />
+                    ) : (
+                      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,#334155,#020617_75%)]">
+                        <div className="absolute inset-x-6 top-1/3 flex flex-col items-center gap-5 text-center">
+                          <Radio className="size-12 text-rose-400" />
+                          <h2 className="text-xl font-bold">
                             {terminal
                               ? "Your session has ended"
                               : "Connect your camera to broadcast"}
                           </h2>
                         </div>
-                      )}
-                    </div>
-                    <div className="absolute inset-x-3 top-3 flex items-center gap-2">
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-extrabold ${session.status === "LIVE" && !terminal ? "bg-rose-600" : "bg-black/65"}`}
-                      >
-                        {terminal
-                          ? "ENDED"
-                          : session.status === "LIVE"
-                            ? "LIVE"
-                            : session.status === "RECONNECTING"
-                              ? "RECONNECTING"
-                              : "PREPARING"}
-                      </span>
-                      <span className="rounded-lg bg-black/60 px-2 py-1 text-xs tabular-nums">
-                        {session.startedAt && now
-                          ? sessionClock(now - Date.parse(session.startedAt))
-                          : "00:00"}
-                      </span>
-                      <span className="ml-auto flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-xs">
-                        <Eye className="size-4" />
-                        {viewers}
-                      </span>
-                    </div>
-                    {!terminal && (
-                      <div className="absolute bottom-4 left-4 right-4 rounded-xl bg-black/60 p-3 text-center text-sm">
-                        {session.status === "LIVE"
-                          ? "Your live session is active."
-                          : "Waiting for the video provider to confirm the broadcast."}
-                        {session.endsAt && now && (
-                          <p className="mt-2 text-xs">
-                            Session ends in{" "}
-                            {sessionClock(Date.parse(session.endsAt) - now)}
-                          </p>
-                        )}
                       </div>
                     )}
-                  </div>
-                  {!terminal && (
-                    <>
-                      {broadcastState === "transmitting" ? (
-                        <div className="flex justify-center gap-4">
-                          <button
-                            onClick={toggleMicrophone}
-                            aria-label={
-                              muted ? "Unmute microphone" : "Mute microphone"
-                            }
-                            className={`${SECONDARY} flex items-center gap-2`}
-                          >
-                            {muted ? (
-                              <MicOff className="size-5" />
-                            ) : (
-                              <Mic className="size-5" />
-                            )}
-                            {muted ? "Unmute" : "Mute"}
-                          </button>
-                          <button
-                            onClick={toggleCamera}
-                            aria-label={
-                              cameraOff ? "Turn camera on" : "Turn camera off"
-                            }
-                            className={`${SECONDARY} flex items-center gap-2`}
-                          >
-                            {cameraOff ? (
-                              <VideoOff className="size-5" />
-                            ) : (
-                              <Video className="size-5" />
-                            )}
-                            {cameraOff ? "Camera on" : "Camera off"}
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          disabled={
-                            pending ||
-                            broadcastState === "connecting" ||
-                            !catalog?.streamingAvailable
-                          }
-                          onClick={reconnect}
-                          className={`${PRIMARY} w-full`}
-                        >
-                          {pending || broadcastState === "connecting"
-                            ? "Connecting camera..."
-                            : "Reconnect camera & microphone"}
-                        </button>
-                      )}
-                      <button
-                        onClick={end}
-                        disabled={pending}
-                        className="min-h-12 w-full rounded-xl bg-rose-600 py-3 text-sm font-bold text-white disabled:opacity-50"
+                    <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start gap-3 bg-gradient-to-b from-black/80 to-transparent p-4 pb-14">
+                      <span
+                        aria-hidden="true"
+                        className="grid size-10 shrink-0 place-items-center rounded-full border border-white/30 bg-white/15 text-sm font-bold backdrop-blur-sm"
                       >
-                        {pending ? "Ending..." : "End Live"}
-                      </button>
-                      <LiveChat
-                        sessionId={session.id}
-                        host
-                        onViewerCount={setViewers}
-                      />
-                    </>
-                  )}
+                        {(session.creatorName || "You")
+                          .trim()
+                          .slice(0, 1)
+                          .toUpperCase()}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-bold">
+                          {session.creatorName || "You"}
+                        </p>
+                        <p className="mt-1 text-xs text-white/75">
+                          <span className="tabular-nums">
+                            {session.startedAt && now
+                              ? sessionClock(
+                                  now - Date.parse(session.startedAt),
+                                )
+                              : "00:00"}
+                          </span>{" "}
+                          &middot; Your broadcast
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-2">
+                        <span
+                          className={`rounded-md px-2 py-1 text-[10px] font-extrabold tracking-wider ${session.status === "LIVE" && !terminal ? "bg-rose-600" : "bg-black/60"}`}
+                        >
+                          {terminal
+                            ? "ENDED"
+                            : session.status === "LIVE"
+                              ? "LIVE"
+                              : session.status === "RECONNECTING"
+                                ? "RECONNECTING"
+                                : "PREPARING"}
+                        </span>
+                        <span
+                          aria-label={`${viewers} viewers`}
+                          className="flex items-center gap-1.5 rounded-full bg-black/40 px-2 py-1 text-xs"
+                        >
+                          <Eye className="size-3.5" />
+                          {viewers}
+                        </span>
+                      </div>
+                    </div>
+                    {!terminal && (
+                      <>
+                        {broadcastState === "transmitting" && (
+                          <div className="absolute right-3 top-24 flex gap-2">
+                            <button
+                              onClick={toggleMicrophone}
+                              aria-label={
+                                muted ? "Unmute microphone" : "Mute microphone"
+                              }
+                              aria-pressed={muted}
+                              className="grid size-11 place-items-center rounded-full border border-white/20 bg-black/40 text-white backdrop-blur-sm focus-visible:outline-2 focus-visible:outline-white"
+                            >
+                              {muted ? (
+                                <MicOff className="size-5" />
+                              ) : (
+                                <Mic className="size-5" />
+                              )}
+                            </button>
+                            <button
+                              onClick={toggleCamera}
+                              aria-label={
+                                cameraOff ? "Turn camera on" : "Turn camera off"
+                              }
+                              aria-pressed={cameraOff}
+                              className="grid size-11 place-items-center rounded-full border border-white/20 bg-black/40 text-white backdrop-blur-sm focus-visible:outline-2 focus-visible:outline-white"
+                            >
+                              {cameraOff ? (
+                                <VideoOff className="size-5" />
+                              ) : (
+                                <Video className="size-5" />
+                              )}
+                            </button>
+                          </div>
+                        )}
+                        {broadcastState !== "transmitting" && (
+                          <div className="absolute inset-x-5 top-[46%] flex justify-center">
+                            <button
+                              disabled={
+                                pending ||
+                                broadcastState === "connecting" ||
+                                !catalog?.streamingAvailable
+                              }
+                              onClick={reconnect}
+                              className="min-h-11 rounded-full border border-white/30 bg-white/15 px-5 py-3 text-sm font-semibold backdrop-blur-sm focus-visible:outline-2 focus-visible:outline-white disabled:opacity-50"
+                            >
+                              {pending || broadcastState === "connecting"
+                                ? "Connecting camera..."
+                                : "Reconnect camera & microphone"}
+                            </button>
+                          </div>
+                        )}
+                        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/65 to-transparent px-4 pb-4 pt-16 [&>*]:pointer-events-auto">
+                          <p className="mb-3 truncate text-sm font-semibold">
+                            {session.title || "Live session"}
+                          </p>
+                          {["LIVE", "RECONNECTING"].includes(session.status) ? (
+                            <LiveChat
+                              overlay
+                              sessionId={session.id}
+                              host
+                              onViewerCount={setViewers}
+                            />
+                          ) : (
+                            <div className="rounded-2xl border border-white/15 bg-white/10 p-3 text-sm text-white/80">
+                              <p>
+                                Waiting for the video provider to confirm the
+                                broadcast.
+                              </p>
+                              <p role="status" className="mt-2 text-xs">
+                                Chat will connect when your broadcast is live.
+                              </p>
+                            </div>
+                          )}
+                          <div className="mt-4 flex items-center gap-3 border-t border-white/15 pt-3">
+                            <p className="min-w-0 flex-1 text-xs text-white/75">
+                              {session.endsAt && now ? (
+                                <>
+                                  Ends in{" "}
+                                  <span className="font-semibold tabular-nums text-white">
+                                    {sessionClock(
+                                      Date.parse(session.endsAt) - now,
+                                    )}
+                                  </span>
+                                </>
+                              ) : (
+                                "Viewers watch for free"
+                              )}
+                            </p>
+                            <button
+                              onClick={end}
+                              disabled={pending}
+                              className="min-h-10 rounded-full bg-rose-600 px-5 py-2 text-xs font-bold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:opacity-50"
+                            >
+                              {pending ? "Ending..." : "End Live"}
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </section>
                   {terminal && (
                     <>
                       <Notice>

@@ -14,6 +14,7 @@ export default function LiveChat({
   ended = false,
   host = false,
   onViewerCount,
+  overlay = false,
 }) {
   const { signedIn, user } = useAuth();
   const [messages, setMessages] = useState([]);
@@ -27,7 +28,8 @@ export default function LiveChat({
   const submission = useRef(null);
   const ackTimer = useRef(null);
   const deletedMessages = useRef({ sessionId, ids: new Set() });
-  const bottom = useRef(null);
+  const log = useRef(null);
+  const followMessages = useRef(true);
 
   useEffect(() => {
     if (ended) return;
@@ -35,6 +37,7 @@ export default function LiveChat({
     let reconnect;
     let heartbeat;
     let handshake;
+    followMessages.current = true;
     setMessages([]);
     submission.current = null;
     setPending(false);
@@ -178,7 +181,8 @@ export default function LiveChat({
   }, [sessionId, ended, signedIn, user?.id, onViewerCount]);
 
   useEffect(() => {
-    bottom.current?.scrollIntoView({ block: "nearest" });
+    if (log.current && followMessages.current)
+      log.current.scrollTop = log.current.scrollHeight;
   }, [messages]);
 
   function send(event) {
@@ -222,12 +226,40 @@ export default function LiveChat({
 
   return (
     <section
-      className="rounded-2xl border border-slate-200 bg-white p-4 text-slate-900"
+      className={
+        overlay
+          ? "text-white"
+          : "rounded-2xl border border-slate-200 bg-white p-4 text-slate-900"
+      }
       aria-label="Live chat"
     >
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="font-bold">Live chat</h2>
-        <span className="text-xs text-slate-500">
+      <div
+        className={
+          overlay
+            ? "mb-3 flex items-center gap-2"
+            : "mb-3 flex items-center justify-between"
+        }
+      >
+        <h2
+          className={
+            overlay
+              ? "text-xs font-semibold tracking-wide text-white/80"
+              : "font-bold"
+          }
+        >
+          Live chat
+        </h2>
+        {overlay && (
+          <span
+            aria-hidden="true"
+            className={`size-1.5 rounded-full ${connection === "connected" ? "bg-emerald-400" : "bg-amber-300"}`}
+          />
+        )}
+        <span
+          className={
+            overlay ? "text-[11px] text-white/70" : "text-xs text-slate-500"
+          }
+        >
           {ended || connection === "ended"
             ? "Session ended"
             : connection === "connected"
@@ -236,22 +268,53 @@ export default function LiveChat({
         </span>
       </div>
       <div
+        ref={log}
         role="log"
         aria-live="polite"
         aria-relevant="additions"
-        className="max-h-64 min-h-24 space-y-3 overflow-y-auto text-sm"
+        aria-label="Live comments"
+        tabIndex={0}
+        onScroll={(event) => {
+          const element = event.currentTarget;
+          followMessages.current =
+            element.scrollHeight - element.scrollTop - element.clientHeight <
+            48;
+        }}
+        className={
+          overlay
+            ? "max-h-40 min-h-16 space-y-3 overflow-y-auto overscroll-contain text-sm [scrollbar-width:thin] focus-visible:outline-2 focus-visible:outline-white sm:max-h-48"
+            : "max-h-64 min-h-24 space-y-3 overflow-y-auto text-sm"
+        }
       >
         {ended ? (
-          <p className="text-slate-500">This chat has ended.</p>
+          <p className={overlay ? "text-white/75" : "text-slate-500"}>
+            This chat has ended.
+          </p>
         ) : !messages.length ? (
-          <p className="text-slate-500">
+          <p className={overlay ? "text-sm text-white/75" : "text-slate-500"}>
             Messages appear here during the live session.
           </p>
         ) : (
           messages.map((message) => (
-            <div key={message.id} className="flex gap-2">
+            <div key={message.id} className="flex items-start gap-2">
+              {overlay && (
+                <span
+                  aria-hidden="true"
+                  className="grid size-8 shrink-0 place-items-center rounded-full border border-white/25 bg-white/15 text-xs font-bold"
+                >
+                  {(message.name || "?").trim().slice(0, 1).toUpperCase()}
+                </span>
+              )}
               <p className="min-w-0 flex-1 break-words">
-                <strong className="mr-2 text-blue-700">{message.name}</strong>
+                <strong
+                  className={
+                    overlay
+                      ? "mr-2 font-semibold text-white"
+                      : "mr-2 text-blue-700"
+                  }
+                >
+                  {message.name}
+                </strong>
                 {message.text}
               </p>
               {host && message.userId !== user?.id && (
@@ -259,14 +322,22 @@ export default function LiveChat({
                   <button
                     onClick={() => moderate(message, false)}
                     aria-label={`Remove message from ${message.name}`}
-                    className="p-1 text-slate-500"
+                    className={
+                      overlay
+                        ? "grid min-h-8 min-w-8 place-items-center rounded-full text-white/80 hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-white"
+                        : "p-1 text-slate-500"
+                    }
                   >
                     <Trash2 className="size-4" />
                   </button>
                   <button
                     onClick={() => moderate(message, true)}
                     aria-label={`${mutedUsers.has(message.userId) ? "Unmute" : "Mute"} ${message.name}`}
-                    className="p-1 text-slate-500"
+                    className={
+                      overlay
+                        ? "grid min-h-8 min-w-8 place-items-center rounded-full text-white/80 hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-white"
+                        : "p-1 text-slate-500"
+                    }
                   >
                     {mutedUsers.has(message.userId) ? (
                       <span className="text-xs">Unmute</span>
@@ -279,10 +350,16 @@ export default function LiveChat({
             </div>
           ))
         )}
-        <span ref={bottom} />
       </div>
       {error && (
-        <p role="alert" className="mt-3 text-xs text-red-700">
+        <p
+          role="alert"
+          className={
+            overlay
+              ? "mt-3 rounded-lg bg-black/50 p-2 text-xs text-rose-200"
+              : "mt-3 text-xs text-red-700"
+          }
+        >
           {error}
         </p>
       )}
@@ -296,14 +373,22 @@ export default function LiveChat({
               onChange={(event) => setDraft(event.target.value)}
               disabled={!canChat || pending}
               maxLength={500}
-              placeholder={canChat ? "Say something..." : "Chat is unavailable"}
-              className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50"
+              placeholder={canChat ? "Add a comment..." : "Chat is unavailable"}
+              className={
+                overlay
+                  ? "min-h-11 min-w-0 flex-1 rounded-full border border-white/35 bg-black/25 px-4 py-2 text-base text-white placeholder:text-white/70 focus-visible:outline-2 focus-visible:outline-white disabled:opacity-60"
+                  : "min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50"
+              }
             />
             <button
               type="submit"
               disabled={!canChat || pending || !draft.trim()}
               aria-label="Send message"
-              className="rounded-xl bg-blue-600 px-3 text-white disabled:opacity-40"
+              className={
+                overlay
+                  ? "grid size-11 shrink-0 place-items-center rounded-full bg-white text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:opacity-40"
+                  : "rounded-xl bg-blue-600 px-3 text-white disabled:opacity-40"
+              }
             >
               <Send className="size-4" />
             </button>
@@ -311,7 +396,11 @@ export default function LiveChat({
         ) : (
           <Link
             href={`/login?next=${encodeURIComponent(`/live/${sessionId}`)}`}
-            className="mt-4 block rounded-xl bg-blue-50 p-3 text-center text-sm font-bold text-blue-700"
+            className={
+              overlay
+                ? "mt-4 block rounded-full border border-white/35 bg-white/10 px-4 py-3 text-center text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-white"
+                : "mt-4 block rounded-xl bg-blue-50 p-3 text-center text-sm font-bold text-blue-700"
+            }
           >
             Sign in to chat
           </Link>

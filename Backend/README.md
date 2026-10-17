@@ -209,7 +209,7 @@ controller's `@PreAuthorize`):
 - `GET /admin/audit?site=&cursor=&limit=` — flattens moderation decisions (`moderation_actions`) and other admin
   actions (`admin_audit_log`: suspend/reinstate, taxonomy CRUD, listing takedown) into one chronological feed.
 
-The payment gateway is deferred. Mux live sessions and demo creator checkout are described below.
+The payment gateway is deferred. Gcore live sessions and demo creator checkout are described below.
 
 ## Support tickets and help articles
 
@@ -227,7 +227,7 @@ conversations or answers are inserted. Content must be authored in the console b
 ## Personals live presence and featured discovery
 
 Flyway V19-V21 introduced presence and featured-slot rotations. V25 replaces the old presence
-HTTP endpoints with actual Mux sessions. The old presence table is retained for migration safety.
+HTTP endpoints with actual live sessions. The old presence table is retained for migration safety.
 `GET /api/v1/live` now lists provider-confirmed live/reconnecting sessions with enabled creator accounts.
 V26 makes live sessions independent of ads; publishing or selecting an ad is not required.
 
@@ -251,32 +251,53 @@ end sessions from `/live`. Prices are snapshotted and optimistic versions preven
 
 ### Configuration
 
-1. Set the five `VEZLIST_MUX_*` values in `.env.example` using one Mux environment: Video API token,
-   signed-playback key, and webhook secret. Never put them in frontend environment variables.
-2. Configure Mux webhooks at `https://YOUR_API/api/v1/live/webhooks/mux` for live stream and asset
-   events. Local development needs an HTTPS tunnel for that endpoint. Signature verification,
-   timestamp tolerance, event deduplication, and server reconciliation are implemented.
-3. Mux creates recording assets as part of live streaming. The default recording policy is
-   `UNCONFIRMED` and blocks starts. Only set `VEZLIST_LIVE_RECORDING_POLICY=DELETE_AFTER_LIVE`
-   after accepting temporary provider recordings. This option deletes assets after the session,
-   retries failed cleanup, and exposes no recording playback IDs. It does **not** mean recording
-   never takes place. See [Mux recording behavior](https://www.mux.com/docs/guides/stream-recordings-of-live-streams).
+1. Activate **Video Streaming** in your Gcore account and create a server-side API token with
+   Streaming read/write access. Set `VEZLIST_GCORE_API_TOKEN` in `Backend/.env` or the backend
+   secret manager. Never put it in frontend variables or commit it. The API uses
+   `Authorization: APIKey <token>` against `https://api.gcore.com/streaming`.
+2. No webhook, playback signing key, or recording-consent flag is needed. The backend polls
+   authenticated stream status (a bounded five-session batch every five seconds). Only Gcore's
+   actual `live`/`backup_live` signal starts the session timer; an enabled ingest alone does not.
+3. Each stream is created with `auto_record=false` and `dvr_enabled=false`. There is no VOD,
+   recording, or DVR/rewind workflow. If provider status later reports recording/DVR enabled,
+   the session is ended and queued for provider shutdown. Normal short playback buffers still
+   exist. Do not enable recording manually in the Gcore dashboard. Recordings independently
+   created in that dashboard are not managed or deleted by this application.
 4. Install FFmpeg with libx264/AAC and set `VEZLIST_FFMPEG_PATH` to its executable. The backend
    Docker image includes it. Native development must install it separately. Browser WebM/MP4
-   chunks are piped into FFmpeg and directly to Mux RTMPS; media is never written to local disk.
+   chunks are piped into FFmpeg and directly to Gcore RTMPS; media is never written to local disk.
+   Only standard Gcore `gvideo.co`/`gvideo.io` ingest and playback hosts are accepted; custom
+   delivery domains need a separately reviewed allowlist change.
 5. Configure Redis and public `wss://` broadcast/chat URLs in production. The reverse proxy must
    support WebSocket Upgrade and long connections on `/api/v1/live/broadcast` and `/api/v1/live/chat`.
    Use exact frontend origins, HTTPS for camera access, and disable local CORS patterns outside development.
 6. Set `VEZLIST_LIVE_DEMO_PURCHASES_ENABLED=true` only where demo checkout is wanted. It does not
-   charge money and still requires a working provider before a session can start.
+   charge money and still requires a working provider before a session can start. Viewing is free.
+7. Restart the backend. `GET /api/v1/live/plans` should report `recordingPolicy: "NO_RECORDING"`
+   and `streamingAvailable: true` once the token and encoder are configured. This readiness check
+   checks local configuration, not whether Gcore accepts the token. Perform a real broadcast test
+   to validate permissions, subscription, ingest connectivity, and delivery.
+
+### Migrating from Mux
+
+Flyway V27 labels pre-existing sessions `MUX` and new sessions `GCORE`, preserves historical
+sessions/tickets, and separates provider IDs and open-session uniqueness. The live API no longer
+publishes or resumes Mux sessions, and the Gcore cleanup worker never sends old Mux IDs to Gcore.
+The old Mux webhook endpoint and Mux configuration are no longer used. If a deployment previously
+created real Mux streams or recordings, disable/delete those resources in the Mux dashboard before
+retiring that account; retained legacy cleanup jobs are not executed by the new Gcore worker.
 
 ### Operation and limits
 
-`POST /api/v1/live/sessions` accepts a stable `Idempotency-Key`. Only a verified provider event or
-provider reconciliation makes a session LIVE and starts its server deadline. Ending, expiry,
-suspension stop access. Ad changes do not affect live sessions. Reconnection keeps the original deadline.
-Camera publishing uses short-lived, single-use tickets, a Redis ownership lock, bounded chunk
-buffers, and a default limit of four FFmpeg processes per node. Load test before raising limits;
+`POST /api/v1/live/sessions` accepts a stable `Idempotency-Key`. Only authenticated Gcore status
+reconciliation makes a session LIVE and starts its server deadline. Ending, expiry,
+suspension stop access. Ad changes do not affect live sessions. Reconnection keeps the original deadline and allows 30 seconds after the first offline observation.
+Provider disable/delete operations use durable retries; provider outages can delay remote shutdown.
+Camera publishing uses short-lived, single-use tickets, a Redis ownership lock, a 4 MiB buffer
+including queued and in-flight data, a 128-frame cap, and a default limit of four FFmpeg processes
+per node. A 15-second stalled-writer/queued-frame watchdog prevents indefinite buffering;
+brief encoder startup bursts are tolerated without assuming the user's network is too slow.
+FFmpeg input probing is bounded to one second of analysis and 1 MiB. Load test before raising limits;
 deploy media workers with CPU/memory limits and monitor dropped connections and provider errors.
 
 Chat uses Redis pub/sub across API nodes, last-100-message history, rate limiting, duplicate-message
@@ -286,10 +307,26 @@ They do not prove every counted browser is actively playing video. Chat history 
 database cleanup markers retry after Redis outages, and all ephemeral data has a fallback TTL.
 Guests read chat; signing in enables sending. Tickets go in the first WebSocket frame, never URLs.
 
-Mux HLS delivery goes directly to viewers through Mux's CDN. The player uses adaptive quality,
+Gcore HLS delivery goes directly to viewers through Gcore's CDN. The backend prefers the CMAF
+HLS URL and falls back to MPEG-TS HLS when needed. URLs are public for free viewing; they are not
+per-viewer signed or DRM-protected. Provider shutdown removes the source; already buffered media
+can finish playing. The player uses adaptive quality,
 native HLS where supported, and HLS.js otherwise, with no replay/seek/download controls. The
 browser bridge and ordinary HLS playback are not sub-second WebRTC. Canada-to-viewer playback
-still needs a real-device/network test with the configured Mux account before launch.
+still needs a real-device/network test with the configured Gcore account before launch.
+
+### Provider references and live acceptance test
+
+The adapter follows the [official Gcore SDK stream contract](https://github.com/G-Core/gcore-go/blob/main/streaming/stream.go)
+and [Gcore ingest requirements](https://gcore.com/docs/streaming-platform/live-streams-and-videos-protocols-and-codecs/input-parameters-and-codecs).
+Create uses a flat request body; updates use the documented `stream` wrapper. Credentials and
+full ingest URLs stay server-side. There is no simulated provider-success mode.
+
+Before production: start a demo broadcast from a creator account, grant camera/microphone access,
+open the session in a separate viewer browser/device, check video/audio and both directions of
+chat, reconnect the camera, then end the live. Check the directory removes it and Gcore deletes
+the stream. Verify `auto_record` and `dvr_enabled` remain false and no recording is created. Test
+from Canada and your expected creator locations; no latency/quality claim substitutes for this test.
 
 ## Verification commands
 

@@ -2,14 +2,14 @@
 import { useEffect, useRef, useState } from "react";
 import { LoaderCircle, Pause, Play, Volume2, VolumeX } from "lucide-react";
 
-export default function LivePlayer({ playbackUrl, title, onPlaybackError }) {
+export default function LivePlayer({
+  playbackUrl,
+  title,
+  onPlaybackError,
+  immersive = false,
+}) {
   const video = useRef(null);
   const engine = useRef(null);
-  const latestUrl = useRef(playbackUrl);
-  useEffect(() => {
-    latestUrl.current = playbackUrl;
-  }, [playbackUrl]);
-  const streamKey = playbackUrl?.split("?")[0] || "";
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [muted, setMuted] = useState(true);
@@ -34,7 +34,7 @@ export default function LivePlayer({ playbackUrl, title, onPlaybackError }) {
 
   useEffect(() => {
     const element = video.current;
-    if (!element || !streamKey) return;
+    if (!element || !playbackUrl) return;
     let disposed = false;
     let hls;
     setLoading(true);
@@ -54,7 +54,7 @@ export default function LivePlayer({ playbackUrl, title, onPlaybackError }) {
     };
     const setup = async () => {
       if (element.canPlayType("application/vnd.apple.mpegurl")) {
-        element.src = latestUrl.current;
+        element.src = playbackUrl;
         element.addEventListener("loadedmetadata", play);
         return;
       }
@@ -71,26 +71,9 @@ export default function LivePlayer({ playbackUrl, title, onPlaybackError }) {
           lowLatencyMode: true,
           backBufferLength: 0,
           maxBufferLength: 15,
-          xhrSetup: (xhr, requestUrl) => {
-            // Refresh the Mux playback token for future manifest requests without restarting the player.
-            const fresh = new URL(latestUrl.current);
-            const requested = new URL(requestUrl);
-            if (
-              requested.hostname === fresh.hostname &&
-              fresh.searchParams.has("token")
-            ) {
-              requested.searchParams.set(
-                "token",
-                fresh.searchParams.get("token"),
-              );
-              xhr.open("GET", requested.toString(), true);
-            }
-          },
         });
         engine.current = hls;
-        hls.on(Hls.Events.MEDIA_ATTACHED, () =>
-          hls.loadSource(latestUrl.current),
-        );
+        hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(playbackUrl));
         hls.on(Hls.Events.MANIFEST_PARSED, play);
         hls.on(Hls.Events.ERROR, (_event, data) => {
           if (data.fatal) {
@@ -120,7 +103,7 @@ export default function LivePlayer({ playbackUrl, title, onPlaybackError }) {
       element.removeAttribute("src");
       element.load();
     };
-  }, [streamKey, retry, onPlaybackError]);
+  }, [playbackUrl, retry, onPlaybackError]);
 
   async function togglePlayback() {
     const element = video.current;
@@ -141,7 +124,13 @@ export default function LivePlayer({ playbackUrl, title, onPlaybackError }) {
   }
 
   return (
-    <div className="relative aspect-[9/13] w-full overflow-hidden rounded-2xl bg-black sm:aspect-video">
+    <div
+      className={
+        immersive
+          ? "absolute inset-0 bg-black"
+          : "relative aspect-[9/13] w-full overflow-hidden rounded-2xl bg-black sm:aspect-video"
+      }
+    >
       <video
         ref={video}
         aria-label={title || "Live video"}
@@ -163,20 +152,32 @@ export default function LivePlayer({ playbackUrl, title, onPlaybackError }) {
         }}
         className="absolute inset-0 size-full object-contain"
       />
-      <span className="absolute left-3 top-3 rounded-full bg-rose-600 px-3 py-1 text-xs font-extrabold text-white">
-        LIVE
-      </span>
+      {!immersive && (
+        <span className="absolute left-3 top-3 rounded-full bg-rose-600 px-3 py-1 text-xs font-extrabold text-white">
+          LIVE
+        </span>
+      )}
       {loading && !error && (
         <div
           role="status"
-          className="absolute inset-0 flex items-center justify-center gap-2 bg-black/30 text-sm text-white"
+          className={
+            immersive
+              ? "absolute inset-x-0 top-1/3 flex items-center justify-center gap-2 px-6 text-sm text-white"
+              : "absolute inset-0 flex items-center justify-center gap-2 bg-black/30 text-sm text-white"
+          }
         >
           <LoaderCircle className="size-6 animate-spin" />
           Connecting video...
         </div>
       )}
       {error && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/80 p-6 text-center text-white">
+        <div
+          className={
+            immersive
+              ? "absolute inset-x-4 top-1/4 z-20 flex flex-col items-center gap-4 rounded-2xl bg-black/80 p-6 text-center text-white"
+              : "absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/80 p-6 text-center text-white"
+          }
+        >
           <p role="alert" className="text-sm">
             {error}
           </p>
@@ -188,18 +189,24 @@ export default function LivePlayer({ playbackUrl, title, onPlaybackError }) {
           </button>
         </div>
       )}
-      <div className="absolute bottom-3 left-3 right-3 flex items-center gap-2">
+      <div
+        className={
+          immersive
+            ? "absolute inset-x-3 top-24 z-20 flex items-center justify-end gap-2"
+            : "absolute bottom-3 left-3 right-3 flex items-center gap-2"
+        }
+      >
         <button
           onClick={togglePlayback}
           aria-label={paused ? "Play live video" : "Pause live video"}
-          className="grid size-10 place-items-center rounded-full bg-black/70 text-white"
+          className="grid size-11 place-items-center rounded-full border border-white/15 bg-black/50 text-white backdrop-blur-sm focus-visible:outline-2 focus-visible:outline-white"
         >
           {paused ? <Play className="size-5" /> : <Pause className="size-5" />}
         </button>
         <button
           onClick={() => setMuted((value) => !value)}
           aria-label={muted ? "Turn sound on" : "Mute live video"}
-          className="grid size-10 place-items-center rounded-full bg-black/70 text-white"
+          className="grid size-11 place-items-center rounded-full border border-white/15 bg-black/50 text-white backdrop-blur-sm focus-visible:outline-2 focus-visible:outline-white"
         >
           {muted ? (
             <VolumeX className="size-5" />
@@ -212,7 +219,7 @@ export default function LivePlayer({ playbackUrl, title, onPlaybackError }) {
             catchUp();
             video.current?.play().catch(() => setPaused(true));
           }}
-          className="ml-auto rounded-full bg-black/70 px-3 py-2 text-xs font-bold text-white"
+          className={`${immersive ? "" : "ml-auto"} min-h-10 rounded-full border border-white/15 bg-black/50 px-3 py-2 text-xs font-semibold text-white backdrop-blur-sm focus-visible:outline-2 focus-visible:outline-white`}
         >
           Back to live
         </button>

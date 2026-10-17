@@ -25,7 +25,7 @@ vi.mock("../components/live/browserBroadcast", () => ({
   openBrowserBroadcast: vi.fn(),
 }));
 vi.mock("../components/live/LiveChat", () => ({
-  default: () => <div>Live chat</div>,
+  default: ({ overlay }) => <div data-overlay={overlay}>Live chat</div>,
 }));
 vi.mock("../components/create/StoryComposer", () => ({
   default: () => <div>Post Story</div>,
@@ -76,7 +76,7 @@ async function reachCheckout() {
   return { user, ...result };
 }
 
-describe("Mux creator live flow", () => {
+describe("Gcore creator live flow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     account.signedIn = true;
@@ -100,7 +100,7 @@ describe("Mux creator live flow", () => {
       items: [plan],
       streamingAvailable: true,
       demoPurchaseAvailable: true,
-      recordingPolicy: "LIVE_ONLY",
+      recordingPolicy: "NO_RECORDING",
     });
     live.getLivePaymentDetails.mockResolvedValue(payment);
     live.saveLivePaymentDetails.mockResolvedValue(payment);
@@ -140,32 +140,205 @@ describe("Mux creator live flow", () => {
     );
     expect(screen.getByText("PREPARING")).toBeTruthy();
     expect(screen.queryByText("You're Live!")).toBeNull();
+    expect(screen.queryByText("Live chat")).toBeNull();
+    expect(
+      screen.getByText("Chat will connect when your broadcast is live."),
+    ).toBeTruthy();
+    live.getLiveSession.mockResolvedValue({ ...session, status: "LIVE" });
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(screen.getByText("Live chat")).toBeTruthy();
+    const broadcastCard = screen.getByRole("region", {
+      name: "Your live broadcast",
+    });
+    expect(broadcastCard.contains(screen.getByText("Live chat"))).toBe(true);
+    expect(screen.getByText("Live chat").getAttribute("data-overlay")).toBe(
+      "true",
+    );
+    expect(
+      broadcastCard.contains(screen.getByRole("button", { name: "End Live" })),
+    ).toBe(true);
+    expect(
+      broadcastCard.contains(
+        screen.getByRole("button", { name: "Mute microphone" }),
+      ),
+    ).toBe(true);
+    expect(
+      screen.queryByText("Chat will connect when your broadcast is live."),
+    ).toBeNull();
+    live.getLiveSession.mockResolvedValue({
+      ...session,
+      status: "RECONNECTING",
+    });
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(screen.getByText("Live chat")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Mute microphone" }));
     expect(tracks[1].enabled).toBe(false);
     await user.click(screen.getByRole("button", { name: "End Live" }));
     expect(live.endLiveSession).toHaveBeenCalledWith("session-1");
     expect(await screen.findByText("Your session has ended")).toBeTruthy();
+    expect(screen.queryByText("Live chat")).toBeNull();
     expect(stopBroadcast).toHaveBeenCalled();
     expect(tracks[0].stop).toHaveBeenCalled();
     expect(tracks[1].stop).toHaveBeenCalled();
     unmount();
   });
 
-  test("unconfirmed streaming policy prevents any session creation", async () => {
+  test("missing streaming configuration prevents any session creation", async () => {
     live.listLivePlans.mockResolvedValue({
       items: [plan],
       streamingAvailable: false,
       demoPurchaseAvailable: true,
-      recordingPolicy: "UNCONFIRMED",
-      unavailableReason: "Streaming setup needs confirmation.",
+      recordingPolicy: "NO_RECORDING",
+      unavailableReason: "Live streaming is not configured yet.",
     });
     await reachCheckout();
     expect(
-      screen.getByText("Streaming setup needs confirmation."),
+      screen.getByText("Live streaming is not configured yet."),
     ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Demo purchase & go live" }).disabled,
     ).toBe(true);
+    expect(live.createLiveSession).not.toHaveBeenCalled();
+  });
+
+  test("checkout refreshes readiness after configuration changes without reopening the camera", async () => {
+    const ready = {
+      items: [plan],
+      streamingAvailable: true,
+      demoPurchaseAvailable: true,
+      recordingPolicy: "NO_RECORDING",
+    };
+    live.listLivePlans.mockResolvedValue(ready).mockResolvedValueOnce({
+      ...ready,
+      streamingAvailable: false,
+      unavailableReason: "Waiting for configuration.",
+    });
+    await reachCheckout();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Demo purchase & go live" })
+          .disabled,
+      ).toBe(false),
+    );
+    expect(live.listLivePlans).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Waiting for configuration.")).toBeNull();
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+    expect(tracks[0].stop).not.toHaveBeenCalled();
+    expect(live.getLivePaymentDetails).toHaveBeenCalledTimes(1);
+    expect(live.createLiveSession).not.toHaveBeenCalled();
+    expect(openBrowserBroadcast).not.toHaveBeenCalled();
+  });
+
+  test("focus refresh enables the selected plan and cleans up on leaving checkout", async () => {
+    const catalog = {
+      items: [plan],
+      streamingAvailable: false,
+      demoPurchaseAvailable: true,
+      recordingPolicy: "NO_RECORDING",
+    };
+    live.listLivePlans.mockResolvedValue(catalog);
+    const { user, unmount } = await reachCheckout();
+    live.listLivePlans.mockResolvedValue({
+      ...catalog,
+      streamingAvailable: true,
+    });
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(
+      screen.getByRole("button", { name: "Demo purchase & go live" }).disabled,
+    ).toBe(false);
+    expect(screen.getByText("Quick live")).toBeTruthy();
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+    expect(tracks[0].stop).not.toHaveBeenCalled();
+    await user.click(screen.getAllByRole("button", { name: "Back" })[0]);
+    const calls = live.listLivePlans.mock.calls.length;
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(live.listLivePlans).toHaveBeenCalledTimes(calls);
+    unmount();
+    await act(async () =>
+      document.dispatchEvent(new Event("visibilitychange")),
+    );
+    expect(live.listLivePlans).toHaveBeenCalledTimes(calls);
+    expect(live.createLiveSession).not.toHaveBeenCalled();
+  });
+
+  test("failed readiness refresh blocks starting until a successful manual check", async () => {
+    const { user } = await reachCheckout();
+    live.listLivePlans.mockRejectedValueOnce(new Error("Offline"));
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Could not check live availability",
+    );
+    expect(
+      screen.getByRole("button", { name: "Demo purchase & go live" }).disabled,
+    ).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Check live status" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Demo purchase & go live" })
+          .disabled,
+      ).toBe(false),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+    expect(live.createLiveSession).not.toHaveBeenCalled();
+  });
+
+  test("waiting checkout polls availability and ignores an in-flight result after unmount", async () => {
+    const intervals = vi.spyOn(globalThis, "setInterval");
+    const clear = vi.spyOn(globalThis, "clearInterval");
+    const catalog = {
+      items: [plan],
+      streamingAvailable: false,
+      demoPurchaseAvailable: true,
+    };
+    live.listLivePlans.mockResolvedValue(catalog);
+    const { unmount } = await reachCheckout();
+    const timerIndex = intervals.mock.calls.findIndex(
+      ([, delay]) => delay === 10000,
+    );
+    expect(timerIndex).toBeGreaterThanOrEqual(0);
+    const refresh = intervals.mock.calls[timerIndex][0];
+    let resolve;
+    live.listLivePlans.mockReturnValueOnce(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    await act(async () => {
+      refresh();
+    });
+    expect(
+      screen.getByRole("button", { name: "Demo purchase & go live" }).disabled,
+    ).toBe(true);
+    unmount();
+    expect(clear).toHaveBeenCalledWith(
+      intervals.mock.results[timerIndex].value,
+    );
+    await act(async () => resolve({ ...catalog, streamingAvailable: true }));
+    expect(live.createLiveSession).not.toHaveBeenCalled();
+    expect(openBrowserBroadcast).not.toHaveBeenCalled();
+    intervals.mockRestore();
+    clear.mockRestore();
+  });
+
+  test("refreshed plan terms require another selection instead of silently authorizing the new price", async () => {
+    await reachCheckout();
+    live.listLivePlans.mockResolvedValue({
+      items: [{ ...plan, version: 4, price: 30 }],
+      streamingAvailable: true,
+      demoPurchaseAvailable: true,
+    });
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Your plan changed",
+    );
+    expect(screen.getByRole("radio", { name: /Quick live/ }).checked).toBe(
+      false,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Demo purchase & go live" }),
+    ).toBeNull();
+    expect(tracks[0].stop).not.toHaveBeenCalled();
     expect(live.createLiveSession).not.toHaveBeenCalled();
   });
 

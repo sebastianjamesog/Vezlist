@@ -36,34 +36,41 @@ beforeEach(() => {
   vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
   vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
 });
-test("rotating playback tokens does not restart the same stream and tokens stay on the provider host", async () => {
+test("plays the complete provider URL and only restarts when that URL changes", async () => {
+  const playbackUrl =
+    "https://live.example.gvideo.io/cmaf/session/master.m3u8?quality=auto";
   const { rerender, unmount } = render(
-    <LivePlayer playbackUrl="https://stream.mux.com/abc.m3u8?token=old" />,
+    <LivePlayer playbackUrl={playbackUrl} />,
   );
   await waitFor(() => expect(instances).toHaveLength(1));
-  rerender(
-    <LivePlayer playbackUrl="https://stream.mux.com/abc.m3u8?token=new" />,
-  );
+  expect(instances[0].loadSource).toHaveBeenCalledWith(playbackUrl);
+  rerender(<LivePlayer playbackUrl={playbackUrl} title="Updated title" />);
   expect(instances).toHaveLength(1);
-  const xhr = { open: vi.fn() };
-  instances[0].config.xhrSetup(
-    xhr,
-    "https://stream.mux.com/abc.m3u8?token=old",
-  );
-  expect(xhr.open).toHaveBeenCalledWith(
-    "GET",
-    "https://stream.mux.com/abc.m3u8?token=new",
-    true,
-  );
-  xhr.open.mockClear();
-  instances[0].config.xhrSetup(xhr, "https://another-host.example/segment.ts");
-  expect(xhr.open).not.toHaveBeenCalled();
-  unmount();
+  expect(instances[0].destroy).not.toHaveBeenCalled();
+  const nextUrl = playbackUrl.replace("quality=auto", "quality=720");
+  rerender(<LivePlayer playbackUrl={nextUrl} />);
+  await waitFor(() => expect(instances).toHaveLength(2));
   expect(instances[0].destroy).toHaveBeenCalledOnce();
+  expect(instances[1].loadSource).toHaveBeenCalledWith(nextUrl);
+  unmount();
+  expect(instances[1].destroy).toHaveBeenCalledOnce();
+});
+test("native HLS preserves the complete provider URL", async () => {
+  vi.mocked(HTMLMediaElement.prototype.canPlayType).mockReturnValue("probably");
+  const playbackUrl =
+    "https://live.example.gvideo.io/cmaf/session/master.m3u8?quality=auto";
+  const { rerender } = render(<LivePlayer playbackUrl={playbackUrl} />);
+  expect(screen.getByLabelText("Live video").getAttribute("src")).toBe(
+    playbackUrl,
+  );
+  expect(instances).toHaveLength(0);
+  const nextUrl = playbackUrl.replace("quality=auto", "quality=720");
+  rerender(<LivePlayer playbackUrl={nextUrl} />);
+  expect(screen.getByLabelText("Live video").getAttribute("src")).toBe(nextUrl);
 });
 test("fatal stream errors stop loading and show reconnection instead of a replay", async () => {
   render(
-    <LivePlayer playbackUrl="https://stream.mux.com/abc.m3u8?token=old" />,
+    <LivePlayer playbackUrl="https://live.example.gvideo.io/cmaf/session/master.m3u8" />,
   );
   await waitFor(() => expect(instances).toHaveLength(1));
   act(() => instances[0].events.error(null, { fatal: true }));

@@ -61,7 +61,8 @@ const DEV = process.env.NODE_ENV === "development";
  * browser-console-only "Refused to connect" that curl-based testing can
  * never reproduce (curl doesn't enforce CSP).
  */
-const API_ORIGIN = process.env.NEXT_PUBLIC_API_URL ?? (DEV ? "http://localhost:8080" : "");
+const API_ORIGIN =
+  process.env.NEXT_PUBLIC_API_URL ?? (DEV ? "http://localhost:8080" : "");
 
 /**
  * The object storage origin — `lib/api/adminVerification.js`'s photo
@@ -70,7 +71,22 @@ const API_ORIGIN = process.env.NEXT_PUBLIC_API_URL ?? (DEV ? "http://localhost:8
  * CSP gap as API_ORIGIN above; caught in the same real-browser test that
  * found it.
  */
-const STORAGE_ORIGIN = process.env.NEXT_PUBLIC_STORAGE_URL ?? (DEV ? "http://localhost:9000" : "");
+const STORAGE_ORIGIN =
+  process.env.NEXT_PUBLIC_STORAGE_URL ?? (DEV ? "http://localhost:9000" : "");
+
+// WebSocket schemes are not consistently covered by an HTTP connect-src origin.
+// Restrict broadcast/chat to the configured API host and preserve its port.
+const API_WS_ORIGIN = (() => {
+  try {
+    const url = new URL(API_ORIGIN);
+    if (!["http:", "https:"].includes(url.protocol)) return "";
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    return url.origin;
+  } catch {
+    return "";
+  }
+})();
+const LIVE_CDN_SOURCES = "https://*.gvideo.co https://*.gvideo.io";
 
 function securityHeaders() {
   const csp = [
@@ -94,7 +110,10 @@ function securityHeaders() {
     // blocked image, indistinguishable from a broken URL.
     `img-src 'self' data: blob: https://picsum.photos https://*.picsum.photos https://*.basemaps.cartocdn.com${STORAGE_ORIGIN ? ` ${STORAGE_ORIGIN}` : ""}`,
     "font-src 'self' data:",
-    `connect-src 'self'${API_ORIGIN ? ` ${API_ORIGIN}` : ""}${STORAGE_ORIGIN ? ` ${STORAGE_ORIGIN}` : ""}`,
+    // Native HLS needs CDN media access; MSE/camera and uploads use blob URLs.
+    `media-src 'self' blob: ${LIVE_CDN_SOURCES}${STORAGE_ORIGIN ? ` ${STORAGE_ORIGIN}` : ""}`,
+    `connect-src 'self'${API_ORIGIN ? ` ${API_ORIGIN}` : ""}${API_WS_ORIGIN ? ` ${API_WS_ORIGIN}` : ""} ${LIVE_CDN_SOURCES}${STORAGE_ORIGIN ? ` ${STORAGE_ORIGIN}` : ""}`,
+    "worker-src 'self' blob:",
     "form-action 'self'",
     // No third-party origin may frame the moderation console. Same-origin
     // embeds only.
