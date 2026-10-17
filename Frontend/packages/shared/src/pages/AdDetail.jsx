@@ -373,19 +373,21 @@ export default function AdDetail() {
                         src={photos[active]}
                         alt=""
                         sizes="(min-width: 1024px) 620px, 100vw"
-                        className="scale-110 object-cover opacity-50 blur-2xl"
+                        className="scale-125 object-cover blur-2xl brightness-90"
                       />
                     </div>
-                    <MediaImage
-                      key={photos[active]}
-                      discreet
-                      fill
-                      preload
-                      src={photos[active]}
-                      alt={listing.title}
-                      sizes="(min-width: 1024px) 620px, 100vw"
-                      className="z-10 object-contain"
-                    />
+                    <div className="absolute inset-4 z-10 lg:inset-6">
+                      <MediaImage
+                        key={photos[active]}
+                        discreet
+                        fill
+                        preload
+                        src={photos[active]}
+                        alt={listing.title}
+                        sizes="(min-width: 1024px) 620px, 100vw"
+                        className="object-contain"
+                      />
+                    </div>
                     <PhotoMark
                       src={photos[active]}
                       className="bottom-2.5 right-3 z-20 text-[13px] lg:text-[15px]"
