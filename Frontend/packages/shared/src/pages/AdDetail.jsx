@@ -360,9 +360,22 @@ export default function AdDetail() {
           {/* 1 — gallery */}
           <section className="lg:col-start-1 lg:row-start-1">
             <div className="overflow-hidden rounded-card shadow-card">
-              <div className="relative h-64 lg:h-[440px]">
+              <div className="relative h-64 bg-canvas lg:h-[440px]">
                 {photos.length > 0 ? (
                   <>
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-0 overflow-hidden"
+                    >
+                      <MediaImage
+                        discreet
+                        fill
+                        src={photos[active]}
+                        alt=""
+                        sizes="(min-width: 1024px) 620px, 100vw"
+                        className="scale-110 object-cover opacity-50 blur-2xl"
+                      />
+                    </div>
                     <MediaImage
                       key={photos[active]}
                       discreet
@@ -371,12 +384,11 @@ export default function AdDetail() {
                       src={photos[active]}
                       alt={listing.title}
                       sizes="(min-width: 1024px) 620px, 100vw"
-                      className="object-contain"
+                      className="z-10 object-contain"
                     />
-                    <span className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-ink/60 to-transparent" />
                     <PhotoMark
                       src={photos[active]}
-                      className="bottom-2.5 right-3 text-[13px] lg:text-[15px]"
+                      className="bottom-2.5 right-3 z-20 text-[13px] lg:text-[15px]"
                     />
                   </>
                 ) : (
