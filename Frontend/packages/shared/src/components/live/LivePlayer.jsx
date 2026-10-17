@@ -53,15 +53,17 @@ export default function LivePlayer({
       }
     };
     const setup = async () => {
-      if (element.canPlayType("application/vnd.apple.mpegurl")) {
-        element.src = playbackUrl;
-        element.addEventListener("loadedmetadata", play);
-        return;
-      }
       try {
         const { default: Hls } = await import("hls.js");
         if (disposed) return;
+        // Chromium can report native HLS support yet fail on a live CMAF
+        // stream. Prefer HLS.js when available; keep native-only browsers working.
         if (!Hls.isSupported()) {
+          if (element.canPlayType("application/vnd.apple.mpegurl")) {
+            element.addEventListener("loadedmetadata", play);
+            element.src = playbackUrl;
+            return;
+          }
           fail(
             "Live video is not supported in this browser. Try another browser.",
           );
@@ -141,6 +143,7 @@ export default function LivePlayer({
         controlsList="nodownload noremoteplayback"
         onContextMenu={(event) => event.preventDefault()}
         onPlaying={() => {
+          setError("");
           setLoading(false);
           setPaused(false);
         }}

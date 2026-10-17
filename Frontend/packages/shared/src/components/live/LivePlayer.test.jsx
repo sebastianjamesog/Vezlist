@@ -1,5 +1,12 @@
 import { beforeEach, expect, test, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import Hls from "hls.js";
 import LivePlayer from "./LivePlayer";
 const { instances } = vi.hoisted(() => ({ instances: [] }));
 vi.mock("hls.js", () => ({
@@ -31,6 +38,7 @@ vi.mock("hls.js", () => ({
 }));
 beforeEach(() => {
   instances.length = 0;
+  vi.spyOn(Hls, "isSupported").mockReturnValue(true);
   vi.spyOn(HTMLMediaElement.prototype, "canPlayType").mockReturnValue("");
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
   vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
@@ -56,17 +64,60 @@ test("plays the complete provider URL and only restarts when that URL changes", 
   expect(instances[1].destroy).toHaveBeenCalledOnce();
 });
 test("native HLS preserves the complete provider URL", async () => {
+  vi.mocked(Hls.isSupported).mockReturnValue(false);
   vi.mocked(HTMLMediaElement.prototype.canPlayType).mockReturnValue("probably");
   const playbackUrl =
     "https://live.example.gvideo.io/cmaf/session/master.m3u8?quality=auto";
   const { rerender } = render(<LivePlayer playbackUrl={playbackUrl} />);
-  expect(screen.getByLabelText("Live video").getAttribute("src")).toBe(
-    playbackUrl,
+  await waitFor(() =>
+    expect(screen.getByLabelText("Live video").getAttribute("src")).toBe(
+      playbackUrl,
+    ),
   );
   expect(instances).toHaveLength(0);
   const nextUrl = playbackUrl.replace("quality=auto", "quality=720");
   rerender(<LivePlayer playbackUrl={nextUrl} />);
-  expect(screen.getByLabelText("Live video").getAttribute("src")).toBe(nextUrl);
+  await waitFor(() =>
+    expect(screen.getByLabelText("Live video").getAttribute("src")).toBe(
+      nextUrl,
+    ),
+  );
+});
+
+test("uses HLS.js even when Chromium advertises native HLS support", async () => {
+  vi.mocked(HTMLMediaElement.prototype.canPlayType).mockReturnValue("maybe");
+  const playbackUrl = "https://live.example.gvideo.io/cmaf/session/master.m3u8";
+  render(<LivePlayer playbackUrl={playbackUrl} />);
+  await waitFor(() => expect(instances).toHaveLength(1));
+  expect(instances[0].loadSource).toHaveBeenCalledWith(playbackUrl);
+  expect(screen.getByLabelText("Live video").getAttribute("src")).not.toBe(
+    playbackUrl,
+  );
+});
+
+test("clears a video error when playback successfully resumes", async () => {
+  render(
+    <LivePlayer playbackUrl="https://live.example.gvideo.io/cmaf/session/master.m3u8" />,
+  );
+  await waitFor(() => expect(instances).toHaveLength(1));
+  const video = screen.getByLabelText("Live video");
+  fireEvent.error(video);
+  expect(screen.getByRole("alert")).toBeTruthy();
+  fireEvent.playing(video);
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("explains when neither HLS.js nor native playback is supported", async () => {
+  vi.mocked(Hls.isSupported).mockReturnValue(false);
+  render(
+    <LivePlayer playbackUrl="https://live.example.gvideo.io/cmaf/session/master.m3u8" />,
+  );
+  expect(
+    await screen.findByText(
+      "Live video is not supported in this browser. Try another browser.",
+    ),
+  ).toBeTruthy();
+  expect(instances).toHaveLength(0);
 });
 test("fatal stream errors stop loading and show reconnection instead of a replay", async () => {
   render(
