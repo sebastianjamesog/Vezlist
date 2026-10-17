@@ -134,6 +134,8 @@ function toCardListing(row) {
  * three extra search requests just to fill a rail. What is left is what
  * each tile actually does: re-cut the feed underneath it.
  */
+// Each feed shortcut replaces the previous shortcut's constraints. Keep the
+// category, location and search intact, but never carry Verified into New Today.
 const SHORTCUTS = [
   {
     id: "nearby",
@@ -148,7 +150,7 @@ const SHORTCUTS = [
     label: "New Today",
     sub: "Last 24 hours",
     Icon: Sparkles,
-    patch: { postedWithin: "24h", sort: "newest" },
+    patch: { postedWithin: "24h", sort: "newest", verifiedOnly: false },
     accent: "amber",
     pill: "NEW",
   },
@@ -157,7 +159,7 @@ const SHORTCUTS = [
     label: "Trending",
     sub: "This week",
     Icon: BadgeCheck,
-    patch: { postedWithin: "7d", sort: "newest" },
+    patch: { postedWithin: "7d", sort: "newest", verifiedOnly: false },
     accent: "purple",
   },
   {
@@ -165,7 +167,7 @@ const SHORTCUTS = [
     label: "Verified",
     sub: "Checked ads",
     Icon: BadgeCheck,
-    patch: { verifiedOnly: true },
+    patch: { verifiedOnly: true, postedWithin: "any", sort: "newest" },
     accent: "green",
   },
 ];
