@@ -36,7 +36,6 @@ import { FEED_PATH, IS_PERSONALS } from "../lib/sites";
 import { usePersistedObject } from "../lib/persisted";
 import useLiveViewCount, { publishLiveViewCount } from "../lib/useLiveViewCount.js";
 import MediaImage from "../components/media/MediaImage.jsx";
-import PhotoMark from "../components/media/PhotoMark.jsx";
 import {
   NO_REVEALS,
   REVEALS_KEY,
@@ -372,10 +371,6 @@ export default function AdDetail() {
                       alt={listing.title}
                       sizes="(min-width: 1024px) 620px, 100vw"
                       className="object-contain"
-                    />
-                    <PhotoMark
-                      src={photos[active]}
-                      className="bottom-2.5 right-3 z-20 text-[13px] lg:text-[15px]"
                     />
                   </>
                 ) : (
