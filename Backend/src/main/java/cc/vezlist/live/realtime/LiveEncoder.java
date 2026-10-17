@@ -1,6 +1,8 @@
 package cc.vezlist.live.realtime;
 
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import cc.vezlist.live.application.GcoreStreamUrls;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -26,7 +28,7 @@ public class LiveEncoder {
     public Process start(String streamKey,String mimeType) throws IOException {
         String ingestUrl=GcoreStreamUrls.ingest(streamKey);
         String format=demuxer(mimeType);
-        return new ProcessBuilder(List.of(executable,"-hide_banner","-loglevel","error","-nostdin",
+        Process process = new ProcessBuilder(List.of(executable,"-hide_banner","-loglevel","error","-nostdin",
             // Browser containers declare their codecs up front; avoid the default multi-second probe.
             "-protocol_whitelist","pipe","-analyzeduration","1000000","-probesize","1048576",
             "-f",format,"-i","pipe:0","-map","0:v:0","-map","0:a:0?",
@@ -35,7 +37,26 @@ public class LiveEncoder {
             "-r","30","-g","60","-keyint_min","60","-b:v","2000k","-maxrate","2500k","-bufsize","4000k",
             "-c:a","aac","-b:a","128k","-ar","48000","-flvflags","no_duration_filesize","-f","flv",
             ingestUrl))
-            .redirectOutput(ProcessBuilder.Redirect.DISCARD).redirectError(ProcessBuilder.Redirect.DISCARD).start();
+            .redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+        Thread.ofVirtual().name("live-encoder-diagnostics").start(() -> {
+            String diagnostics;
+            try (var reader = new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8)) {
+                diagnostics = LiveEncoderDiagnostics.read(reader).toString();
+            } catch (IOException exception) {
+                diagnostics = "STDERR_READ_FAILED";
+            }
+            try {
+                int exitCode = process.waitFor();
+                // Only fixed diagnostic labels are logged, never FFmpeg text:
+                // it can contain the private ingest URL and its stream key.
+                org.slf4j.LoggerFactory.getLogger(getClass()).info(
+                        "Live encoder pid={} exited: exitCode={}, diagnostics={}",
+                        process.pid(), exitCode, diagnostics);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        return process;
     }
     static String demuxer(String mimeType) {
         if(mimeType==null) throw new IllegalArgumentException("Unsupported browser recording format");

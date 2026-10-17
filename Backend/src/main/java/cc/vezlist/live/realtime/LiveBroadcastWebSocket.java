@@ -64,6 +64,8 @@ public class LiveBroadcastWebSocket extends BinaryWebSocketHandler {
             b.slot=true; b.grant=grant;
             if(!Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(lockKey(b),b.lock,Duration.ofSeconds(30)))) { fail(b,"ALREADY_BROADCASTING","This session is broadcasting from another connection."); return; }
             b.process=encoder.start(grant.streamKey(),mime);
+            org.slf4j.LoggerFactory.getLogger(getClass()).info("Live broadcast {} started encoder pid={} format={}",
+                    grant.sessionId(), b.process.pid(), LiveEncoder.demuxer(mime));
             Thread.ofVirtual().name("live-encoder-input").start(()->write(b));
             b.process.onExit().thenRun(()-> { if(!b.closed.get()) fail(b,"BROADCAST_INTERRUPTED","The broadcast connection stopped. Reconnect your camera to continue."); });
             send(b,Map.of("type","ready"));
@@ -121,11 +123,9 @@ public class LiveBroadcastWebSocket extends BinaryWebSocketHandler {
     private void send(Broadcast b,Object data) { try { if(b.socket.isOpen()) b.socket.sendMessage(new TextMessage(json.writeValueAsString(data))); } catch(Exception ex) { stop(b); } }
     private void fail(Broadcast b,String code,String message) {
         if(b.closed.get()) return;
-        if(code.equals("BROADCAST_TOO_SLOW") || code.equals("BROADCAST_STALLED")) {
-            synchronized(b) {
-                org.slf4j.LoggerFactory.getLogger(getClass()).warn("Live broadcast {} stopped: {} (bufferedBytes={}, queuedFrames={})",
-                        b.grant==null?null:b.grant.sessionId(),code,b.bufferedBytes,b.queue.size());
-            }
+        synchronized(b) {
+            org.slf4j.LoggerFactory.getLogger(getClass()).warn("Live broadcast {} stopped: {} (bufferedBytes={}, queuedFrames={}, encoderRunning={})",
+                    b.grant==null?null:b.grant.sessionId(),code,b.bufferedBytes,b.queue.size(),b.process!=null && b.process.isAlive());
         }
         send(b,Map.of("type","error","code",code,"message",message)); stop(b);
     }
