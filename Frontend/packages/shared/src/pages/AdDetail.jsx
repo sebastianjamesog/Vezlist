@@ -360,7 +360,7 @@ export default function AdDetail() {
           {/* 1 — gallery */}
           <section className="lg:col-start-1 lg:row-start-1">
             <div className="overflow-hidden rounded-card shadow-card">
-              <div className="relative h-64 bg-canvas lg:h-[440px]">
+              <div className="relative h-72 bg-canvas lg:h-[480px]">
                 {photos.length > 0 ? (
                   <>
                     <div
@@ -386,6 +386,7 @@ export default function AdDetail() {
                         alt={listing.title}
                         sizes="(min-width: 1024px) 620px, 100vw"
                         className="object-contain"
+                        style={{ backgroundColor: "transparent" }}
                       />
                     </div>
                     <PhotoMark
