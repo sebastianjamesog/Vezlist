@@ -32,23 +32,28 @@ def ingest_parts(value):
     return host, parsed.path, parsed.query
 
 
-def redact_output(text, secrets):
+def redact_output(text, secrets, limit=12000):
     for secret in sorted(set(secrets), key=len, reverse=True):
         if secret:
             text = text.replace(secret, "[REDACTED]")
             text = text.replace(urllib.parse.unquote(secret), "[REDACTED]")
     text = re.sub(r"(?:rtmps?|https?)://[^\s\"'<>]+", "[REDACTED_URL]", text)
-    return "".join(c for c in text if c in "\n\t" or c.isprintable())[-12000:]
+    cleaned = "".join(c for c in text if c in "\n\t" or c.isprintable())
+    if len(cleaned) <= limit:
+        return cleaned
+    # Keep the initial RTMP negotiation as well as the final failure.
+    half = limit // 2
+    return cleaned[:half] + "\n[Middle of diagnostic output omitted]\n" + cleaned[-half:]
 
 
-def publish_test(current, executable, token):
+def publish_test(current, executable, token, debug=False):
     host, path, key = current
     destination = f"rtmps://{host}:443{path}?{key}"
     print("Publishing an 8-second test pattern with silent audio. It may appear in Live Now.", flush=True)
     # The in-container timeout also kills FFmpeg if the Docker client disconnects.
     command = [
         "docker", "exec", "vezlist-api-1", "timeout", "--kill-after=3s", "20s",
-        executable, "-hide_banner", "-loglevel", "info", "-nostdin", "-nostats",
+        executable, "-hide_banner", "-loglevel", "debug" if debug else "info", "-nostdin", "-nostats",
         "-re", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30",
         "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
         "-t", "8", "-map", "0:v:0", "-map", "1:a:0",
@@ -62,7 +67,17 @@ def publish_test(current, executable, token):
     secrets = [destination, key, token]
     secrets.extend(value for _, value in urllib.parse.parse_qsl(key) if len(value) >= 4)
     print("Publish-test exit code:", result.returncode)
-    print(redact_output(result.stderr + result.stdout, secrets))
+    safe_output = redact_output(result.stderr + result.stdout, secrets, limit=60000 if debug else 12000)
+    if debug:
+        # Retain protocol negotiation and failures without hundreds of frame/filter lines.
+        relevant = re.compile(
+            r"rtmp|tls|tcp|gnutls|openssl|handshake|connect|publish|server|"
+            r"error|fail|end of file|denied|reject|forbidden|unauthor|NetStream|NetConnection|"
+            r"Output #|Stream #|frame=|video:", re.I
+        )
+        safe_output = "\n".join(line for line in safe_output.splitlines() if relevant.search(line))
+        print("RTMP negotiation and failure details (credentials redacted):")
+    print(safe_output)
     print("Publish test completed." if result.returncode == 0 else "Publish test failed; share the redacted output above.")
     return 0 if result.returncode == 0 else 1
 
@@ -72,7 +87,10 @@ def main():
     parser.add_argument("session_id", type=uuid.UUID)
     parser.add_argument("--latest-for-owner", action="store_true", help="Check the latest open session belonging to the supplied session's creator")
     parser.add_argument("--publish-test", action="store_true", help="Publish an 8-second test pattern to an idle PREPARING stream; do not reconnect the browser during this test")
+    parser.add_argument("--publish-debug", action="store_true", help="With --publish-test, include redacted RTMP negotiation details")
     args = parser.parse_args()
+    if args.publish_debug and not args.publish_test:
+        parser.error("--publish-debug requires --publish-test")
     environment = dict(
         item.split("=", 1)
         for item in json.loads(docker("inspect", "--format", "{{json .Config.Env}}", "vezlist-api-1"))
@@ -151,7 +169,7 @@ def main():
             raise RuntimeError("Refusing to test while Gcore reports a broadcast in progress.")
         if any(stream.get(field) is not False for field in ("auto_record", "dvr_enabled", "recording")):
             raise RuntimeError("Publish test requires recording and DVR to be disabled.")
-        return publish_test(current, environment.get("VEZLIST_FFMPEG_PATH", "/usr/bin/ffmpeg"), token)
+        return publish_test(current, environment.get("VEZLIST_FFMPEG_PATH", "/usr/bin/ffmpeg"), token, args.publish_debug)
     return 0
 
 
