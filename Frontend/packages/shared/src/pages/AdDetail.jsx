@@ -360,35 +360,19 @@ export default function AdDetail() {
           {/* 1 — gallery */}
           <section className="lg:col-start-1 lg:row-start-1">
             <div className="overflow-hidden rounded-card shadow-card">
-              <div className="relative h-72 bg-canvas lg:h-[480px]">
+              <div className="relative h-96 bg-canvas lg:h-[560px]">
                 {photos.length > 0 ? (
                   <>
-                    <div
-                      aria-hidden="true"
-                      className="pointer-events-none absolute inset-0 overflow-hidden"
-                    >
-                      <MediaImage
-                        discreet
-                        fill
-                        src={photos[active]}
-                        alt=""
-                        sizes="(min-width: 1024px) 620px, 100vw"
-                        className="scale-125 object-cover blur-2xl brightness-90"
-                      />
-                    </div>
-                    <div className="absolute inset-4 z-10 lg:inset-6">
-                      <MediaImage
-                        key={photos[active]}
-                        discreet
-                        fill
-                        preload
-                        src={photos[active]}
-                        alt={listing.title}
-                        sizes="(min-width: 1024px) 620px, 100vw"
-                        className="object-contain"
-                        style={{ backgroundColor: "transparent" }}
-                      />
-                    </div>
+                    <MediaImage
+                      key={photos[active]}
+                      discreet
+                      fill
+                      preload
+                      src={photos[active]}
+                      alt={listing.title}
+                      sizes="(min-width: 1024px) 620px, 100vw"
+                      className="object-contain"
+                    />
                     <PhotoMark
                       src={photos[active]}
                       className="bottom-2.5 right-3 z-20 text-[13px] lg:text-[15px]"
