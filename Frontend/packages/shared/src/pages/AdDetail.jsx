@@ -147,6 +147,7 @@ export default function AdDetail() {
   const liveViewCount = useLiveViewCount(listing?.id, listing?.viewCount, SITE_SCOPE);
 
   const [active, setActive] = useState(0);
+  const [photoRatios, setPhotoRatios] = useState({});
   const [reporting, setReporting] = useState(false);
   const [confirmBlock, setConfirmBlock] = useState(false);
 
@@ -360,17 +361,35 @@ export default function AdDetail() {
           {/* 1 — gallery */}
           <section className="lg:col-start-1 lg:row-start-1">
             <div className="overflow-hidden rounded-card shadow-card">
-              <div className="relative h-64 lg:h-[440px]">
+              <div
+                className={`relative ${photos.length ? "" : "h-64 lg:h-[440px]"}`}
+                style={
+                  photos.length
+                    ? { aspectRatio: photoRatios[photos[active]] ?? "3 / 2" }
+                    : undefined
+                }
+              >
                 {photos.length > 0 ? (
                   <>
                     <MediaImage
+                      key={photos[active]}
                       discreet
                       fill
                       preload
                       src={photos[active]}
                       alt={listing.title}
                       sizes="(min-width: 1024px) 620px, 100vw"
-                      className="object-cover"
+                      className="object-contain"
+                      onLoad={({ currentTarget: image }) => {
+                        if (image.naturalWidth && image.naturalHeight) {
+                          const ratio = image.naturalWidth / image.naturalHeight;
+                          setPhotoRatios((previous) =>
+                            previous[photos[active]] === ratio
+                              ? previous
+                              : { ...previous, [photos[active]]: ratio },
+                          );
+                        }
+                      }}
                     />
                     <span className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-ink/60 to-transparent" />
                     <PhotoMark
