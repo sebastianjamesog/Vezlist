@@ -71,11 +71,12 @@ function combine(summaries) {
 function throughput(entries) {
   const counts = new Map();
   for (const e of entries) {
-    const name = e.actorName ?? "Unknown";
-    counts.set(name, (counts.get(name) ?? 0) + 1);
+    if (e.targetType === "SECURITY") continue;
+    const id = e.actorId ?? "unknown";
+    const previous = counts.get(id) ?? { key: e.actorName ?? "Unknown", value: 0 };
+    counts.set(id, { ...previous, value: previous.value + 1 });
   }
-  return [...counts.entries()]
-    .map(([key, value]) => ({ key, value }))
+  return [...counts.values()]
     .sort((a, b) => b.value - a.value)
     .slice(0, 10);
 }
@@ -128,8 +129,8 @@ export default function Analytics() {
   const moderators = auditSample ? throughput(auditSample) : [];
   const accountsBySite = bySite
     ? [
-        { key: "Marketplace", value: bySite.MARKETPLACE.totalUsers },
-        { key: "Personals", value: bySite.PERSONALS.totalUsers },
+        { key: "Marketplace", value: bySite.MARKETPLACE.usersWithListings ?? 0 },
+        { key: "Personals", value: bySite.PERSONALS.usersWithListings ?? 0 },
       ]
     : [];
   const totalUsers = bySite?.MARKETPLACE.totalUsers ?? 0;
@@ -150,7 +151,7 @@ export default function Analytics() {
         title="Analytics"
         subtitle={
           summary
-            ? `${summary.totalListings} listings and ${totalUsers} accounts in scope`
+            ? `${summary.totalListings} listings in scope; ${totalUsers} accounts across both sites`
             : error
               ? undefined
               : `Loading the numbers for ${scopeLabel}…`

@@ -61,3 +61,8 @@ export function updateLocation(id, request) {
 export function deleteArea(id) {
   return api.delete(`/api/v1/admin/locations/${id}`);
 }
+
+/** Move within its board; the server updates all affected orders in one transaction. */
+export function moveCategory(id, direction) {
+  return api.post(`/api/v1/admin/categories/${encodeURIComponent(id)}/move`, { direction });
+}

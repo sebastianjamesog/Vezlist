@@ -47,7 +47,8 @@ public class DiscoveryCursorCodec {
                 anchor.publishedAt(),
                 anchor.price(),
                 anchor.distanceKm(),
-                anchor.id());
+                anchor.id(),
+                anchor.verified());
         try {
             byte[] json = objectMapper.writeValueAsBytes(payload);
             return Base64.getUrlEncoder().withoutPadding().encodeToString(json);
@@ -80,10 +81,13 @@ public class DiscoveryCursorCodec {
             if (expectedSort == DiscoverySort.NEAREST && payload.distanceKm() == null) {
                 throw new DiscoveryCursorInvalidException();
             }
+            if (expectedSort == DiscoverySort.VERIFIED_FIRST && payload.verified() == null) {
+                throw new DiscoveryCursorInvalidException();
+            }
             return new DecodedCursor(
                     payload.asOf(),
                     new CursorAnchor(
-                            payload.publishedAt(), payload.price(), payload.distanceKm(), payload.id()));
+                            payload.publishedAt(), payload.price(), payload.distanceKm(), payload.id(), payload.verified()));
         } catch (DiscoveryCursorInvalidException exception) {
             throw exception;
         } catch (RuntimeException | IOException exception) {
@@ -95,7 +99,8 @@ public class DiscoveryCursorCodec {
             Instant publishedAt,
             BigDecimal price,
             Double distanceKm,
-            UUID id) {
+            UUID id,
+            Boolean verified) {
     }
 
     public record DecodedCursor(Instant asOf, CursorAnchor anchor) {
@@ -109,6 +114,7 @@ public class DiscoveryCursorCodec {
             Instant publishedAt,
             BigDecimal price,
             Double distanceKm,
-            UUID id) {
+            UUID id,
+            Boolean verified) {
     }
 }

@@ -161,6 +161,13 @@ public class DiscoveryRepository {
         switch (sort) {
             case NEWEST -> sql.append("AND (published_at < :cursorPublishedAt ")
                     .append("OR (published_at = :cursorPublishedAt AND id < :cursorId)) ");
+            case VERIFIED_FIRST -> {
+                parameters.addValue("cursorVerified", cursor.verified());
+                sql.append("AND (verified < :cursorVerified ")
+                        .append("OR (verified = :cursorVerified AND published_at < :cursorPublishedAt) ")
+                        .append("OR (verified = :cursorVerified AND published_at = :cursorPublishedAt ")
+                        .append("AND id < :cursorId)) ");
+            }
             case PRICE_ASC -> {
                 parameters.addValue("cursorPrice", cursor.price());
                 sql.append("AND (sort_price > :cursorPrice ")
@@ -186,6 +193,7 @@ public class DiscoveryRepository {
     private String orderBy(DiscoverySort sort) {
         return switch (sort) {
             case NEWEST -> " ORDER BY published_at DESC, id DESC";
+            case VERIFIED_FIRST -> " ORDER BY verified DESC, published_at DESC, id DESC";
             case PRICE_ASC -> " ORDER BY sort_price ASC, published_at DESC, id DESC";
             case PRICE_DESC -> " ORDER BY sort_price DESC, published_at DESC, id DESC";
             case NEAREST -> " ORDER BY distance_km ASC, id ASC";
@@ -233,7 +241,7 @@ public class DiscoveryRepository {
             BigDecimal sortPrice) {
 
         public CursorAnchor cursorAnchor() {
-            return new CursorAnchor(publishedAt, sortPrice, distanceKm, id);
+            return new CursorAnchor(publishedAt, sortPrice, distanceKm, id, verified);
         }
     }
 

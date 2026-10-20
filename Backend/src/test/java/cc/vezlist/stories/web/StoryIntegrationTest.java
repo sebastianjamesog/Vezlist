@@ -261,6 +261,40 @@ class StoryIntegrationTest {
         assertThat(result.get("items").findValuesAsText("id")).doesNotContain(expiredUpload.toString());
     }
 
+    @Test void staffCanPageAndRemovePublishedStoriesButMembersCannot() throws Exception {
+        var admin = account(Role.ADMIN);
+        var moderator = account(Role.MODERATOR);
+        var owner = account(Role.USER);
+        UUID first = ready(owner), second = ready(owner), expired = ready(owner), draft = ready(owner);
+        for (UUID id : java.util.List.of(first, second, expired)) {
+            jdbc.update("UPDATE stories SET status='PUBLISHED',published_at='2026-10-20T00:00:00.123456Z',expires_at=now()+interval '1 hour' WHERE id=?", id);
+        }
+        jdbc.update("UPDATE stories SET expires_at=now()-interval '1 second' WHERE id=?", expired);
+        mvc.perform(get("/api/v1/admin/stories")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/admin/stories").with(user(owner))).andExpect(status().isForbidden());
+        mvc.perform(delete("/api/v1/admin/stories/" + first).with(user(owner)).with(csrf())).andExpect(status().isForbidden());
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        String cursor = null;
+        for (int index = 0; index < 300; index++) {
+            JsonNode page = body(mvc.perform(get("/api/v1/admin/stories").with(user(moderator))
+                    .param("limit", "2").param("cursor", cursor == null ? "" : cursor)).andExpect(status().isOk()));
+            ids.addAll(page.get("items").findValuesAsText("id"));
+            if (!page.get("hasMore").asBoolean()) break;
+            cursor = page.get("nextCursor").asText();
+        }
+        assertThat(ids).contains(first.toString(), second.toString()).doesNotContain(expired.toString(), draft.toString()).doesNotHaveDuplicates();
+        mvc.perform(delete("/api/v1/admin/stories/" + first).with(user(moderator)).with(csrf())).andExpect(status().isNoContent());
+        assertThat(jdbc.queryForObject("SELECT status FROM stories WHERE id=?", String.class, first)).isEqualTo("DELETED");
+        assertThat(body(mvc.perform(get("/api/v1/stories/creator/" + owner.id())).andExpect(status().isOk())).get("items").findValuesAsText("id"))
+                .contains(second.toString()).doesNotContain(first.toString());
+        mvc.perform(delete("/api/v1/admin/stories/creator/" + owner.id()).with(user(admin)).with(csrf())).andExpect(status().isNoContent());
+        assertThat(jdbc.queryForObject("SELECT status FROM stories WHERE id=?", String.class, second)).isEqualTo("DELETED");
+        assertThat(jdbc.queryForObject("SELECT status FROM stories WHERE id=?", String.class, draft)).isEqualTo("READY");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM admin_audit_log WHERE target_id=? AND action='STORY_REMOVED'", Integer.class, first.toString())).isEqualTo(1);
+        jdbc.update("UPDATE app_users SET enabled=false WHERE id=?", moderator.id());
+        mvc.perform(get("/api/v1/admin/stories").with(user(moderator))).andExpect(status().isForbidden());
+    }
+
     private int credits(VezlistUserPrincipal owner) { return jdbc.queryForObject("SELECT credits FROM story_credits WHERE owner_id=?", Integer.class, owner.id()); }
     private String key(UUID story) { return jdbc.queryForObject("SELECT object_key FROM stories WHERE id=?", String.class, story); }
     private UUID ready(VezlistUserPrincipal actor) throws Exception {

@@ -180,7 +180,25 @@ class AdminIntegrationTest {
         mvc.perform(get("/api/v1/admin/analytics/summary?site=MARKETPLACE").with(user(admin)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalUsers").value(totalUsersBefore))
+                .andExpect(jsonPath("$.usersWithListings").value(jdbc.queryForObject(
+                        "SELECT count(DISTINCT owner_id) FROM listings WHERE site_scope='MARKETPLACE' AND submitted_at IS NOT NULL", Integer.class)))
                 .andExpect(jsonPath("$.listingsByStatus.ACTIVE").value((int) activeListingsBefore));
+    }
+
+    @Test void queueCountsAreRealAndRespectSiteScope() throws Exception {
+        var admin = account(Role.ADMIN);
+        var owner = account(Role.USER);
+        listing(owner, "MARKETPLACE", "PENDING_REVIEW");
+        listing(owner, "PERSONALS", "PENDING_REVIEW");
+        mvc.perform(get("/api/v1/admin/analytics/queues").with(user(owner))).andExpect(status().isForbidden());
+        for (String site : java.util.List.of("MARKETPLACE", "PERSONALS")) {
+            int pending = jdbc.queryForObject("SELECT count(*) FROM listings WHERE status='PENDING_REVIEW' AND site_scope=?", Integer.class, site);
+            mvc.perform(get("/api/v1/admin/analytics/queues").with(user(admin)).param("site", site))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.pending").value(pending));
+        }
+        int pending = jdbc.queryForObject("SELECT count(*) FROM listings WHERE status='PENDING_REVIEW'", Integer.class);
+        mvc.perform(get("/api/v1/admin/analytics/queues").with(user(admin)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.pending").value(pending));
     }
 
     private VezlistUserPrincipal account(Role role) {

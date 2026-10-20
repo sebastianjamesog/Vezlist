@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { EyeOff, ShieldAlert, SlidersHorizontal } from "lucide-react";
 import Wordmark from "@vezlist/shared/components/layout/Wordmark.jsx";
 import { MARKETPLACE_URL } from "@vezlist/shared/lib/sites.js";
+import { getPublicSettings } from "@vezlist/shared/lib/api/adminSettings.js";
 import { MIN_AGE } from "@vezlist/shared/lib/age.js";
 
 /**
@@ -24,13 +25,24 @@ const TERMS = [
   {
     Icon: SlidersHorizontal,
     title: "Discreet mode",
-    body: "Blur every photo on the board with one tap, any time.",
+    body: "Hide photos using Discreet mode in Filters, under More filters.",
   },
 ];
 
 /** A new document asks again; client-side navigation keeps this layout mounted. */
 export default function AgeGate({ children }) {
   const [confirmed, setConfirmed] = useState(false);
+  const [copy, setCopy] = useState({
+    ageGateTitle: "This site is for adults",
+    ageGateBody: "Personals carries adult ads and stories posted by members. Some of it is explicit.",
+  });
+  useEffect(() => {
+    let active = true;
+    getPublicSettings().then((settings) => {
+      if (active && settings?.ageGateTitle && settings?.ageGateBody) setCopy(settings);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.ageGate = confirmed ? "ok" : "gate";
@@ -72,12 +84,11 @@ export default function AgeGate({ children }) {
                 id="age-gate-title"
                 className="mt-6 text-[28px] font-extrabold leading-tight text-ink"
               >
-                This site is for adults
+                {copy.ageGateTitle}
               </h1>
 
               <p className="mt-2.5 text-[15px] leading-relaxed text-muted">
-                Personals carries adult ads and stories posted by members. Some
-                of it is explicit.
+                {copy.ageGateBody}
               </p>
 
               <ul className="mt-6 space-y-3">

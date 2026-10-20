@@ -1,41 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { openAdClick } from "../../lib/openAdClick.js";
 import Link from "next/link";
-import { BadgeCheck, ChevronRight, Eye, Heart, ImageOff, MapPin } from "lucide-react";
+import { BadgeCheck, ChevronRight, Eye, ImageOff, MapPin } from "lucide-react";
 import { compactCount, timeAgo } from "../../lib/format";
 import MediaImage from "../media/MediaImage.jsx";
 import PhotoMark from "../media/PhotoMark.jsx";
-import { useAuth } from "../../context/AuthContext.jsx";
-import { useSaved } from "../../context/SavedContext.jsx";
-import { useToast } from "../../context/ToastContext.jsx";
 import useLiveViewCount from "../../lib/useLiveViewCount.js";
 
+function compactPostedTime(msAgo) {
+  if (msAgo >= 86_400_000) return `${Math.floor(msAgo / 86_400_000)}d ago`;
+  if (msAgo >= 3_600_000) return `${Math.floor(msAgo / 3_600_000)}h ago`;
+  if (msAgo >= 60_000) return `${Math.floor(msAgo / 60_000)} min ago`;
+  return "Just now";
+}
+
 /** Compact row shared by Browse, featured feeds, saved ads, and seller pages. */
-export default function ListingCard({ listing, chevron = false }) {
+export default function ListingCard({ listing, chevron = false, onOpen }) {
   const targetId = listing.id ?? listing.adId;
-  const { signedIn } = useAuth();
-  const { isSaved, toggle } = useSaved();
-  const toast = useToast();
-  const [pending, setPending] = useState(false);
-  const saved = isSaved(targetId);
   const hasImage = Boolean(listing.image);
   const price = Number(listing.price ?? 0);
   const views = useLiveViewCount(targetId, listing.views ?? listing.viewCount, listing.site);
-
-  function onToggleSave(event) {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!signedIn) {
-      toast("Sign in to save ads");
-      return;
-    }
-    if (pending) return;
-    setPending(true);
-    toggle(targetId)
-      .catch(() => toast("Couldn't update saved ads — try again"))
-      .finally(() => setPending(false));
-  }
 
   return (
     <article
@@ -43,7 +28,7 @@ export default function ListingCard({ listing, chevron = false }) {
         listing.verified ? "verified-glow" : ""
       }`}
     >
-      <Link href={`/ad/${targetId}`} className="listing-card__link flex min-w-0 items-center gap-2 rounded-2xl p-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
+      <Link onClick={onOpen ? (event) => openAdClick(event, () => onOpen(targetId)) : undefined} href={`/ad/${targetId}`} className="listing-card__link flex min-w-0 items-center gap-2 rounded-2xl p-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
         <div className="listing-card__photo relative size-[104px] shrink-0 overflow-hidden rounded-xl bg-canvas ring-1 ring-line">
           {hasImage ? (
             <>
@@ -53,7 +38,7 @@ export default function ListingCard({ listing, chevron = false }) {
                 src={listing.image}
                 alt={listing.title}
                 sizes="(min-width: 1024px) 120px, 104px"
-                className="object-cover transition-transform duration-300 group-hover:scale-105"
+                className="origin-top object-cover object-top transition-transform duration-300 group-hover:scale-105"
               />
               <PhotoMark src={listing.image} className="bottom-1 right-1.5 text-[8px]" />
             </>
@@ -65,53 +50,59 @@ export default function ListingCard({ listing, chevron = false }) {
           )}
         </div>
 
-        <div className="flex min-w-0 flex-1 flex-col justify-center self-stretch">
-          <h3 className="listing-card__title line-clamp-2 min-h-9 text-[15px] font-bold leading-[18px] text-ink transition-colors group-hover:text-brand">
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5 self-stretch">
+          <h3 className="listing-card__title line-clamp-2 break-words text-[17px] font-bold leading-5 text-ink transition-colors group-hover:text-brand">
             {listing.title}
           </h3>
 
-          <div className="listing-card__meta mt-0.5 flex h-[18px] min-w-0 items-center gap-1">
-            <p className="min-w-0 truncate text-[11px] font-medium text-muted lg:text-[12px]">{listing.business}</p>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-[12px] leading-4 text-muted">
+            <p className="min-w-0 max-w-full truncate font-medium" title={listing.business}>{listing.business}</p>
             {listing.age != null && (
-              <span className="shrink-0 text-[11px] font-bold tabular-nums text-ink lg:text-[12px]">{listing.age}</span>
+              <span className="shrink-0 font-semibold tabular-nums">{listing.age}</span>
             )}
             {listing.verified && (
-              <span className="inline-flex shrink-0 items-center gap-0.5 rounded-md bg-emerald-100 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-700 lg:text-[10px]">
-                <BadgeCheck className="size-3" strokeWidth={2.5} />
-                Verified
+              <span className="inline-flex shrink-0 text-emerald-700" title="Verified advertiser">
+                <BadgeCheck aria-hidden="true" className="size-3.5" strokeWidth={2.5} />
+                <span className="sr-only">Verified advertiser</span>
               </span>
             )}
             {listing.postedMsAgo != null && (
-              <span className="ml-auto shrink-0 text-[10px] text-muted lg:text-[11px]">{timeAgo(listing.postedMsAgo)}</span>
+              <span className="inline-flex shrink-0 items-center gap-1" title={timeAgo(listing.postedMsAgo)}>
+                {listing.business && <span aria-hidden="true">·</span>}
+                {compactPostedTime(listing.postedMsAgo)}
+              </span>
             )}
           </div>
 
-          <div className="listing-card__meta mt-0.5 flex h-[18px] min-w-0 items-center gap-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             {price > 0 && (
-              <span className="inline-flex h-[18px] shrink-0 items-center rounded-lg bg-brand-soft px-1.5 text-[12px] font-bold tabular-nums text-brand lg:text-[13px]">
+              <span className="max-w-full break-words rounded-lg bg-brand-soft px-1.5 text-[16px] font-bold leading-5 tabular-nums text-brand">
                 ${price.toLocaleString()}
               </span>
             )}
-            {listing.ethnicity ? (
-              <span className="inline-flex h-[18px] max-w-16 min-w-0 items-center rounded-md bg-canvas px-1 text-[11px] font-medium text-muted lg:text-[12px]">
-                <span className="truncate">{listing.ethnicity}</span>
-              </span>
-            ) : (
-              <span className="max-w-16 min-w-0 truncate text-[11px] font-medium text-muted lg:text-[12px]">
+            {listing.category && (
+              <span className="min-w-0 truncate text-[13px] leading-5 text-muted" title={listing.category}>
                 {listing.category}
               </span>
             )}
+            {listing.ethnicity && (
+              <span className="min-w-0 truncate rounded-md bg-canvas px-1 text-[12px] leading-5 text-muted" title={listing.ethnicity}>
+                {listing.ethnicity}
+              </span>
+            )}
+          </div>
+          <div className="flex min-w-0 items-center gap-2 text-[12px] leading-4 text-muted">
             {listing.location && (
-              <span className="inline-flex min-w-3 flex-1 items-center gap-0.5 text-[11px] font-medium text-muted lg:text-[12px]" title={listing.location}>
-                <MapPin className="size-3 shrink-0" aria-hidden="true" />
+              <span className="inline-flex min-w-0 flex-1 items-center gap-1" title={listing.location}>
+                <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
                 <span className="min-w-0 truncate">{listing.location}</span>
               </span>
             )}
             <span
-              className="ml-auto inline-flex shrink-0 items-center gap-0.5 text-[11px] font-medium tabular-nums text-muted lg:text-[12px]"
+              className="ml-auto inline-flex shrink-0 items-center gap-1 tabular-nums"
               aria-label={views == null ? "View count unavailable" : `${compactCount(views)} views`}
             >
-              <Eye className="size-3 shrink-0" aria-hidden="true" />
+              <Eye className="size-3.5 shrink-0" aria-hidden="true" />
               {views == null ? "—" : compactCount(views)}
             </span>
           </div>
@@ -121,16 +112,6 @@ export default function ListingCard({ listing, chevron = false }) {
         )}
       </Link>
 
-      <button
-        type="button"
-        onClick={onToggleSave}
-        disabled={pending}
-        aria-pressed={saved}
-        aria-label={saved ? "Remove from saved" : "Save this ad"}
-        className="listing-card__save absolute left-[72px] top-3 z-10 grid size-9 place-items-center rounded-full bg-black/55 text-white backdrop-blur-sm transition-transform hover:scale-105 active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-60"
-      >
-        <Heart className={`size-4 ${saved ? "fill-current text-rose-300" : ""}`} strokeWidth={2.2} />
-      </button>
     </article>
   );
 }

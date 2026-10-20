@@ -22,9 +22,9 @@ export function getSellerProfile(sellerId, { site, limit } = {}) {
  *
  * Creators ranked by engagement on their live posts: views, plus likes
  * (saves) weighted five times. Each row carries `id, displayName, avatarUrl,
- * verified, postCount, viewCount, likeCount, coverUrl` — the cover being a
+ * verified, postCount, viewCount, likeCount, coverUrl, coverListingId` — the cover being a
  * short-lived signed URL for their best-performing post, or null. Public.
  */
-export function getTrendingSellers({ site, limit } = {}) {
-  return api.get("/api/v1/sellers/trending", { site, limit });
+export function getTrendingSellers({ site, limit, signal } = {}) {
+  return api.get("/api/v1/sellers/trending", { site, limit }, { signal });
 }

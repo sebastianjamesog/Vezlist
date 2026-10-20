@@ -1,14 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ChartNoAxesCombined,
-  Eye,
-  EyeOff,
   LayoutGrid,
   MapPin,
   Radio,
-  SlidersHorizontal,
   Sparkles,
   UsersRound,
 } from "lucide-react";
@@ -18,6 +15,8 @@ import Button from "@vezlist/shared/components/ui/Button.jsx";
 import EmptyState from "@vezlist/shared/components/ui/EmptyState.jsx";
 import LocationBar from "@vezlist/shared/components/LocationBar.jsx";
 import FilterSheet from "@vezlist/shared/components/FilterSheet.jsx";
+import { provinceById } from "@vezlist/shared/data/locations.js";
+import FilterChips from "@vezlist/shared/components/FilterChips.jsx";
 import FilterButton from "@vezlist/shared/components/FilterButton.jsx";
 import PersonalsPicker from "@vezlist/shared/components/PersonalsPicker.jsx";
 import { StoryRail } from "@vezlist/shared/components/StatusList.jsx";
@@ -26,32 +25,21 @@ import { useFeed } from "@vezlist/shared/context/FeedContext.jsx";
 // label on screen is Stories, the identifiers underneath it are not renamed.
 import { useStatus } from "@vezlist/shared/context/StatusContext.jsx";
 import { groupStatuses } from "@vezlist/shared/lib/status.js";
-import { DEFAULT_FILTERS, activeFilterCount } from "@vezlist/shared/lib/filters.js";
-import { searchListings } from "@vezlist/shared/lib/api/discovery.js";
-import { listLiveCreators } from "@vezlist/shared/lib/api/live.js";
+import { categoryByLabel } from "@vezlist/shared/lib/taxonomy.js";
+import { DEFAULT_FILTERS } from "@vezlist/shared/lib/filters.js";
+import useBrowseResults from "@vezlist/shared/hooks/useBrowseResults.js";
 import { SITE_SCOPE } from "@vezlist/shared/lib/api/client.js";
 import ListingCard from "@vezlist/shared/components/cards/ListingCard.jsx";
 import { Shortcuts } from "@vezlist/shared/components/FeedRails.jsx";
 import { useDiscreet } from "../useDiscreet";
+import ChoiceRow from "@vezlist/shared/components/ui/ChoiceRow.jsx";
+import useShortcutPreviews from "../useShortcutPreviews.js";
 
-/**
- * The home screen of personals.vezlist.cc — now reading its board from
- * GET /api/v1/listings?site=PERSONALS (cc.vezlist.discovery.web.
- * DiscoveryController) instead of the mock's `personalsListings`.
- *
- * Two of this board's own facets have nothing to send the server: "who is
- * posting" (ethnicity) and "what a post is for" beyond the one Personals
- * category, plus "available now", all lived only in the mock's rows.
- * `DiscoverySearchRequest` has no field for any of the three, so
- * `PersonalsPicker` and the sheet's "Available now" switch still work as
- * *local* filter state — they patch `filters`, which is real state — but
- * nothing here sends them on to the search request, because the server has
- * nothing to match them against. What does reach the server: free text,
- * province/area, verified-only, posted-within and sort.
- */
+/** Search the full Personals board, narrowed only by selected filters. */
 const POSTED_WITHIN_TO_API = { "24h": "HOURS_24", "7d": "DAYS_7", "30d": "DAYS_30" };
 const SORT_TO_API = {
   newest: "NEWEST",
+  "verified-first": "VERIFIED_FIRST",
   "price-asc": "PRICE_ASC",
   "price-desc": "PRICE_DESC",
   nearest: "NEAREST",
@@ -72,6 +60,8 @@ function buildDiscoveryParams(filters, query, locations, cursor) {
     site: SITE_SCOPE,
     q: query.trim() || undefined,
     sort: SORT_TO_API[filters.sort],
+    minPrice: filters.minPrice || undefined,
+    maxPrice: filters.maxPrice || undefined,
     verifiedOnly: filters.verifiedOnly || undefined,
     availableOnly: filters.availableOnly || undefined,
     postedWithin: POSTED_WITHIN_TO_API[filters.postedWithin],
@@ -79,6 +69,9 @@ function buildDiscoveryParams(filters, query, locations, cursor) {
     limit: PAGE_SIZE,
     cursor,
   };
+  if (filters.categories.length) {
+    params.category = filters.categories.map((label) => categoryByLabel(label)?.id).filter(Boolean);
+  }
   if (filters.cities.length) {
     const ids = filters.cities
       .map((label) => areaIdForLabel(locations, label))
@@ -127,14 +120,7 @@ function PickerButton({ Icon, label, count, onClick }) {
   );
 }
 
-/**
- * Five ways into the board. Unlike the mock-era rail, none of these carries
- * a live count or a face stack any more — both were measured off the full
- * mock `personalsListings` array at module scope, and there is nothing
- * equivalent to measure a real backend against without either a dedicated
- * counting endpoint (none exists) or several extra search requests just to
- * fill a rail. What is left is what each tile actually does.
- */
+/** Shortcut previews use the same backend feeds as their destinations. */
 const SHORTCUTS = [
   {
     id: "live",
@@ -143,6 +129,14 @@ const SHORTCUTS = [
     Icon: Radio,
     href: "/live",
     accent: "rose",
+  },
+  {
+    id: "trending",
+    label: "Trending",
+    sub: "Recent engagement",
+    Icon: ChartNoAxesCombined,
+    href: "/trending",
+    accent: "purple",
   },
   {
     id: "nearby",
@@ -161,14 +155,6 @@ const SHORTCUTS = [
     accent: "green",
   },
   {
-    id: "trending",
-    label: "Trending",
-    sub: "Recent engagement",
-    Icon: ChartNoAxesCombined,
-    href: "/trending",
-    accent: "purple",
-  },
-  {
     id: "new",
     label: "New Today",
     sub: "Last 24 hours",
@@ -180,7 +166,7 @@ const SHORTCUTS = [
 ];
 
 export default function Personals() {
-  const { filters, setFilters, query, setQuery, locations } = useFeed();
+  const { filters, setFilters, query, setQuery, locations, browseCache } = useFeed();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [pickerTab, setPickerTab] = useState(null);
   const [discreet, setDiscreet] = useDiscreet();
@@ -190,7 +176,6 @@ export default function Personals() {
   const shownStatuses = [...(mine?.updates.length ? [mine] : []), ...recent, ...viewed];
 
   const patch = (next) => setFilters((f) => ({ ...f, ...next }));
-  const filterCount = activeFilterCount(filters);
 
   function resetAll() {
     setFilters(DEFAULT_FILTERS);
@@ -198,66 +183,15 @@ export default function Personals() {
   }
 
   /* --------------------------------------------------------- the feed --- */
-  const [items, setItems] = useState([]);
-  const [nextCursor, setNextCursor] = useState(null);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState(null);
-  const [reloadToken, setReloadToken] = useState(0);
-  const [liveCount, setLiveCount] = useState(null);
-
-  useEffect(() => {
-    let mounted = true;
-    const refresh = () => listLiveCreators(1)
-      .then((directory) => { if (mounted) setLiveCount(directory.total); })
-      .catch(() => { if (mounted) setLiveCount(null); });
-    refresh();
-    const timer = setInterval(refresh, 15_000);
-    return () => { mounted = false; clearInterval(timer); };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    searchListings(buildDiscoveryParams(filters, query, locations))
-      .then((res) => {
-        if (cancelled) return;
-        setItems(res?.items ?? []);
-        setNextCursor(res?.nextCursor ?? null);
-        setHasMore(!!res?.hasMore);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, query, locations, reloadToken]);
-
-  function loadMore() {
-    if (!hasMore || loadingMore || !nextCursor) return;
-    setLoadingMore(true);
-    searchListings(buildDiscoveryParams(filters, query, locations, nextCursor))
-      .then((res) => {
-        setItems((prev) => [...prev, ...(res?.items ?? [])]);
-        setNextCursor(res?.nextCursor ?? null);
-        setHasMore(!!res?.hasMore);
-      })
-      .catch(() => setError((e) => e ?? new Error("Couldn't load more posts")))
-      .finally(() => setLoadingMore(false));
-  }
+  const { items, hasMore, loading, loadingMore, error, loadMore, retry, scroll } =
+    useBrowseResults(buildDiscoveryParams(filters, query, locations), browseCache);
+  const previews = useShortcutPreviews();
 
   const cards = useMemo(() => items.map(toCardListing), [items]);
 
   return (
     <>
-      <PageBody className="px-4 pb-8 lg:px-8">
+      <PageBody scrollMemory={scroll} className="px-4 pb-8 lg:px-8">
         <div className="pb-3 pt-3 lg:pt-4">
           <div className="flex gap-2.5">
             <SearchBar
@@ -267,34 +201,6 @@ export default function Personals() {
               onChange={setQuery}
             />
 
-            <button
-              onClick={() => setDiscreet((v) => !v)}
-              aria-pressed={discreet}
-              aria-label={discreet ? "Show photos" : "Blur photos"}
-              title={discreet ? "Show photos" : "Blur photos"}
-              className={`grid size-12 shrink-0 place-items-center rounded-card shadow-card transition-transform hover:-translate-y-0.5 active:scale-95 lg:size-[52px] ${
-                discreet ? "bg-brand text-on-brand" : "bg-surface text-ink"
-              }`}
-            >
-              {discreet ? (
-                <EyeOff className="size-[18px]" strokeWidth={2.2} />
-              ) : (
-                <Eye className="size-[18px]" strokeWidth={2.2} />
-              )}
-            </button>
-
-            <button
-              onClick={() => setSheetOpen(true)}
-              aria-label="Filters"
-              className="relative grid size-12 shrink-0 place-items-center rounded-card bg-surface text-ink shadow-card transition-transform hover:-translate-y-0.5 active:scale-95 lg:size-[52px]"
-            >
-              <SlidersHorizontal className="size-[18px]" strokeWidth={2.2} />
-              {filterCount > 0 && (
-                <span className="brand-gradient absolute -right-1 -top-1 grid size-5 place-items-center rounded-full text-[11px] font-bold text-on-brand ring-2 ring-canvas">
-                  {filterCount}
-                </span>
-              )}
-            </button>
           </div>
 
           <LocationBar
@@ -304,9 +210,7 @@ export default function Personals() {
           />
 
           <Shortcuts
-            items={SHORTCUTS.map((shortcut) => shortcut.id === "live"
-              ? { ...shortcut, sub: liveCount == null ? shortcut.sub : `${liveCount} live` }
-              : shortcut)}
+            items={SHORTCUTS.map((shortcut) => ({ ...shortcut, ...previews[shortcut.id] }))}
             filters={filters}
             onPatch={patch}
             className="mt-3"
@@ -333,8 +237,8 @@ export default function Personals() {
             <div className="no-scrollbar -mx-4 mt-1.5 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0">
               <PickerButton
                 Icon={LayoutGrid}
-                label="Category"
-                count={filters.personalsCategories.length}
+                label={filters.categories.length ? "Category" : "All categories"}
+                count={filters.categories.length}
                 onClick={() => setPickerTab("category")}
               />
               <PickerButton
@@ -351,6 +255,13 @@ export default function Personals() {
             </div>
           </div>
 
+          <p className="mb-3 text-[13px] text-muted">
+            {filters.categories.length || filters.personalsCategories.length ? "Selected categories" : "All categories"}
+            {" \u00b7 "}{provinceById(filters.province).label}
+          </p>
+          <FilterChips filters={filters} onPatch={patch} onClearAll={resetAll}
+            query={query} onClearQuery={() => setQuery("")} />
+
           {loading ? (
             <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2 lg:gap-4 xl:grid-cols-3">
               {[0, 1, 2, 3].map((i) => (
@@ -366,7 +277,7 @@ export default function Personals() {
               title="Couldn't load posts"
               body={error.message || "Something went wrong. Please try again."}
               action={
-                <Button onClick={() => setReloadToken((t) => t + 1)}>
+                <Button onClick={retry}>
                   Retry
                 </Button>
               }
@@ -416,6 +327,11 @@ export default function Personals() {
       />
 
       <FilterSheet
+        displayOptions={
+          <ChoiceRow type="checkbox" checked={discreet} onChange={() => setDiscreet((value) => !value)}>
+            Hide photos (discreet mode)
+          </ChoiceRow>
+        }
         open={sheetOpen}
         filters={filters}
         listings={cards}

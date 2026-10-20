@@ -6,6 +6,6 @@ export const FEATURED_FEEDS = {
   trending: "TRENDING",
 };
 
-export function featuredListings(feed, { all = false } = {}) {
-  return api.get("/api/v1/personals/featured", { feed, ...(all ? { all: true } : {}) });
+export function featuredListings(feed, { all = false, signal } = {}) {
+  return api.get("/api/v1/personals/featured", { feed, ...(all ? { all: true } : {}) }, { signal });
 }

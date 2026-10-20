@@ -156,6 +156,40 @@ class DiscoveryControllerIntegrationTest {
     }
 
     @Test
+    void verifiedFirstPaginatesBothGroupsWithoutDroppingUnverifiedAds() {
+        UUID owner = user(false);
+        Instant published = Instant.now().minusSeconds(60);
+        for (String site : List.of("MARKETPLACE", "PERSONALS")) {
+            String category = site.equals("PERSONALS") ? "personals" : "vehicles";
+            for (int index = 0; index < 6; index++) {
+                UUID id = listing(owner, site, "ACTIVE", "Verified sort " + index, "Seller",
+                        100, category, "bc", "bc-1",
+                        published.minusSeconds(index < 3 ? 100 : 0), null, null);
+                if (index < 3) jdbc.update("UPDATE listings SET verified = TRUE WHERE id = ?", id);
+            }
+            List<String> expected = jdbc.queryForList(
+                    "SELECT id::text FROM listings WHERE site_scope = ? ORDER BY verified DESC, published_at DESC, id DESC",
+                    String.class, site);
+            List<String> actual = new ArrayList<>();
+            String cursor = null;
+            for (int pageNumber = 0; pageNumber < 6; pageNumber++) {
+                ResponseEntity<Map> page = rest.getForEntity(url(
+                        "/api/v1/listings?site=" + site + "&sort=VERIFIED_FIRST&limit=2"
+                                + (cursor == null ? "" : "&cursor=" + cursor)), Map.class);
+                assertThat(page.getStatusCode()).isEqualTo(HttpStatus.OK);
+                items(page).forEach(item -> actual.add(item.get("id").toString()));
+                if (!Boolean.TRUE.equals(page.getBody().get("hasMore"))) break;
+                cursor = page.getBody().get("nextCursor").toString();
+            }
+            assertThat(actual).containsExactlyElementsOf(expected).doesNotHaveDuplicates();
+            ResponseEntity<Map> verifiedOnly = rest.getForEntity(url(
+                    "/api/v1/listings?site=" + site + "&sort=VERIFIED_FIRST&verifiedOnly=true"), Map.class);
+            assertThat(items(verifiedOnly)).hasSize(3).allSatisfy(item ->
+                    assertThat(item).containsEntry("verified", true));
+        }
+    }
+
+    @Test
     void priceSortAndValidationAreDeterministic() {
         UUID owner = user(false);
         Instant published = Instant.now().minusSeconds(60);
@@ -246,6 +280,72 @@ class DiscoveryControllerIntegrationTest {
                 url("/api/v1/personals/featured?feed=TRENDING&all=true"), Map.class);
         assertThat(items(afterRemoval)).hasSize(6).noneSatisfy(card ->
                 assertThat(card.get("id")).isEqualTo(removed));
+    }
+
+    @Test
+    void availabilityChangesTakeEffectWithinAnExistingFeaturedWindow() {
+        UUID owner = user(false);
+        jdbc.update("INSERT INTO user_preferences(user_id, available_now) VALUES (?, FALSE)", owner);
+        UUID id = listing(owner, "PERSONALS", "ACTIVE", "Availability switch", "Creator", 50,
+                "personals", "bc", "bc-1", Instant.now().minusSeconds(60), null, null);
+        readyImage(id);
+
+        // Reproduce the bug: the ad already occupies a New Today slot.
+        ResponseEntity<Map> initial = rest.getForEntity(
+                url("/api/v1/personals/featured?feed=NEW_TODAY"), Map.class);
+        assertThat(items(initial)).extracting(card -> card.get("id")).contains(id.toString());
+        String endpoint = url("/api/v1/personals/featured?feed=AVAILABLE_NOW");
+        assertThat(items(rest.getForEntity(endpoint, Map.class))).isEmpty();
+
+        jdbc.update("UPDATE user_preferences SET available_now = TRUE WHERE user_id = ?", owner);
+        ResponseEntity<Map> enabled = rest.getForEntity(endpoint, Map.class);
+        assertThat(enabled.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(enabled.getBody()).containsEntry("total", 1);
+        assertThat(items(enabled)).extracting(card -> card.get("id")).containsExactly(id.toString());
+        assertThat(items(enabled).getFirst()).containsEntry("imageUrl", "https://media.test/marketplace/cover.jpg");
+
+        // Newly published ads do not need a pre-existing featured slot either.
+        UUID newer = listing(owner, "PERSONALS", "ACTIVE", "Published while available", "Creator", 50,
+                "personals", "bc", "bc-1", Instant.now(), null, null);
+        assertThat(items(rest.getForEntity(endpoint, Map.class))).extracting(card -> card.get("id"))
+                .containsExactly(newer.toString(), id.toString());
+
+        jdbc.update("UPDATE user_preferences SET available_now = FALSE WHERE user_id = ?", owner);
+        ResponseEntity<Map> disabled = rest.getForEntity(endpoint, Map.class);
+        assertThat(disabled.getBody()).containsEntry("total", 0);
+        assertThat(items(disabled)).isEmpty();
+    }
+
+    @Test
+    void availablePreviewCountsAllEligibleAdsAndExcludesInactiveOwnersAndListings() {
+        UUID owner = user(false);
+        jdbc.update("INSERT INTO user_preferences(user_id, available_now) VALUES (?, TRUE)", owner);
+        Instant published = Instant.now().minusSeconds(3600);
+        for (int i = 0; i < 7; i++) {
+            listing(owner, "PERSONALS", "ACTIVE", "Available " + i, "Creator", 50,
+                    "personals", "bc", "bc-1", published, null, null);
+        }
+        listing(owner, "MARKETPLACE", "ACTIVE", "Wrong board", "Creator", 50,
+                "services", "bc", "bc-1", published, null, null);
+        listing(owner, "PERSONALS", "DRAFT", "Draft", "Creator", 50,
+                "personals", "bc", "bc-1", published, null, null);
+        UUID expired = listing(owner, "PERSONALS", "ACTIVE", "Expired", "Creator", 50,
+                "personals", "bc", "bc-1", published, null, null);
+        jdbc.update("UPDATE listings SET expires_at = now() - interval '1 minute' WHERE id = ?", expired);
+        UUID disabledOwner = user(false);
+        jdbc.update("INSERT INTO user_preferences(user_id, available_now) VALUES (?, TRUE)", disabledOwner);
+        listing(disabledOwner, "PERSONALS", "ACTIVE", "Disabled owner", "Creator", 50,
+                "personals", "bc", "bc-1", published, null, null);
+        jdbc.update("UPDATE app_users SET enabled = FALSE WHERE id = ?", disabledOwner);
+
+        ResponseEntity<Map> preview = rest.getForEntity(
+                url("/api/v1/personals/featured?feed=AVAILABLE_NOW"), Map.class);
+        ResponseEntity<Map> directory = rest.getForEntity(
+                url("/api/v1/personals/featured?feed=AVAILABLE_NOW&all=true"), Map.class);
+        assertThat(preview.getBody()).containsEntry("total", 7);
+        assertThat(items(preview)).hasSize(5);
+        assertThat(directory.getBody()).containsEntry("total", 7);
+        assertThat(items(directory)).hasSize(7);
     }
 
     private UUID user(boolean verified) {

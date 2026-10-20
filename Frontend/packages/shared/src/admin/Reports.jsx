@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import AdminHeader from "../components/admin/AdminHeader";
 import DataTable from "../components/admin/DataTable";
@@ -11,6 +11,8 @@ import Modal from "../components/ui/Modal";
 import Field, { FIELD, border } from "../components/create/Field";
 import { useAdminAuth } from "../context/AdminAuthContext";
 import { useToast } from "../context/ToastContext";
+import { useAdminSettings } from "../hooks/useAdminSettings.js";
+import { useAdminQueue } from "../lib/useAdminQueue";
 import { useSiteScope } from "../lib/adminScope";
 import { ApiError } from "../lib/api/client.js";
 import * as moderationApi from "../lib/api/adminModeration.js";
@@ -27,7 +29,6 @@ import * as moderationApi from "../lib/api/adminModeration.js";
  * Deciding a report closes its case and it simply leaves this list.
  */
 
-const SITES = ["MARKETPLACE", "PERSONALS"];
 const REASON_LABELS = {
   SPAM: "Spam",
   FRAUD: "Fraud",
@@ -59,9 +60,9 @@ export default function Reports() {
   const { can, admin } = useAdminAuth();
   const toast = useToast();
   const [site] = useSiteScope();
+  const queueTargets = useAdminSettings();
 
-  const [rows, setRows] = useState(null);
-  const [error, setError] = useState(null);
+  const { rows, error, load, hasMore, loadingMore, loadMore } = useAdminQueue(site, moderationApi.queueCases, "REPORT");
 
   const [acting, setActing] = useState(null); // queue row
   const [detail, setDetail] = useState(null);
@@ -69,26 +70,14 @@ export default function Reports() {
   const [note, setNote] = useState("");
   const [removeReason, setRemoveReason] = useState(REMOVE_REASONS[0].value);
   const [submitting, setSubmitting] = useState(false);
-
-  const sitesToQuery = site === "all" ? SITES : [site === "personals" ? "PERSONALS" : "MARKETPLACE"];
-
-  const load = useCallback(async () => {
-    setError(null);
-    setRows(null);
-    try {
-      const pages = await Promise.all(
-        sitesToQuery.map((s) => moderationApi.queueCases({ site: s, limit: 50, offset: 0 })),
-      );
-      setRows(pages.flat().filter((c) => c.kind === "REPORT"));
-    } catch (err) {
-      setError(err);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [site]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const [claimed, setClaimed] = useState(false);
+  const [decisionError, setDecisionError] = useState(null);
+  const detailVersion = useRef(0);
+  function closeDecision() {
+    if (submitting) return;
+    detailVersion.current += 1;
+    setActing(null);
+  }
 
   const sorted = useMemo(
     () => [...(rows ?? [])].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)),
@@ -96,13 +85,17 @@ export default function Reports() {
   );
 
   async function openDecide(row) {
+    const version = ++detailVersion.current;
     setActing(row);
+    setClaimed(false);
+    setDecisionError(null);
     setDetail(null);
     setDetailError(null);
     setNote("");
     setRemoveReason(REMOVE_REASONS[0].value);
     try {
       const d = await moderationApi.caseDetail(row.id);
+      if (version !== detailVersion.current) return;
       setDetail(d);
       // Claim it before offering a decision — the backend refuses a decision
       // from anyone who hasn't. A case someone else already claimed shows up
@@ -111,14 +104,17 @@ export default function Reports() {
         await moderationApi.assignCase(row.id, admin.id);
       } else if (d.review.assignee !== admin.id) {
         setDetailError("This case is already assigned to another reviewer.");
+        return;
       }
+      if (version === detailVersion.current) setClaimed(true);
     } catch (err) {
-      setDetailError(err instanceof ApiError ? err.message : "Couldn't load this report.");
+      if (version === detailVersion.current) setDetailError(err instanceof ApiError ? err.message : "Couldn't load this report.");
     }
   }
 
   async function decide(decision) {
-    if (!acting) return;
+    if (!acting || !claimed || submitting) return;
+    setDecisionError(null);
     setSubmitting(true);
     try {
       await moderationApi.decideCase(acting.id, {
@@ -126,11 +122,11 @@ export default function Reports() {
         reason: decision === "REMOVE" ? removeReason : undefined,
         note: note.trim() || undefined,
       });
-      setRows((prev) => (prev ?? []).filter((r) => r.id !== acting.id));
+      load();
       toast(decision === "REMOVE" ? "Ad removed, report resolved" : "Report dismissed");
       setActing(null);
     } catch (err) {
-      setDetailError(err instanceof ApiError ? err.message : "Couldn't record that decision.");
+      setDecisionError(err instanceof ApiError ? err.message : "Couldn't record that decision.");
     } finally {
       setSubmitting(false);
     }
@@ -166,7 +162,7 @@ export default function Reports() {
       key: "created_at",
       label: "Age",
       width: 120,
-      render: (row) => <span className="text-muted">{timeAgo(row.created_at)}</span>,
+      render: (row) => <span className="text-muted">{timeAgo(row.created_at)}{Date.now() - new Date(row.created_at).getTime() > queueTargets.reportSlaHours * 3_600_000 && <span className="block text-[12px] font-semibold text-danger">Overdue</span>}</span>,
     },
     {
       key: "actions",
@@ -225,19 +221,21 @@ export default function Reports() {
           empty={{
             icon: "ShieldCheck",
             title: "Nothing reported",
-            body: "No open reports on this site.",
+            body: hasMore ? "No matching requests in the loaded pages. Load more to continue checking." : "No open reports on this site.",
           }}
         />
       )}
+
+      {hasMore && <div className="mt-4 flex justify-center"><Button variant="outline" onClick={loadMore} disabled={loadingMore}>{loadingMore ? "Loading..." : "Load more"}</Button></div>}
 
       <Modal
         open={Boolean(acting)}
         title={acting?.title ?? "Report"}
         subtitle={acting ? `Reported ${timeAgo(acting.created_at)}` : undefined}
         size="max-w-md"
-        onClose={() => setActing(null)}
+        onClose={closeDecision}
         footer={
-          detail && !detailError ? (
+          detail && !detailError && claimed ? (
             <div className="flex gap-3">
               <Button
                 variant="outline"
@@ -266,6 +264,7 @@ export default function Reports() {
             {detailError}
           </p>
         )}
+        {decisionError && <p role="alert" className="mb-3 text-[13.5px] text-danger">{decisionError}</p>}
         {!detail && !detailError && <p className="text-[14px] text-muted">Loading…</p>}
         {detail && (
           <div className="flex flex-col gap-4">
@@ -306,6 +305,7 @@ export default function Reports() {
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 rows={3}
+                maxLength={2000}
                 placeholder="Ad taken down and the seller warned."
                 className={`${FIELD} ${border(false)} resize-none`}
               />

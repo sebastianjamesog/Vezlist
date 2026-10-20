@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BadgeCheck, ShieldCheck } from "lucide-react";
 import AdminHeader from "../components/admin/AdminHeader";
 import DataTable from "../components/admin/DataTable";
 import StatusBadge from "../components/admin/StatusBadge";
-import { TableHeaderSkeleton, TableRowSkeleton } from "../components/ui/Skeleton";
+import {
+  TableHeaderSkeleton,
+  TableRowSkeleton,
+} from "../components/ui/Skeleton";
 import SearchBar from "../components/ui/SearchBar";
 import Button from "../components/ui/Button";
 import Modal from "../components/ui/Modal";
@@ -37,7 +40,11 @@ const EXPORT_COLUMNS = [
     label: "Joined",
     value: (row) => new Date(row.createdAt).toLocaleDateString(),
   },
-  { key: "enabled", label: "Status", value: (row) => (row.enabled ? "Active" : "Suspended") },
+  {
+    key: "enabled",
+    label: "Status",
+    value: (row) => (row.enabled ? "Active" : "Suspended"),
+  },
 ];
 
 function messageFor(error) {
@@ -53,6 +60,7 @@ export default function Users() {
   const [query, setQuery] = useQueryParam("q", "");
   const [typed, setTyped] = useState(query);
 
+  const generation = useRef(0);
   const [page, setPage] = useState(null); // AdminUserPageResponse, or null while loading
   const [error, setError] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -72,32 +80,48 @@ export default function Users() {
   }, [typed]);
 
   function load() {
+    const version = ++generation.current;
+    setLoadingMore(false);
     setError(null);
     setPage(null);
     adminUsersApi
       .listAdminUsers({ query, limit: 25 })
-      .then(setPage)
-      .catch((err) => setError(messageFor(err)));
+      .then((result) => {
+        if (version === generation.current) setPage(result);
+      })
+      .catch((err) => {
+        if (version === generation.current) setError(messageFor(err));
+      });
   }
 
   useEffect(() => {
     load();
+    return () => {
+      generation.current++;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
   function loadMore() {
     if (!page?.hasMore || loadingMore) return;
+    const version = generation.current;
     setLoadingMore(true);
     adminUsersApi
       .listAdminUsers({ query, cursor: page.nextCursor, limit: 25 })
       .then((next) =>
-        setPage((prev) => ({
-          ...next,
-          items: [...prev.items, ...next.items],
-        })),
+        setPage((prev) =>
+          version === generation.current && prev
+            ? {
+                ...next,
+                items: [...prev.items, ...next.items],
+              }
+            : prev,
+        ),
       )
       .catch((err) => toast(messageFor(err)))
-      .finally(() => setLoadingMore(false));
+      .finally(() => {
+        if (version === generation.current) setLoadingMore(false);
+      });
   }
 
   function patchRow(updated) {
@@ -105,18 +129,23 @@ export default function Users() {
       prev
         ? {
             ...prev,
-            items: prev.items.map((u) => (u.id === updated.id ? { ...u, ...updated } : u)),
+            items: prev.items.map((u) =>
+              u.id === updated.id ? { ...u, ...updated } : u,
+            ),
           }
         : prev,
     );
   }
 
   async function confirmSuspend() {
-    if (!reason.trim()) return;
+    if (!reason.trim() || saving) return;
     setSaving(true);
     setActionError(null);
     try {
-      const updated = await adminUsersApi.suspendAdminUser(suspending.id, reason.trim());
+      const updated = await adminUsersApi.suspendAdminUser(
+        suspending.id,
+        reason.trim(),
+      );
       patchRow(updated);
       toast(`${suspending.displayName} suspended`);
       setSuspending(null);
@@ -129,6 +158,7 @@ export default function Users() {
   }
 
   async function confirmReinstate() {
+    if (saving) return;
     setSaving(true);
     try {
       const updated = await adminUsersApi.reinstateAdminUser(reinstating.id);
@@ -197,7 +227,9 @@ export default function Users() {
       key: "enabled",
       label: "Status",
       width: 110,
-      render: (row) => <StatusBadge status={row.enabled ? "active" : "suspended"} />,
+      render: (row) => (
+        <StatusBadge status={row.enabled ? "active" : "suspended"} />
+      ),
     },
     {
       key: "actions",
@@ -251,7 +283,9 @@ export default function Users() {
             size="sm"
             variant="outline"
             disabled={!rows.length}
-            onClick={() => downloadCsv("vezlist-users.csv", EXPORT_COLUMNS, rows)}
+            onClick={() =>
+              downloadCsv("vezlist-users.csv", EXPORT_COLUMNS, rows)
+            }
           >
             Export CSV
           </Button>
@@ -269,7 +303,9 @@ export default function Users() {
 
       {error ? (
         <div className="flex flex-col items-center gap-3 rounded-card bg-surface px-6 py-16 text-center shadow-card">
-          <p className="text-[15px] font-semibold text-ink">Couldn't load users</p>
+          <p className="text-[15px] font-semibold text-ink">
+            Couldn't load users
+          </p>
           <p className="max-w-xs text-[13px] text-muted">{error}</p>
           <Button onClick={load}>Try again</Button>
         </div>
@@ -300,7 +336,11 @@ export default function Users() {
           />
           {page.hasMore && (
             <div className="mt-4 flex justify-center">
-              <Button variant="outline" onClick={loadMore} disabled={loadingMore}>
+              <Button
+                variant="outline"
+                onClick={loadMore}
+                disabled={loadingMore}
+              >
                 {loadingMore ? "Loading..." : "Load more"}
               </Button>
             </div>

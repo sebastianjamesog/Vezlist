@@ -28,7 +28,7 @@ public class AdminModerationAuditRepository {
         this.jdbc = jdbc;
     }
 
-    public List<Entry> page(SiteScope site, Instant beforeCreatedAt, int fetchLimit) {
+    public List<Entry> page(SiteScope site, Instant beforeCreatedAt, java.util.UUID beforeId, int fetchLimit) {
         StringBuilder sql = new StringBuilder("""
                 SELECT m.id, m.actor_id, u.display_name AS actor_name, m.action,
                        'LISTING' AS target_type, m.listing_id::text AS target_id,
@@ -37,17 +37,22 @@ public class AdminModerationAuditRepository {
                 FROM moderation_actions m
                 JOIN listings l ON l.id = m.listing_id
                 JOIN app_users u ON u.id = m.actor_id
-                WHERE l.site_scope = ?
+                WHERE 1 = 1
                 """);
-        Object[] args;
-        if (beforeCreatedAt != null) {
-            sql.append(" AND m.created_at < ? ");
-            args = new Object[] {site.name(), beforeCreatedAt, fetchLimit};
-        } else {
-            args = new Object[] {site.name(), fetchLimit};
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        if (site != null) {
+            sql.append(" AND l.site_scope = ? ");
+            args.add(site.name());
         }
+        if (beforeCreatedAt != null) {
+            sql.append(" AND (m.created_at < ? OR (m.created_at = ? AND m.id < ?)) ");
+            args.add(java.sql.Timestamp.from(beforeCreatedAt));
+            args.add(java.sql.Timestamp.from(beforeCreatedAt));
+            args.add(beforeId);
+        }
+        args.add(fetchLimit);
         sql.append(" ORDER BY m.created_at DESC, m.id DESC LIMIT ?");
-        return jdbc.query(sql.toString(), new EntryMapper(), args);
+        return jdbc.query(sql.toString(), new EntryMapper(), args.toArray());
     }
 
     private static final class EntryMapper implements RowMapper<Entry> {

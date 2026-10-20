@@ -98,7 +98,7 @@ class SellerControllerIntegrationTest {
         List<Map<String, Object>> rows = trending.getBody();
         assertThat(rows).extracting(row -> row.get("id")).containsExactly(popular.toString(), quiet.toString());
         assertThat(rows.getFirst()).containsEntry("postCount", 1).containsEntry("viewCount", 1)
-                .containsEntry("likeCount", 2).doesNotContainKeys("email", "phone");
+                .containsEntry("likeCount", 2).containsEntry("coverListingId", hit.toString()).doesNotContainKeys("email", "phone");
 
         ResponseEntity<Map> profile = rest.getForEntity(url("/api/v1/sellers/" + popular + "?site=PERSONALS"), Map.class);
         assertThat(profile.getBody()).containsEntry("viewCount", 1).containsEntry("likeCount", 2);

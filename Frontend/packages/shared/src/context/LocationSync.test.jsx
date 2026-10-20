@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 test("restores a saved province without crashing during hydration", async () => {
-  document.cookie = `vezlist_location=${encodeURIComponent(JSON.stringify({ province: "on", cities: [] }))}; path=/`;
+  document.cookie = `vezlist_location=${encodeURIComponent(JSON.stringify({ province: "on", cities: [], source: "manual" }))}; path=/`;
 
   render(<LocationSync />);
 
@@ -24,4 +24,11 @@ test("restores a saved province without crashing during hydration", async () => 
     province: "on",
     cities: [],
   });
+});
+
+test("ignores an old automatically chosen province", async () => {
+  document.cookie = `vezlist_location=${encodeURIComponent(JSON.stringify({ province: "on", cities: [] }))}; path=/`;
+  render(<LocationSync />);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(state.setFilters).not.toHaveBeenCalled();
 });

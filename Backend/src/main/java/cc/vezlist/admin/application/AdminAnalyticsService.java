@@ -16,10 +16,13 @@ public class AdminAnalyticsService {
         this.analytics = analytics;
     }
 
+    public java.util.Map<String, Long> queueCounts(SiteScope site) { return analytics.queueCounts(site); }
+
     public AdminAnalyticsSummaryResponse summary(SiteScope site) {
         return new AdminAnalyticsSummaryResponse(
                 site.name(),
                 analytics.totalUsers(),
+                analytics.usersWithListings(site),
                 analytics.suspendedUsers(),
                 analytics.totalListings(site),
                 analytics.listingsByStatus(site),

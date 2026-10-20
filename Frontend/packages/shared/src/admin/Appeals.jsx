@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import AdminHeader from "../components/admin/AdminHeader";
 import DataTable from "../components/admin/DataTable";
@@ -12,6 +12,8 @@ import MediaImage from "../components/media/MediaImage.jsx";
 import Field, { FIELD, border } from "../components/create/Field";
 import { useAdminAuth } from "../context/AdminAuthContext";
 import { useToast } from "../context/ToastContext";
+import { useAdminSettings } from "../hooks/useAdminSettings.js";
+import { useAdminQueue } from "../lib/useAdminQueue";
 import { useSiteScope } from "../lib/adminScope";
 import { ApiError } from "../lib/api/client.js";
 import * as moderationApi from "../lib/api/adminModeration.js";
@@ -22,8 +24,8 @@ import * as moderationApi from "../lib/api/adminModeration.js";
  * `"REPORT"`.
  *
  * Reinstating an appealed ad (`APPROVE`) goes through the same eligibility
- * the original submission did: every ready image must be reviewed (pass or
- * block) by *this* reviewer before the backend will accept the approval, so
+ * the original submission did: every ready image must be marked PASS
+ * by *this* reviewer before the backend will accept the approval, so
  * the media strip below the appeal message is reviewable, not just a
  * gallery. Rejecting the appeal (`REJECT`, upholding the original decision)
  * has no such requirement.
@@ -32,7 +34,6 @@ import * as moderationApi from "../lib/api/adminModeration.js";
  * history of already-decided appeals to show, so there is no status tab.
  */
 
-const SITES = ["MARKETPLACE", "PERSONALS"];
 
 const REJECT_REASONS = [
   { value: "PROHIBITED_CONTENT", label: "Prohibited content" },
@@ -53,13 +54,16 @@ const timeAgo = (iso) => {
   return "Just now";
 };
 
-export default function Appeals() {
+export default function Appeals({ kind = "APPEAL" } = {}) {
+  const submission = kind === "SUBMISSION";
+  const title = submission ? "Review queue" : "Appeals";
+  const singular = submission ? "submission" : "appeal";
   const { can, admin } = useAdminAuth();
   const toast = useToast();
   const [site] = useSiteScope();
+  const queueTargets = useAdminSettings();
 
-  const [rows, setRows] = useState(null);
-  const [error, setError] = useState(null);
+  const { rows, error, load, hasMore, loadingMore, loadMore } = useAdminQueue(site, moderationApi.queueCases, kind);
 
   const [acting, setActing] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -68,26 +72,17 @@ export default function Appeals() {
   const [note, setNote] = useState("");
   const [rejectReason, setRejectReason] = useState(REJECT_REASONS[0].value);
   const [submitting, setSubmitting] = useState(false);
+  const [eligibilityChecked, setEligibilityChecked] = useState(false);
+  const [claimed, setClaimed] = useState(false);
+  const [reviewingMedia, setReviewingMedia] = useState(false);
+  const [decisionError, setDecisionError] = useState(null);
+  const detailVersion = useRef(0);
 
-  const sitesToQuery = site === "all" ? SITES : [site === "personals" ? "PERSONALS" : "MARKETPLACE"];
-
-  const load = useCallback(async () => {
-    setError(null);
-    setRows(null);
-    try {
-      const pages = await Promise.all(
-        sitesToQuery.map((s) => moderationApi.queueCases({ site: s, limit: 50, offset: 0 })),
-      );
-      setRows(pages.flat().filter((c) => c.kind === "APPEAL"));
-    } catch (err) {
-      setError(err);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [site]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  function closeDecision() {
+    if (submitting || reviewingMedia) return;
+    detailVersion.current += 1;
+    setActing(null);
+  }
 
   const sorted = useMemo(
     () => [...(rows ?? [])].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)),
@@ -95,7 +90,11 @@ export default function Appeals() {
   );
 
   async function openDecide(row) {
+    const version = ++detailVersion.current;
     setActing(row);
+    setClaimed(false);
+    setEligibilityChecked(false);
+    setDecisionError(null);
     setDetail(null);
     setDetailError(null);
     setReviews({});
@@ -103,44 +102,68 @@ export default function Appeals() {
     setRejectReason(REJECT_REASONS[0].value);
     try {
       const d = await moderationApi.caseDetail(row.id);
+      if (version !== detailVersion.current) return;
       setDetail(d);
+      setReviews(Object.fromEntries((d.mediaReviews ?? [])
+        .filter((r) => r.reviewer_id === admin.id && d.media.some((m) => m.id === r.media_id && m.checksum_sha256 === r.checksum_sha256))
+        .map((r) => [r.media_id, r.verdict])));
+      if (d.actions?.some((a) => a.action === "APPROVE" && a.actor_id === admin.id)) {
+        setDetailError("Your approval is recorded. A different reviewer must complete this appeal.");
+        return;
+      }
       if (!d.review.assignee) {
         await moderationApi.assignCase(row.id, admin.id);
       } else if (d.review.assignee !== admin.id) {
         setDetailError("This case is already assigned to another reviewer.");
+        return;
       }
+      if (version === detailVersion.current) setClaimed(true);
     } catch (err) {
-      setDetailError(err instanceof ApiError ? err.message : "Couldn't load this appeal.");
+      if (version === detailVersion.current) setDetailError(err instanceof ApiError ? err.message : "Couldn't load this appeal.");
     }
   }
 
   const appealMessage = detail?.actions?.find((a) => a.action === "APPEAL")?.private_note;
   const readyMedia = (detail?.media ?? []).filter((m) => m.status === "READY");
-  const allReviewed = readyMedia.length > 0 && readyMedia.every((m) => reviews[m.id]);
+  const allReviewed = readyMedia.length > 0 && readyMedia.length === detail?.media?.length
+    && readyMedia.every((m) => reviews[m.id] === "PASS");
+  const eligibilityRequired = Boolean(detail?.policy?.eligibilityRequired);
+  const otherReviewerBlock = (detail?.mediaReviews ?? []).some((r) => r.reviewer_id !== admin.id && r.verdict === "BLOCK"
+    && readyMedia.some((m) => m.id === r.media_id && m.checksum_sha256 === r.checksum_sha256));
 
   async function reviewMedia(mediaId, verdict) {
+    if (!claimed || reviewingMedia || submitting) return;
+    setReviewingMedia(true);
     try {
       await moderationApi.reviewCaseMedia(acting.id, { mediaId, verdict });
       setReviews((r) => ({ ...r, [mediaId]: verdict }));
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "Couldn't record that review");
+    } finally {
+      setReviewingMedia(false);
     }
   }
 
   async function decide(decision) {
-    if (!acting) return;
+    if (!acting || !claimed || submitting || reviewingMedia) return;
+    setDecisionError(null);
     setSubmitting(true);
     try {
-      await moderationApi.decideCase(acting.id, {
+      const result = await moderationApi.decideCase(acting.id, {
         decision,
         reason: decision === "REJECT" ? rejectReason : undefined,
         note: note.trim() || undefined,
+        eligibilityChecked: decision === "APPROVE" && eligibilityChecked,
       });
-      setRows((prev) => (prev ?? []).filter((r) => r.id !== acting.id));
-      toast(decision === "APPROVE" ? "Appeal overturned — ad reinstated" : "Appeal rejected — decision stands");
+      load();
+      if (result.caseStatus === "CLOSED") {
+        toast(submission ? (decision === "APPROVE" ? "Submission approved - ad published" : "Submission rejected") : (decision === "APPROVE" ? "Appeal overturned - ad reinstated" : "Appeal rejected - decision stands"));
+      } else {
+        toast("Approval recorded. A different reviewer must give the remaining approval.");
+      }
       setActing(null);
     } catch (err) {
-      setDetailError(err instanceof ApiError ? err.message : "Couldn't record that decision.");
+      setDecisionError(err instanceof ApiError ? err.message : "Couldn't record that decision.");
     } finally {
       setSubmitting(false);
     }
@@ -149,7 +172,7 @@ export default function Appeals() {
   const columns = [
     {
       key: "title",
-      label: "Appealed ad",
+      label: submission ? "Submitted ad" : "Appealed ad",
       render: (row) => (
         <Link
           href={`/listings/${row.listing_id}`}
@@ -176,7 +199,7 @@ export default function Appeals() {
       key: "created_at",
       label: "Raised",
       width: 120,
-      render: (row) => <span className="text-muted">{timeAgo(row.created_at)}</span>,
+      render: (row) => <span className="text-muted">{timeAgo(row.created_at)}{Date.now() - new Date(row.created_at).getTime() > queueTargets.reviewSlaHours * 3_600_000 && <span className="block text-[12px] font-semibold text-danger">Overdue</span>}</span>,
     },
     {
       key: "actions",
@@ -184,7 +207,7 @@ export default function Appeals() {
       width: 110,
       sortable: false,
       render: (row) =>
-        can("appeal.decide") ? (
+        can(submission ? "listing.moderate" : "appeal.decide") ? (
           <Button
             size="sm"
             variant="outline"
@@ -202,10 +225,10 @@ export default function Appeals() {
   if (error) {
     return (
       <>
-        <AdminHeader title="Appeals" />
+        <AdminHeader title={title} />
         <EmptyState
           icon="ShieldAlert"
-          title="Couldn't load appeals"
+          title={`Couldn't load ${submission ? "review queue" : "appeals"}`}
           body={error instanceof ApiError ? error.message : "Something went wrong."}
           action={<Button onClick={load}>Try again</Button>}
         />
@@ -216,8 +239,8 @@ export default function Appeals() {
   return (
     <>
       <AdminHeader
-        title="Appeals"
-        subtitle={rows ? `${sorted.length} open appeal${sorted.length === 1 ? "" : "s"}` : "Loading…"}
+        title={title}
+        subtitle={rows ? `${sorted.length} open ${singular}${sorted.length === 1 ? "" : "s"}${hasMore ? " loaded" : ""}` : "Loading…"}
       />
 
       {rows === null ? (
@@ -232,37 +255,39 @@ export default function Appeals() {
           rows={sorted}
           empty={{
             icon: "ClipboardCheck",
-            title: "No appeals",
-            body: "Nothing to reconsider right now.",
+            title: submission ? "No submissions" : "No appeals",
+            body: hasMore ? "No matching requests in the loaded pages. Load more to continue checking." : "Nothing to reconsider right now.",
           }}
         />
       )}
 
+      {hasMore && <div className="mt-4 flex justify-center"><Button variant="outline" onClick={loadMore} disabled={loadingMore}>{loadingMore ? "Loading..." : "Load more"}</Button></div>}
+
       <Modal
         open={Boolean(acting)}
-        title={acting?.title ?? "Appeal"}
+        title={acting?.title ?? (submission ? "Submission" : "Appeal")}
         subtitle={acting ? `Raised ${timeAgo(acting.created_at)}` : undefined}
         size="max-w-lg"
-        onClose={() => setActing(null)}
+        onClose={closeDecision}
         footer={
-          detail && !detailError ? (
+          detail && !detailError && claimed ? (
             <div className="flex gap-3">
               <Button
                 variant="outline"
                 size="lg"
                 className="flex-1"
-                disabled={submitting}
+                disabled={submitting || reviewingMedia}
                 onClick={() => decide("REJECT")}
               >
-                Uphold
+                {submission ? "Reject" : "Uphold"}
               </Button>
               <Button
                 size="lg"
                 className="flex-1"
-                disabled={submitting || !allReviewed}
+                disabled={submitting || reviewingMedia || !allReviewed || otherReviewerBlock || (eligibilityRequired && !eligibilityChecked)}
                 onClick={() => decide("APPROVE")}
               >
-                Overturn
+                {submission ? "Approve" : "Overturn"}
               </Button>
             </div>
           ) : undefined
@@ -273,11 +298,12 @@ export default function Appeals() {
             {detailError}
           </p>
         )}
+        {decisionError && <p role="alert" className="mb-3 text-[13.5px] text-danger">{decisionError}</p>}
         {!detail && !detailError && <p className="text-[14px] text-muted">Loading…</p>}
         {detail && (
           <div className="flex flex-col gap-4">
             <div className="rounded-xl bg-canvas px-3.5 py-2.5 text-[13.5px] text-ink">
-              {appealMessage || "No written statement on file."}
+              {submission ? detail.listing?.description || "No description on file." : appealMessage || "No written statement on file."}
             </div>
 
             {readyMedia.length > 0 && (
@@ -294,6 +320,7 @@ export default function Appeals() {
                       <div className="flex gap-1">
                         <button
                           type="button"
+                          disabled={!claimed || reviewingMedia || submitting}
                           onClick={() => reviewMedia(m.id, "PASS")}
                           className={`flex-1 rounded-lg py-1 text-[11px] font-bold ${
                             reviews[m.id] === "PASS"
@@ -305,6 +332,7 @@ export default function Appeals() {
                         </button>
                         <button
                           type="button"
+                          disabled={!claimed || reviewingMedia || submitting}
                           onClick={() => reviewMedia(m.id, "BLOCK")}
                           className={`flex-1 rounded-lg py-1 text-[11px] font-bold ${
                             reviews[m.id] === "BLOCK"
@@ -320,13 +348,21 @@ export default function Appeals() {
                 </div>
                 {!allReviewed && (
                   <p className="mt-1.5 text-[12.5px] text-muted">
-                    Review every photo before overturning is available.
+                    Every photo must be ready and marked Pass before approval is available.
                   </p>
                 )}
               </div>
             )}
 
-            <Field label="Reason to uphold" hint="Used only if you uphold the original decision">
+            {otherReviewerBlock && <p className="text-[13px] text-danger">Another reviewer has blocked a photo. Approval is unavailable until that review is resolved.</p>}
+            {eligibilityRequired && (
+              <label className="flex items-start gap-2 text-[14px] text-ink">
+                <input type="checkbox" checked={eligibilityChecked} onChange={(e) => setEligibilityChecked(e.target.checked)} disabled={!claimed || submitting} className="mt-1" />
+                I have checked the advertiser's eligibility and consent.
+              </label>
+            )}
+            {(detail.policy?.approvalsRequired ?? 1) > 1 && <p className="text-[13px] text-muted">This {singular} requires {detail.policy.approvalsRequired} different reviewers to approve it before the ad is reinstated.</p>}
+            <Field label={submission ? "Rejection reason" : "Reason to uphold"} hint={submission ? "Used only if you reject this submission" : "Used only if you uphold the original decision"}>
               <select
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
@@ -345,6 +381,7 @@ export default function Appeals() {
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 rows={3}
+                maxLength={2000}
                 placeholder="Photo re-checked, it is clean now."
                 className={`${FIELD} ${border(false)} resize-none`}
               />

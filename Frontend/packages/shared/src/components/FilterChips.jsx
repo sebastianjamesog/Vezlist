@@ -4,9 +4,15 @@ import { X } from "lucide-react";
 import { activeFilterChips, reconcileSubcategory } from "../lib/filters";
 import { categoryPath } from "../lib/taxonomy";
 
-export default function FilterChips({ filters, onPatch, onClearAll }) {
+export default function FilterChips({
+  filters,
+  onPatch,
+  onClearAll,
+  query = "",
+  onClearQuery,
+}) {
   const chips = activeFilterChips(filters);
-  if (!chips.length) return null;
+  if (!chips.length && !query.trim()) return null;
 
   // The one category a sub-category chip can belong to, if there is one. It is
   // never ambiguous: a sub-category only survives reconciliation under exactly
@@ -15,6 +21,17 @@ export default function FilterChips({ filters, onPatch, onClearAll }) {
 
   return (
     <div className="no-scrollbar -mx-4 mb-3 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:flex-wrap lg:px-0">
+      {query.trim() && (
+        <button
+          type="button"
+          onClick={onClearQuery}
+          aria-label="Remove search"
+          className="flex max-w-60 shrink-0 items-center gap-1.5 rounded-full bg-brand-soft px-3 py-1.5 text-[13px] font-bold text-brand"
+        >
+          <span className="truncate">Search: {query.trim()}</span>
+          <X className="size-3.5 shrink-0" />
+        </button>
+      )}
       {chips.map((chip) => {
         const isSub = chip.key.startsWith("sub:");
         return (
@@ -42,7 +59,7 @@ export default function FilterChips({ filters, onPatch, onClearAll }) {
              * would repeat the word already sitting to its left and cost most
              * of the row's width on a phone.
              */
-            aria-label={isSub ? categoryPath(parent, chip.label) : undefined}
+            aria-label={`Remove ${isSub ? categoryPath(parent, chip.label) : chip.label}`}
             className="flex shrink-0 items-center gap-1.5 rounded-full bg-brand-soft py-1.5 pl-3.5 pr-2.5 text-[13px] font-bold text-brand transition-colors hover:bg-brand hover:text-on-brand"
           >
             {isSub ? `› ${chip.label}` : chip.label}

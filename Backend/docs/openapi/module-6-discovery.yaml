@@ -112,7 +112,7 @@ components:
     Sort:
       name: sort
       in: query
-      schema: { type: string, enum: [NEWEST, PRICE_ASC, PRICE_DESC, NEAREST], default: NEWEST }
+      schema: { type: string, enum: [NEWEST, VERIFIED_FIRST, PRICE_ASC, PRICE_DESC, NEAREST], default: NEWEST }
     Latitude:
       name: latitude
       in: query

@@ -103,7 +103,6 @@ test("switches Verified, New Today and Trending without refreshing or retaining 
         category: ["vehicles"],
         province: "on",
         verifiedOnly: true,
-        postedWithin: undefined,
       }),
     ),
   );
@@ -127,4 +126,20 @@ test("shows the genuine empty state when there are no verified ads", async () =>
   await screen.findByText("No ads match your filters");
   await user.click(screen.getByRole("button", { name: /New Today/ }));
   await screen.findByText("Recent car");
+});
+
+test("starts broad and lets visitors remove a filter or clear the whole search", async () => {
+  const user = userEvent.setup();
+  render(<FeedProvider><BrowseScreen /></FeedProvider>);
+  await screen.findByText("Recent car");
+  expect(searchListings.mock.calls.at(-1)[0]).toMatchObject({ sort: "NEWEST" });
+  expect(searchListings.mock.calls.at(-1)[0].province).toBeUndefined();
+  expect(searchListings.mock.calls.at(-1)[0].category).toBeUndefined();
+  await user.click(screen.getByRole("button", { name: /Verified\s*Checked ads/ }));
+  await screen.findByText("Verified older car");
+  await user.click(screen.getByRole("button", { name: "Remove Verified only" }));
+  await screen.findByText("Recent car");
+  await user.type(screen.getByRole("combobox"), "car");
+  await user.click(screen.getByRole("button", { name: "Clear all", exact: true }));
+  await waitFor(() => expect(searchListings.mock.calls.at(-1)[0].q).toBeUndefined());
 });

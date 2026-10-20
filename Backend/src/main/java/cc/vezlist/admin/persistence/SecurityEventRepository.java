@@ -47,7 +47,7 @@ public class SecurityEventRepository {
         Object[] args;
         if (beforeCreatedAt != null) {
             sql.append(" AND (e.created_at < ? OR (e.created_at = ? AND e.id < ?)) ");
-            args = new Object[] {beforeCreatedAt, beforeCreatedAt, beforeId, limit};
+            args = new Object[] {java.sql.Timestamp.from(beforeCreatedAt), java.sql.Timestamp.from(beforeCreatedAt), beforeId, limit};
         } else {
             args = new Object[] {limit};
         }

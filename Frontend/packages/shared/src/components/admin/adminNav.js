@@ -34,8 +34,9 @@ export const adminNav = [
         to: "/listings",
         label: "Listings",
         icon: "Megaphone",
-        badge: "pending",
+
       },
+      { to: "/reviews", label: "Review queue", icon: "ClipboardCheck", badge: "pending", permission: "listing.moderate" },
       {
         to: "/reports",
         label: "Reports",

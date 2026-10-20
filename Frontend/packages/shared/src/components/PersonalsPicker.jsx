@@ -3,16 +3,15 @@
 import { useState } from "react";
 import Modal from "./ui/Modal";
 import SegmentedControl from "./ui/SegmentedControl";
-import { applyFilters } from "../lib/filters";
-import { ethnicities, personalsCategories } from "../data/mock";
+import { ethnicities } from "../data/mock";
+import { getCategories } from "../lib/taxonomy";
 
 const TABS = [
-  { value: "category", label: "Category", key: "personalsCategories" },
+  { value: "category", label: "Category", key: "categories" },
   { value: "ethnicity", label: "Ethnicity", key: "ethnicities" },
 ];
 
 const OPTIONS = {
-  personalsCategories,
   ethnicities,
 };
 
@@ -59,9 +58,12 @@ export default function PersonalsPicker({
     setPrev({ open, filters, initialTab });
   }
 
+  const options = {
+    ...OPTIONS,
+    categories: getCategories().map((category) => category.label),
+  };
   const active = TABS.find((t) => t.value === tab) ?? TABS[0];
   const picked = draft[active.key];
-  const resultCount = applyFilters(listings, draft, query).length;
   const chosen = TABS.reduce((n, t) => n + draft[t.key].length, 0);
 
   const toggle = (value) =>
@@ -87,6 +89,7 @@ export default function PersonalsPicker({
             onClick={() =>
               setDraft((d) => ({
                 ...d,
+                categories: [],
                 personalsCategories: [],
                 ethnicities: [],
               }))
@@ -100,7 +103,7 @@ export default function PersonalsPicker({
             onClick={() => onApply(draft)}
             className="brand-gradient flex-[1.4] rounded-2xl py-3 text-[15px] font-bold text-on-brand shadow-pop transition-transform active:scale-[0.98]"
           >
-            Show {resultCount} {resultCount === 1 ? "post" : "posts"}
+            Apply filters
           </button>
         </div>
       }
@@ -118,7 +121,7 @@ export default function PersonalsPicker({
       />
 
       <div className="mt-5 flex flex-wrap gap-2">
-        {OPTIONS[active.key].map((option) => {
+        {options[active.key].map((option) => {
           const on = picked.includes(option);
           return (
             <button

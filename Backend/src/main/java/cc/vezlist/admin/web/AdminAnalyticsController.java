@@ -19,6 +19,9 @@ public class AdminAnalyticsController {
         this.analytics = analytics;
     }
 
+    @GetMapping("/queues")
+    public java.util.Map<String, Long> queues(@RequestParam(required=false) SiteScope site) { return analytics.queueCounts(site); }
+
     @GetMapping("/summary")
     public AdminAnalyticsSummaryResponse summary(@RequestParam SiteScope site) {
         return analytics.summary(site);

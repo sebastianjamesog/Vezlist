@@ -5,6 +5,8 @@ const WINDOWS = { "24h": 86_400_000, "7d": 604_800_000, "30d": 2_592_000_000 };
 
 export const DEFAULT_FILTERS = {
   sort: "newest",
+  minPrice: "",
+  maxPrice: "",
   categories: [],
   /**
    * One optional sub-category, or null.
@@ -57,6 +59,7 @@ export function reconcileSubcategory(f) {
 /** How many filter groups the user has actually narrowed (sort is not a filter). */
 export function activeFilterCount(f) {
   return (
+    (f.minPrice || f.maxPrice ? 1 : 0) +
     (f.categories.length ? 1 : 0) +
     // Counted on its own: it is a second decision, and a reader who sees "1
     // filter" after picking a category and then a sub-category would think the
@@ -75,6 +78,11 @@ export function activeFilterCount(f) {
 /** Chips shown above the feed; `clear` returns the filter patch that removes it. */
 export function activeFilterChips(f) {
   const chips = [];
+  if (f.minPrice || f.maxPrice) chips.push({
+    key: "price", label: f.minPrice && f.maxPrice ? `$${f.minPrice} - $${f.maxPrice}`
+      : f.minPrice ? `From $${f.minPrice}` : `Up to $${f.maxPrice}`,
+    clear: { minPrice: "", maxPrice: "" },
+  });
   for (const c of f.categories) {
     chips.push({
       key: `cat:${c}`,
@@ -180,6 +188,8 @@ export function applyFilters(listings, filters, query = "") {
       !`${l.title} ${l.business} ${l.category}`.toLowerCase().includes(q)
     )
       return false;
+    if (f.minPrice && l.price < Number(f.minPrice)) return false;
+    if (f.maxPrice && l.price > Number(f.maxPrice)) return false;
     if (f.categories.length && !f.categories.includes(l.category)) return false;
     // Only ever narrows *within* a category. An ad filed straight under
     // Vehicles has no sub-category, so naming one has to exclude it — that is
@@ -223,6 +233,7 @@ export function applyFilters(listings, filters, query = "") {
 
   const sorters = {
     newest: (a, b) => a.postedMsAgo - b.postedMsAgo,
+    "verified-first": (a, b) => Number(Boolean(b.verified)) - Number(Boolean(a.verified)) || a.postedMsAgo - b.postedMsAgo,
     "price-asc": (a, b) => a.price - b.price,
     "price-desc": (a, b) => b.price - a.price,
     nearest: (a, b) => a.distanceKm - b.distanceKm,
@@ -232,7 +243,7 @@ export function applyFilters(listings, filters, query = "") {
 
 /* --------------------------------------------------------- URL round-trip */
 
-const SORTS = new Set(["newest", "price-asc", "price-desc", "nearest"]);
+const SORTS = new Set(["newest", "verified-first", "price-asc", "price-desc", "nearest"]);
 const POSTED_WITHINS = new Set(Object.keys(WINDOWS));
 
 /**
@@ -254,6 +265,8 @@ export function filtersToParams(filters, query = "") {
   const params = {};
   const q = (query ?? "").trim();
   if (q) params.q = q;
+  if (f.minPrice) params.minPrice = f.minPrice;
+  if (f.maxPrice) params.maxPrice = f.maxPrice;
   if (f.sort !== DEFAULT_FILTERS.sort) params.sort = f.sort;
   if (f.categories.length) params.categories = f.categories.join(",");
   if (f.subcategory) params.subcategory = f.subcategory;
@@ -312,6 +325,8 @@ export function paramsToFilters(paramsLike) {
   const filters = reconcileSubcategory({
     ...DEFAULT_FILTERS,
     sort: sort && SORTS.has(sort) ? sort : DEFAULT_FILTERS.sort,
+    minPrice: /^\d+(\.\d{1,2})?$/.test(params.get("minPrice") ?? "") ? params.get("minPrice") : "",
+    maxPrice: /^\d+(\.\d{1,2})?$/.test(params.get("maxPrice") ?? "") ? params.get("maxPrice") : "",
     categories: csv(params.get("categories")),
     subcategory: params.get("subcategory") || null,
     personalsCategories: csv(params.get("personalsCategories")),

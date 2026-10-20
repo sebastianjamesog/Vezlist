@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronDown, LogOut, Menu, X } from "lucide-react";
 import Icon from "../ui/Icon";
 import { NavLink, useNavigate } from "../../lib/nav";
+import { useToast } from "../../context/ToastContext";
 import { useAdminAuth } from "../../context/AdminAuthContext";
-import { useAdminData } from "../../context/AdminDataContext";
-import { counts } from "../../lib/adminStore";
+import { api } from "../../lib/api/client.js";
 import { ALL_SITES, useSiteScope } from "../../lib/adminScope";
 import { MARKETPLACE_URL, PERSONALS_URL, SITES } from "../../lib/sites";
 import { adminNav, pathIsScoped } from "./adminNav";
@@ -80,13 +80,29 @@ export default function AdminLayout({ children }) {
 /* -------------------------------------------------------------------- rail */
 
 function Rail({ className = "", expanded = false, onNavigate }) {
-  const { state } = useAdminData();
   const { can } = useAdminAuth();
   // Scoped, so the badge and the screen it leads to always name the same
   // number — switching the top bar to Personals must not leave a rail badge
   // counting marketplace work.
   const [site] = useSiteScope();
-  const tallies = counts(state, site);
+  const pathname = usePathname();
+  const [tallies, setTallies] = useState({});
+  useEffect(() => {
+    let active = true;
+    let version = 0;
+    setTallies({});
+    const refresh = async () => {
+      const current = ++version;
+      try {
+        const next = await api.get("/api/v1/admin/analytics/queues", site === ALL_SITES ? {} : {site: site.toUpperCase()});
+        if (active && current === version) setTallies(next);
+      } catch { if (active && current === version) setTallies({}); }
+    };
+    refresh();
+    const timer = setInterval(refresh, 30000);
+    window.addEventListener("focus", refresh);
+    return () => { active = false; clearInterval(timer); window.removeEventListener("focus", refresh); };
+  }, [site, pathname]);
   // The drawer is always labelled; the rail earns its labels at xl.
   const label = expanded ? "flex" : "hidden xl:flex";
   const width = expanded ? "" : "w-[76px] xl:w-60";
@@ -207,6 +223,8 @@ function TopBar({ onMenu }) {
   const { admin, signOut } = useAdminAuth();
   const [site, setSite] = useSiteScope();
   const [menu, setMenu] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const toast = useToast();
   const navigate = useNavigate();
   const scoped = pathIsScoped(usePathname());
 
@@ -220,10 +238,16 @@ function TopBar({ onMenu }) {
    * gate returns `null`, the whole console goes blank, and only a manual URL
    * edit gets it back. The public `Profile` and `Sidebar` do the same pairing.
    */
-  function endSession() {
-    setMenu(false);
-    signOut();
-    navigate("/login", { replace: true });
+  async function endSession() {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await signOut();
+      setMenu(false);
+      navigate("/login", { replace: true });
+    } catch {
+      toast("Could not sign out. Please try again.");
+    } finally { setSigningOut(false); }
   }
 
   return (
@@ -275,6 +299,7 @@ function TopBar({ onMenu }) {
           onClick={() => setMenu((m) => !m)}
           aria-expanded={menu}
           aria-haspopup="menu"
+          aria-label="Account menu"
           className="flex items-center gap-2 rounded-2xl border border-line py-1.5 pl-1.5 pr-3 transition-colors hover:bg-canvas"
         >
           <MediaImage
@@ -330,10 +355,11 @@ function TopBar({ onMenu }) {
                 type="button"
                 role="menuitem"
                 onClick={endSession}
+                disabled={signingOut}
                 className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-[14px] font-semibold text-danger hover:bg-danger-soft"
               >
                 <LogOut className="size-4" strokeWidth={2.4} />
-                Sign out
+                {signingOut ? "Signing out..." : "Sign out"}
               </button>
             </div>
           </>

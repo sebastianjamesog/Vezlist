@@ -27,6 +27,7 @@ export default function TopBar({
   title,
   onBack,
   onPostAd,
+  actions,
   onExit,
   exitHref,
   exitLabel = "Home",
@@ -81,7 +82,8 @@ export default function TopBar({
               have been drawn — so it is gated here rather than there. The bar
               is still back-arrow plus title without it, which is all a browsing
               account needs from this screen. */}
-          {can("ad.create") && (
+          {actions}
+          {onPostAd && can("ad.create") && (
             <button
               onClick={onPostAd}
               className="shrink-0 rounded-full bg-brand-soft px-4 py-2 text-[14px] font-bold text-brand transition-colors hover:bg-brand hover:text-on-brand"

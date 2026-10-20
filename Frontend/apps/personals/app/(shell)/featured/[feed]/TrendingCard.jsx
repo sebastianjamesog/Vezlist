@@ -1,5 +1,6 @@
 "use client";
 
+import { openAdClick } from "@vezlist/shared/lib/openAdClick.js";
 import Link from "next/link";
 import { BadgeCheck, Eye, Heart, ImageOff } from "lucide-react";
 import MediaImage from "@vezlist/shared/components/media/MediaImage.jsx";
@@ -11,7 +12,7 @@ function initials(name) {
   return words.slice(0, 2).map((word) => Array.from(word)[0]).join("").toUpperCase() || "?";
 }
 
-export default function TrendingCard({ listing, rank }) {
+export default function TrendingCard({ listing, rank, onOpen }) {
   const name = listing.businessName || listing.title || "Creator";
   const views = useLiveViewCount(listing.id, listing.viewCount, listing.site);
   const saves = listing.saveCount;
@@ -19,6 +20,7 @@ export default function TrendingCard({ listing, rank }) {
   return (
     <article className="group relative min-w-0 overflow-hidden rounded-lg bg-slate-800">
       <Link
+        onClick={onOpen ? (event) => openAdClick(event, () => onOpen(listing.id)) : undefined}
         href={`/ad/${listing.id}`}
         aria-label={`Number ${rank}: ${name}. View ad`}
         className="relative block aspect-[4/5] overflow-hidden rounded-lg focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white"
@@ -29,7 +31,7 @@ export default function TrendingCard({ listing, rank }) {
             fill
             src={listing.imageUrl}
             alt={listing.title || name}
-            sizes="(min-width: 1280px) 200px, (min-width: 1024px) 19vw, (min-width: 768px) 24vw, 32vw"
+            sizes="(min-width: 1280px) 20vw, (min-width: 1024px) 25vw, 33vw"
             loading={rank <= 3 ? "eager" : "lazy"}
             className="object-cover transition-transform duration-300 motion-safe:group-hover:scale-105"
           />

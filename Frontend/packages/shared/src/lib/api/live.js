@@ -1,7 +1,7 @@
 import { api } from "./client.js";
 
-export const listLiveCreators = (limit = 30) =>
-  api.get("/api/v1/live", { limit });
+export const listLiveCreators = (limit = 30, options) =>
+  api.get("/api/v1/live", { limit }, options);
 export const listLivePlans = () => api.get("/api/v1/live/plans");
 export const getMyLiveSession = () => api.get("/api/v1/live/me");
 export const getLiveSession = (id) =>

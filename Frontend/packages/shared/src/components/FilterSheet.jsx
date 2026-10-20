@@ -5,7 +5,6 @@ import ChoiceRow from "./ui/ChoiceRow";
 import Modal from "./ui/Modal";
 import {
   DEFAULT_FILTERS,
-  applyFilters,
   reconcileSubcategory,
 } from "../lib/filters";
 import { getCategories, subsFor } from "../lib/taxonomy";
@@ -21,6 +20,7 @@ import { ALL_CANADA, areasFor, provinces } from "../data/locations";
 const GROUPS = [
   { id: "sort", label: "Sort by" },
   { id: "category", label: "Category", site: "marketplace" },
+  { id: "price", label: "Price" },
   { id: "location", label: "Location" },
   { id: "more", label: "More filters" },
 ];
@@ -36,6 +36,7 @@ export default function FilterSheet({
   personals = false,
   onClose,
   onApply,
+  displayOptions,
 }) {
   // One flag rather than one per group: every difference between the two
   // sheets is the same difference — which board is asking.
@@ -126,7 +127,11 @@ export default function FilterSheet({
     draft.categories.length === 1 ? draft.categories[0] : null;
   const subs = onlyCategory ? subsFor(onlyCategory) : [];
 
-  const resultCount = applyFilters(listings, draft, query).length;
+
+  const priceError = [draft.minPrice, draft.maxPrice].some((value) => value && !/^\d+(\.\d{1,2})?$/.test(value))
+    ? "Enter a valid price with up to two decimal places."
+    : draft.minPrice && draft.maxPrice && Number(draft.minPrice) > Number(draft.maxPrice)
+      ? "Maximum price must be at least the minimum price." : null;
 
   return (
     // The body height is pinned, not just floored: with only a minimum the
@@ -148,10 +153,11 @@ export default function FilterSheet({
           </button>
           <button
             type="button"
+            disabled={!!priceError}
             onClick={() => onApply(draft)}
             className="brand-gradient flex-[1.4] rounded-2xl py-3 text-[15px] font-bold text-on-brand shadow-pop transition-transform active:scale-[0.98]"
           >
-            Show {resultCount} {resultCount === 1 ? "ad" : "ads"}
+            Apply filters
           </button>
         </div>
       }
@@ -183,7 +189,7 @@ export default function FilterSheet({
       <div className="min-w-0 flex-1 overflow-y-auto p-2">
         {group === "sort" && (
           <div role="radiogroup" aria-label="Sort by">
-            {sortOptions.map((o) => (
+            {sortOptions.filter((o) => o.value !== "nearest").map((o) => (
               <ChoiceRow
                 key={o.value}
                 type="radio"
@@ -203,6 +209,8 @@ export default function FilterSheet({
             Indented with padding on the group itself, not on a wrapper around
             each row, so the radios stay direct children of the radiogroup —
             an intervening div breaks the ownership assistive tech reads. */}
+        {group === "category" && <ChoiceRow type="checkbox" checked={!draft.categories.length}
+          onChange={() => patch({ categories: [], subcategory: null })}>All categories</ChoiceRow>}
         {group === "category" &&
           filterableCategories.map((c) => {
             const showSubs = c === onlyCategory && subs.length > 0;
@@ -291,8 +299,23 @@ export default function FilterSheet({
           </div>
         )}
 
+        {group === "price" && (
+          <div className="space-y-4 p-3">
+            <p className="text-sm text-muted">Leave either field empty for no limit.</p>
+            {[["minPrice", "Minimum price"], ["maxPrice", "Maximum price"]].map(([key, label]) => (
+              <label key={key} className="block text-sm font-semibold text-ink">
+                {label} (CAD)
+                <input type="number" min="0" step="0.01" inputMode="decimal"
+                  value={draft[key] ?? ""} onChange={(event) => patch({ [key]: event.target.value })}
+                  className="mt-2 w-full rounded-xl border border-line bg-surface px-3 py-2 text-ink" />
+              </label>
+            ))}
+            {priceError && <p role="alert" className="text-sm text-red-600">{priceError}</p>}
+          </div>
+        )}
         {group === "more" && (
           <div>
+            {displayOptions}
             {/* Personals only, next to the verified switch because the two are
                 the same kind of control — a claim the poster makes that the
                 reader can insist on — and different in the one way that

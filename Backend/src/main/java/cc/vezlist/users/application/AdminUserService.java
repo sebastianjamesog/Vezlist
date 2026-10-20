@@ -38,14 +38,14 @@ public class AdminUserService {
     }
 
     @Transactional(readOnly = true)
-    public AdminUserPageResponse list(String query, String encodedCursor, Integer requestedLimit) {
+    public AdminUserPageResponse list(String query, String encodedCursor, Integer requestedLimit, boolean staffOnly) {
         int limit = requestedLimit == null ? DEFAULT_LIMIT : requestedLimit;
         if (limit < 1 || limit > MAX_LIMIT) {
             throw new IllegalArgumentException("Limit must be between 1 and " + MAX_LIMIT + ".");
         }
         OpaqueCursor.Anchor cursor = OpaqueCursor.decode(encodedCursor);
         var fetched = users.page(query, cursor == null ? null : cursor.createdAt(),
-                cursor == null ? null : cursor.id(), limit + 1);
+                cursor == null ? null : cursor.id(), limit + 1, staffOnly);
         boolean hasMore = fetched.size() > limit;
         var page = hasMore ? fetched.subList(0, limit) : fetched;
         String nextCursor = hasMore
@@ -53,7 +53,7 @@ public class AdminUserService {
                         page.get(page.size() - 1).createdAt(), page.get(page.size() - 1).id()))
                 : null;
         return new AdminUserPageResponse(
-                page.stream().map(this::summary).toList(), nextCursor, hasMore, users.countMatching(query));
+                page.stream().map(this::summary).toList(), nextCursor, hasMore, users.countMatching(query, staffOnly));
     }
 
     @Transactional(readOnly = true)

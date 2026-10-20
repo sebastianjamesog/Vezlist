@@ -175,6 +175,7 @@ const provinceOfArea = new Map(
 
 export const sortOptions = [
   { value: "newest", label: "Newest first" },
+  { value: "verified-first", label: "Verified first" },
   { value: "price-asc", label: "Price: Low to High" },
   { value: "price-desc", label: "Price: High to Low" },
   { value: "nearest", label: "Nearest first" },

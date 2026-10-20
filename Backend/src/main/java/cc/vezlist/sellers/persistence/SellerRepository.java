@@ -75,28 +75,33 @@ public class SellerRepository {
                 )
                 SELECT u.id, u.display_name, p.avatar_url, u.seller_verified,
                        s.post_count, s.view_count, s.like_count,
-                       (SELECT lm.object_key FROM live t
-                        JOIN listing_media lm ON lm.listing_id = t.id AND lm.status = 'READY'
-                        WHERE t.owner_id = u.id
-                        ORDER BY t.save_count DESC, t.views DESC, t.published_at DESC,
-                                 lm.position ASC, lm.created_at ASC
-                        LIMIT 1) AS cover_object_key
+                       cover.object_key AS cover_object_key,
+                       COALESCE(cover.listing_id, (SELECT t.id FROM live t WHERE t.owner_id = u.id
+                           ORDER BY t.save_count DESC, t.views DESC, t.published_at DESC, t.id LIMIT 1)) AS cover_listing_id
                 FROM stats s
                 JOIN app_users u ON u.id = s.owner_id AND u.enabled = TRUE
                 LEFT JOIN user_profiles p ON p.user_id = u.id
+                LEFT JOIN LATERAL (
+                    SELECT lm.object_key, t.id AS listing_id FROM live t
+                    JOIN listing_media lm ON lm.listing_id = t.id AND lm.status = 'READY'
+                    WHERE t.owner_id = u.id
+                    ORDER BY t.save_count DESC, t.views DESC, t.published_at DESC, t.id,
+                             lm.position ASC, lm.created_at ASC, lm.id
+                    LIMIT 1
+                ) cover ON TRUE
                 ORDER BY s.view_count + s.like_count * 5 DESC, s.like_count DESC,
                          s.post_count DESC, u.id
                 LIMIT ?
                 """, (rs, rowNum) -> new TrendingRow(rs.getObject("id", UUID.class), rs.getString("display_name"),
                 rs.getString("avatar_url"), rs.getBoolean("seller_verified"), rs.getLong("post_count"),
-                rs.getLong("view_count"), rs.getLong("like_count"), rs.getString("cover_object_key")),
+                rs.getLong("view_count"), rs.getLong("like_count"), rs.getString("cover_object_key"), rs.getObject("cover_listing_id", UUID.class)),
                 site.name(), limit);
     }
 
     public record SellerRow(UUID id, String displayName, String avatarUrl, Instant memberSince,
                             boolean verified, long activeListingCount, long likeCount, long viewCount) { }
     public record TrendingRow(UUID id, String displayName, String avatarUrl, boolean verified,
-                              long postCount, long viewCount, long likeCount, String coverObjectKey) { }
+                              long postCount, long viewCount, long likeCount, String coverObjectKey, UUID coverListingId) { }
     public record ListingRow(UUID id, SiteScope site, String title, String businessName, BigDecimal price,
                              String categoryId, String categoryLabel, String provinceId, String provinceLabel,
                              String locationId, String locationLabel, boolean verified, String coverObjectKey,

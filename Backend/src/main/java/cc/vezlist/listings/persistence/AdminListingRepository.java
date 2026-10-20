@@ -3,6 +3,7 @@ package cc.vezlist.listings.persistence;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -58,13 +59,17 @@ public class AdminListingRepository {
         }
         if (beforeCreatedAt != null) {
             sql.append(" AND (l.created_at < ? OR (l.created_at = ? AND l.id < ?)) ");
-            args.add(beforeCreatedAt);
-            args.add(beforeCreatedAt);
+            args.add(Timestamp.from(beforeCreatedAt));
+            args.add(Timestamp.from(beforeCreatedAt));
             args.add(beforeId);
         }
         sql.append(" ORDER BY l.created_at DESC, l.id DESC LIMIT ?");
         args.add(fetchLimit);
         return jdbc.query(sql.toString(), new SummaryMapper(), args.toArray());
+    }
+
+    public void closeOpenCases(UUID listingId) {
+        jdbc.update("UPDATE moderation_cases SET status = 'CLOSED', closed_at = now() WHERE listing_id = ? AND status = 'OPEN'", listingId);
     }
 
     public long countMatching(SiteScope site, String status, String query) {

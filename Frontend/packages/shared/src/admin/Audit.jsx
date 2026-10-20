@@ -6,7 +6,10 @@ import DataTable from "../components/admin/DataTable";
 import StatusBadge from "../components/admin/StatusBadge";
 import SearchBar from "../components/ui/SearchBar";
 import Button from "../components/ui/Button";
-import { TableHeaderSkeleton, TableRowSkeleton } from "../components/ui/Skeleton";
+import {
+  TableHeaderSkeleton,
+  TableRowSkeleton,
+} from "../components/ui/Skeleton";
 import { useQueryParam } from "../lib/adminScope";
 import { statementDate } from "../lib/format";
 import { downloadCsv } from "../lib/csv";
@@ -125,7 +128,10 @@ export default function Audit() {
     setLoadingMore(true);
     try {
       const page = await adminAuditApi.auditFeed({ cursor, limit: PAGE_LIMIT });
-      setEntries((prev) => [...(prev ?? []), ...(page.items ?? []).map(mapEntry)]);
+      setEntries((prev) => [
+        ...(prev ?? []),
+        ...(page.items ?? []).map(mapEntry),
+      ]);
       setCursor(page.nextCursor ?? null);
       setHasMore(Boolean(page.hasMore));
     } catch (err) {
@@ -167,6 +173,7 @@ export default function Audit() {
       return (
         entry.actor.toLowerCase().includes(needle) ||
         entry.action.toLowerCase().includes(needle) ||
+        entry.entity.toLowerCase().includes(needle) ||
         String(entry.entityId ?? "")
           .toLowerCase()
           .includes(needle) ||
@@ -312,7 +319,9 @@ export default function Audit() {
                 initialSort={{ key: "at", dir: "desc" }}
                 empty={{
                   icon: "Clock",
-                  title: entries.length ? "No entries match" : "No activity yet",
+                  title: entries.length
+                    ? "No entries match"
+                    : "No activity yet",
                   body: entries.length
                     ? "Loosen a filter, or clear the search."
                     : "Admin actions will show up here as they happen.",
@@ -372,7 +381,9 @@ function Select({ label, value, onChange, options }) {
       aria-label={label}
       className="h-9 rounded-xl border border-line bg-surface px-3 text-[13px] font-semibold text-ink outline-none"
     >
-      <option value="all">{`All ${label.toLowerCase()}s`}</option>
+      <option value="all">
+        {label === "Entity" ? "All entities" : `All ${label.toLowerCase()}s`}
+      </option>
       {options.map((o) => (
         <option key={o} value={o}>
           {o}

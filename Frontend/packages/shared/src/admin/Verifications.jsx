@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import AdminHeader from "../components/admin/AdminHeader";
 import DataTable from "../components/admin/DataTable";
@@ -12,6 +12,7 @@ import MediaImage from "../components/media/MediaImage.jsx";
 import Field, { FIELD, border } from "../components/create/Field";
 import { useAdminAuth } from "../context/AdminAuthContext";
 import { useToast } from "../context/ToastContext";
+import { useAdminQueue } from "../lib/useAdminQueue";
 import { useSiteScope } from "../lib/adminScope";
 import { ApiError } from "../lib/api/client.js";
 import * as verificationApi from "../lib/api/adminVerification.js";
@@ -29,7 +30,6 @@ import * as verificationApi from "../lib/api/adminVerification.js";
  * tab here: deciding one closes it and it leaves this list.
  */
 
-const SITES = ["MARKETPLACE", "PERSONALS"];
 
 const timeAgo = (iso) => {
   const ms = Date.now() - new Date(iso).getTime();
@@ -46,8 +46,7 @@ export default function Verifications() {
   const toast = useToast();
   const [site] = useSiteScope();
 
-  const [rows, setRows] = useState(null);
-  const [error, setError] = useState(null);
+  const { rows, error, load, hasMore, loadingMore, loadMore } = useAdminQueue(site, verificationApi.queueVerifications);
 
   const [acting, setActing] = useState(null); // queue row
   const [detail, setDetail] = useState(null);
@@ -55,26 +54,13 @@ export default function Verifications() {
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-
-  const sitesToQuery = site === "all" ? SITES : [site === "personals" ? "PERSONALS" : "MARKETPLACE"];
-
-  const load = useCallback(async () => {
-    setError(null);
-    setRows(null);
-    try {
-      const pages = await Promise.all(
-        sitesToQuery.map((s) => verificationApi.queueVerifications({ site: s, limit: 50, offset: 0 })),
-      );
-      setRows(pages.flat());
-    } catch (err) {
-      setError(err);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [site]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const [decisionError, setDecisionError] = useState(null);
+  const detailVersion = useRef(0);
+  function closeDecision() {
+    if (submitting) return;
+    detailVersion.current += 1;
+    setActing(null);
+  }
 
   const sorted = useMemo(
     () => [...(rows ?? [])].sort((a, b) => new Date(a.submittedAt) - new Date(b.submittedAt)),
@@ -82,23 +68,26 @@ export default function Verifications() {
   );
 
   async function openDecide(row) {
+    const version = ++detailVersion.current;
     setActing(row);
+    setDecisionError(null);
     setDetail(null);
     setDetailError(null);
     setReason("");
     setReasonError(null);
     try {
       const d = await verificationApi.verificationDetail(row.id);
-      setDetail(d);
+      if (version === detailVersion.current) setDetail(d);
     } catch (err) {
-      setDetailError(
+      if (version === detailVersion.current) setDetailError(
         err instanceof ApiError ? err.message : "Couldn't load this verification request.",
       );
     }
   }
 
   async function decide(decision) {
-    if (!acting) return;
+    if (!acting || submitting) return;
+    setDecisionError(null);
     if (decision === "REJECT" && !reason.trim()) {
       setReasonError("A rejection reason is required.");
       return;
@@ -110,11 +99,11 @@ export default function Verifications() {
         decision,
         reason: decision === "REJECT" ? reason.trim() : undefined,
       });
-      setRows((prev) => (prev ?? []).filter((r) => r.id !== acting.id));
+      load();
       toast(decision === "APPROVE" ? "Listing verified" : "Verification request rejected");
       setActing(null);
     } catch (err) {
-      setDetailError(
+      setDecisionError(
         err instanceof ApiError ? err.message : "Couldn't record that decision.",
       );
     } finally {
@@ -222,17 +211,19 @@ export default function Verifications() {
           empty={{
             icon: "BadgeCheck",
             title: "Nothing pending",
-            body: "No open verification requests on this site.",
+            body: hasMore ? "No matching requests in the loaded pages. Load more to continue checking." : "No open verification requests on this site.",
           }}
         />
       )}
+
+      {hasMore && <div className="mt-4 flex justify-center"><Button variant="outline" onClick={loadMore} disabled={loadingMore}>{loadingMore ? "Loading..." : "Load more"}</Button></div>}
 
       <Modal
         open={Boolean(acting)}
         title={acting?.listingTitle ?? "Verification request"}
         subtitle={acting ? `Submitted ${timeAgo(acting.submittedAt)}` : undefined}
         size="max-w-lg"
-        onClose={() => setActing(null)}
+        onClose={closeDecision}
         footer={
           detail && !detailError ? (
             <div className="flex gap-3">
@@ -248,7 +239,7 @@ export default function Verifications() {
               <Button
                 size="lg"
                 className="flex-1"
-                disabled={submitting}
+                disabled={submitting || !detail.photoUrl}
                 onClick={() => decide("APPROVE")}
               >
                 Approve
@@ -262,6 +253,7 @@ export default function Verifications() {
             {detailError}
           </p>
         )}
+        {decisionError && <p role="alert" className="mb-3 text-[13.5px] text-danger">{decisionError}</p>}
         {!detail && !detailError && <p className="text-[14px] text-muted">Loading…</p>}
         {detail && (
           <div className="flex flex-col gap-4">
@@ -319,6 +311,7 @@ export default function Verifications() {
                   if (reasonError) setReasonError(null);
                 }}
                 rows={3}
+                maxLength={300}
                 placeholder="The code in the photo doesn't match this request."
                 className={`${FIELD} ${border(Boolean(reasonError))} resize-none`}
               />

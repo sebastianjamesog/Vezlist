@@ -50,7 +50,7 @@ function Shell({ children, navPreset }) {
 
   // Each screen scrolls its own container, so a route change must reset it.
   useEffect(() => {
-    main.current?.querySelector("[data-scroll]")?.scrollTo({ top: 0 });
+    main.current?.querySelector("[data-scroll]:not([data-preserve-scroll])")?.scrollTo({ top: 0 });
   }, [pathname]);
 
   /**

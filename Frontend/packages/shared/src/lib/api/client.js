@@ -122,7 +122,7 @@ function withQuery(path, query = {}) {
 }
 
 export const api = {
-  get: (path, query) => apiFetch(withQuery(path, query)),
+  get: (path, query, opts) => apiFetch(withQuery(path, query), opts),
   post: (path, body, opts) => apiFetch(path, { ...opts, method: "POST", body }),
   put: (path, body, opts) => apiFetch(path, { ...opts, method: "PUT", body }),
   patch: (path, body, opts) => apiFetch(path, { ...opts, method: "PATCH", body }),

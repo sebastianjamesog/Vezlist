@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { can } from "../lib/adminRoles";
@@ -63,15 +64,17 @@ function mapAdmin(response) {
 export class ConsoleAccessError extends Error {}
 
 export function AdminAuthProvider({ children }) {
+  const request = useRef(0);
   const [admin, setAdmin] = useState(null);
   const [ready, setReady] = useState(false);
 
   const refresh = useCallback(async () => {
+    const version = ++request.current;
     try {
       const response = await authApi.me();
-      setAdmin(mapAdmin(response));
+      if (version === request.current) setAdmin(mapAdmin(response));
     } catch {
-      setAdmin(null);
+      if (version === request.current) setAdmin(null);
     }
   }, []);
 
@@ -80,6 +83,7 @@ export function AdminAuthProvider({ children }) {
   }, [refresh]);
 
   const signIn = useCallback(async ({ email, password }) => {
+    request.current++;
     // Throws ApiError({status:401,...}) on a wrong email/password — that
     // propagates to the caller unchanged, same as the public `AuthContext`.
     const response = await authApi.login({ email, password });
@@ -101,11 +105,9 @@ export function AdminAuthProvider({ children }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    try {
-      await authApi.logout();
-    } finally {
-      setAdmin(null);
-    }
+    request.current++;
+    await authApi.logout();
+    setAdmin(null);
   }, []);
 
   const value = useMemo(

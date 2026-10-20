@@ -15,6 +15,7 @@ const TONES = {
   sent: "bg-emerald-100 text-emerald-700",
   // Needs a human.
   pending: "bg-amber-100 text-amber-700",
+  pending_review: "bg-amber-100 text-amber-700",
   open: "bg-amber-100 text-amber-700",
   // Turned away, or taken down.
   rejected: "bg-red-100 text-red-700",
@@ -41,6 +42,7 @@ const TONES = {
 /** Where the console's word is not the word a moderator would say out loud. */
 const LABELS = {
   pending: "In review",
+  pending_review: "In review",
   open: "Open",
   live: "Live now",
 };

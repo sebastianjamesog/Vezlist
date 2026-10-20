@@ -42,8 +42,9 @@ public class AdminUserController {
     public AdminUserPageResponse list(
             @RequestParam(required = false) @Size(max = 200) String query,
             @RequestParam(required = false) @Size(max = 512) String cursor,
-            @RequestParam(required = false) @Min(1) @Max(100) Integer limit) {
-        return service.list(query, cursor, limit);
+            @RequestParam(required = false) @Min(1) @Max(100) Integer limit,
+            @RequestParam(defaultValue = "false") boolean staffOnly) {
+        return service.list(query, cursor, limit, staffOnly);
     }
 
     @GetMapping("/{id}")

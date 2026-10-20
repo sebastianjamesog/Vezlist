@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAdPopup } from "@vezlist/shared/components/AdPopup.jsx";
+import { openAdClick } from "@vezlist/shared/lib/openAdClick.js";
 import Link from "next/link";
 import { BadgeCheck, Eye, Heart } from "lucide-react";
 import Button from "@vezlist/shared/components/ui/Button.jsx";
@@ -22,10 +24,11 @@ import CreatorAvatar from "../../CreatorAvatar.jsx";
 const LIMIT = 30;
 
 /** Same shape as the Live now tile: the cover is the card, text on a scrim. */
-function CreatorTile({ creator, rank, live }) {
+function CreatorTile({ creator, rank, live, onOpen }) {
   return (
     <Link
-      href={`/seller/${creator.id}`}
+      href={creator.coverListingId ? `/ad/${creator.coverListingId}` : `/seller/${creator.id}`}
+      onClick={creator.coverListingId ? (event) => openAdClick(event, () => onOpen(creator.coverListingId)) : undefined}
       aria-label={`${creator.displayName}${live?.status === "LIVE" ? " (live now)" : ""} — ${creator.viewCount} views, ${creator.likeCount} likes`}
       className="group relative block overflow-hidden rounded-lg transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
     >
@@ -103,6 +106,7 @@ function Panel({ children }) {
 }
 
 export default function TrendingGrid() {
+  const viewer = useAdPopup();
   const { isBlocked } = useReports();
   const sessions = useLiveSessions();
   const [creators, setCreators] = useState([]);
@@ -168,15 +172,19 @@ export default function TrendingGrid() {
   }
 
   return (
+    <>
     <Panel>
       {shown.map((c, i) => (
         <CreatorTile
           key={c.id}
           creator={c}
+          onOpen={(id) => viewer.open(id, shown.map((creator) => creator.coverListingId))}
           rank={i + 1}
           live={liveStreamFor(c.id, sessions)}
         />
       ))}
     </Panel>
+    {viewer.popup}
+    </>
   );
 }

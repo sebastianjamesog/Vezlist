@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_FILTERS } from "../lib/filters";
 import { getCategories as fetchCategories, getLocations } from "../lib/api/catalog.js";
 import { SITE_SCOPE } from "../lib/api/client.js";
@@ -30,6 +30,7 @@ import { setCategories } from "../lib/taxonomy.js";
 const FeedContext = createContext(null);
 
 export function FeedProvider({ children }) {
+  const browseCache = useRef(null);
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [query, setQuery] = useState("");
 
@@ -65,6 +66,7 @@ export function FeedProvider({ children }) {
 
   const value = useMemo(
     () => ({
+      browseCache,
       filters,
       setFilters,
       query,

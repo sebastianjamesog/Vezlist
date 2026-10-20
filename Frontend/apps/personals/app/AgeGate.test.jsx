@@ -1,6 +1,9 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { render, screen, userEvent } from "../../../testing/render.jsx";
 import AgeGate from "./AgeGate.jsx";
+
+import { getPublicSettings } from "@vezlist/shared/lib/api/adminSettings.js";
+vi.mock("@vezlist/shared/lib/api/adminSettings.js", () => ({ getPublicSettings: vi.fn() }));
 
 const OLD_STORAGE_KEY = "vezlist:age-gate:v1";
 const open = (text = "The board") =>
@@ -15,8 +18,17 @@ const board = () => screen.getByText("The board").closest(".contents");
 
 describe("AgeGate", () => {
   beforeEach(() => {
+    getPublicSettings.mockReset().mockResolvedValue(null);
     localStorage.removeItem(OLD_STORAGE_KEY);
     document.documentElement.removeAttribute("data-age-gate");
+  });
+
+  test("published admin copy changes the warning without bypassing confirmation", async () => {
+    getPublicSettings.mockResolvedValue({ ageGateTitle: "Adults only", ageGateBody: "Confirm your age before entering." });
+    open();
+    expect(await screen.findByRole("dialog", { name: "Adults only" })).toBeTruthy();
+    expect(screen.getByText("Confirm your age before entering.")).toBeTruthy();
+    expect(board().hasAttribute("inert")).toBe(true);
   });
 
   test("a fresh visit shows the warning and makes the board inert", () => {

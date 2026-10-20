@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AdminHeader, { CARD } from "../components/admin/AdminHeader";
 import EmptyState from "../components/ui/EmptyState";
 import Button from "../components/ui/Button";
@@ -10,6 +10,7 @@ import * as notificationsApi from "../lib/api/notifications";
 import { ApiError } from "../lib/api/client";
 import { tones } from "../lib/tones";
 import { timeAgo } from "../lib/format";
+import { useSiteScope } from "../lib/adminScope";
 
 /**
  * This admin's own notifications — over `GET /api/v1/me/notifications` and
@@ -60,47 +61,150 @@ function messageFor(error) {
 }
 
 export default function Notifications() {
+  const [site] = useSiteScope();
+  const sites =
+    site === "all"
+      ? ["MARKETPLACE", "PERSONALS"]
+      : [site === "personals" ? "PERSONALS" : "MARKETPLACE"];
   const [items, setItems] = useState(null);
   const [error, setError] = useState(null);
+  const [actionError, setActionError] = useState(null);
   const [markingAll, setMarkingAll] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [cursors, setCursors] = useState({});
+  const [unread, setUnread] = useState(0);
+  const generation = useRef(0);
 
-  const load = () => {
+  const load = async () => {
+    const version = ++generation.current;
     setError(null);
+    setActionError(null);
     setItems(null);
-    notificationsApi
-      .listNotifications()
-      .then((page) => setItems(page.items ?? []))
-      .catch((err) => setError(messageFor(err)));
+    setLoadingMore(false);
+    setMarkingAll(false);
+    try {
+      const pages = await Promise.all(
+        sites.map(async (scope) => ({
+          scope,
+          page: await notificationsApi.listNotifications({ site: scope }),
+          count: await notificationsApi.getUnreadCount({ site: scope }),
+        })),
+      );
+      if (version !== generation.current) return;
+      setItems(
+        pages
+          .flatMap(({ scope, page }) =>
+            page.items.map((n) => ({ ...n, site: scope })),
+          )
+          .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)),
+      );
+      setCursors(
+        Object.fromEntries(
+          pages.map(({ scope, page }) => [scope, page.nextCursor]),
+        ),
+      );
+      setUnread(pages.reduce((sum, p) => sum + p.count.count, 0));
+    } catch (err) {
+      if (version === generation.current) setError(messageFor(err));
+    }
   };
-
   useEffect(() => {
     load();
-  }, []);
+    return () => {
+      generation.current++;
+    };
+  }, [site]);
+  const groups = items
+    ? [...new Set(items.map((n) => groupFor(n.createdAt)))]
+    : [];
 
-  const unread = items ? items.filter((n) => !n.readAt).length : 0;
-  const groups = items ? [...new Set(items.map((n) => groupFor(n.createdAt)))] : [];
-
-  async function markRead(id) {
-    setItems((s) =>
-      s.map((n) => (n.id === id ? { ...n, readAt: n.readAt ?? new Date().toISOString() } : n)),
-    );
+  async function loadMore() {
+    if (loadingMore) return;
+    const version = generation.current;
+    setLoadingMore(true);
+    setActionError(null);
     try {
-      await notificationsApi.markNotificationRead(id);
-    } catch {
-      // Best-effort: a failed read receipt just leaves the dot showing, and
-      // the next full reload reconciles it either way.
+      const pending = sites.filter((scope) => cursors[scope]);
+      const pages = await Promise.all(
+        pending.map(async (scope) => ({
+          scope,
+          page: await notificationsApi.listNotifications({
+            site: scope,
+            cursor: cursors[scope],
+          }),
+        })),
+      );
+      if (version !== generation.current) return;
+      setItems((current) =>
+        [
+          ...current,
+          ...pages.flatMap(({ scope, page }) =>
+            page.items.map((n) => ({ ...n, site: scope })),
+          ),
+        ].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)),
+      );
+      setCursors((current) => ({
+        ...current,
+        ...Object.fromEntries(
+          pages.map(({ scope, page }) => [scope, page.nextCursor]),
+        ),
+      }));
+    } catch (err) {
+      if (version === generation.current) setActionError(messageFor(err));
+    } finally {
+      if (version === generation.current) setLoadingMore(false);
     }
   }
-
-  async function markAllRead() {
-    setMarkingAll(true);
+  async function markRead(item) {
+    const version = generation.current;
+    setActionError(null);
     try {
-      await notificationsApi.markAllNotificationsRead();
-      setItems((s) => s.map((n) => ({ ...n, readAt: n.readAt ?? new Date().toISOString() })));
-    } catch {
-      // Left unread on screen; a retry is just clicking the button again.
+      await notificationsApi.markNotificationRead(item.id, { site: item.site });
+      if (version !== generation.current) return;
+      setItems((current) =>
+        current.map((n) =>
+          n.id === item.id ? { ...n, readAt: new Date().toISOString() } : n,
+        ),
+      );
+      const counts = await Promise.all(
+        sites.map((scope) => notificationsApi.getUnreadCount({ site: scope })),
+      );
+      if (version === generation.current)
+        setUnread(counts.reduce((sum, c) => sum + c.count, 0));
+    } catch (err) {
+      if (version === generation.current) setActionError(messageFor(err));
+    }
+  }
+  async function markAllRead() {
+    const version = generation.current;
+    setMarkingAll(true);
+    setActionError(null);
+    try {
+      // Apply successful scopes individually so partial errors remain truthful.
+      const results = await Promise.allSettled(
+        sites.map(async (scope) => {
+          await notificationsApi.markAllNotificationsRead({ site: scope });
+          if (version === generation.current)
+            setItems((current) =>
+              current?.map((n) =>
+                n.site === scope
+                  ? { ...n, readAt: n.readAt ?? new Date().toISOString() }
+                  : n,
+              ),
+            );
+        }),
+      );
+      const counts = await Promise.all(
+        sites.map((scope) => notificationsApi.getUnreadCount({ site: scope })),
+      );
+      if (version !== generation.current) return;
+      setUnread(counts.reduce((sum, c) => sum + c.count, 0));
+      const failed = results.find((r) => r.status === "rejected");
+      if (failed) setActionError(messageFor(failed.reason));
+    } catch (err) {
+      if (version === generation.current) setActionError(messageFor(err));
     } finally {
-      setMarkingAll(false);
+      if (version === generation.current) setMarkingAll(false);
     }
   }
 
@@ -131,6 +235,11 @@ export default function Notifications() {
         }
       />
 
+      {actionError && (
+        <p role="alert" className="mb-4 text-danger">
+          {actionError}
+        </p>
+      )}
       {error ? (
         <div className="flex flex-col items-center gap-3 rounded-card bg-surface px-6 py-16 text-center shadow-card">
           <p className="text-[15px] font-semibold text-ink">
@@ -140,7 +249,12 @@ export default function Notifications() {
           <Button onClick={load}>Try again</Button>
         </div>
       ) : items === null ? (
-        <div role="status" aria-live="polite" aria-busy="true" className="space-y-2.5">
+        <div
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+          className="space-y-2.5"
+        >
           <span className="sr-only">Loading notifications</span>
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className={`flex gap-3 ${CARD}`}>
@@ -168,7 +282,7 @@ export default function Notifications() {
                     <button
                       key={n.id}
                       type="button"
-                      onClick={() => unreadItem && markRead(n.id)}
+                      onClick={() => unreadItem && markRead(n)}
                       className={`flex items-start gap-3 rounded-2xl p-4 text-left shadow-card transition-shadow hover:shadow-lift ${
                         unreadItem ? "bg-brand-soft" : "bg-surface"
                       }`}
@@ -176,7 +290,11 @@ export default function Notifications() {
                       <span
                         className={`grid size-10 shrink-0 place-items-center rounded-xl ${tones[meta.tone]}`}
                       >
-                        <Icon name={meta.icon} className="size-5" strokeWidth={2.5} />
+                        <Icon
+                          name={meta.icon}
+                          className="size-5"
+                          strokeWidth={2.5}
+                        />
                       </span>
 
                       <span className="min-w-0 flex-1">
@@ -195,7 +313,9 @@ export default function Notifications() {
                           {n.message}
                         </span>
                         <span className="mt-1 block text-[12px] text-muted">
-                          {timeAgo(Date.now() - new Date(n.createdAt).getTime())}
+                          {timeAgo(
+                            Date.now() - new Date(n.createdAt).getTime(),
+                          )}
                         </span>
                       </span>
                     </button>
@@ -210,6 +330,11 @@ export default function Notifications() {
           title="No notifications"
           body="Alerts about this account land here."
         />
+      )}
+      {items && Object.values(cursors).some(Boolean) && (
+        <Button variant="outline" onClick={loadMore} disabled={loadingMore}>
+          {loadingMore ? "Loading..." : "Load more"}
+        </Button>
       )}
     </>
   );

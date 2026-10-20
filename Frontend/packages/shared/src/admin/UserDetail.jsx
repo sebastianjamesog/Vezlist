@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { BadgeCheck, ShieldCheck } from "lucide-react";
 import AdminHeader, { CARD } from "../components/admin/AdminHeader";
@@ -24,6 +24,7 @@ function messageFor(error) {
 /** One account: identity, role, listing counts, and the suspend/reinstate control. */
 export default function UserDetail() {
   const { id } = useParams();
+  const generation = useRef(0);
   const { can } = useAdminAuth();
   const toast = useToast();
 
@@ -38,13 +39,17 @@ export default function UserDetail() {
   const [saving, setSaving] = useState(false);
 
   function load() {
+    const version = ++generation.current;
     setError(null);
     setNotFound(false);
     setUser(null);
     adminUsersApi
       .getAdminUser(id)
-      .then(setUser)
+      .then((result) => {
+        if (version === generation.current) setUser(result);
+      })
       .catch((err) => {
+        if (version !== generation.current) return;
         if (err instanceof ApiError && err.code === "ADMIN_USER_NOT_FOUND") {
           setNotFound(true);
         } else {
@@ -55,11 +60,14 @@ export default function UserDetail() {
 
   useEffect(() => {
     load();
+    return () => {
+      generation.current++;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   async function confirmSuspend() {
-    if (!reason.trim()) return;
+    if (!reason.trim() || saving) return;
     setSaving(true);
     setActionError(null);
     try {
@@ -76,6 +84,7 @@ export default function UserDetail() {
   }
 
   async function confirmReinstate() {
+    if (saving) return;
     setSaving(true);
     try {
       const updated = await adminUsersApi.reinstateAdminUser(id);
@@ -113,7 +122,9 @@ export default function UserDetail() {
       <>
         <AdminHeader title="Account" back="/users" backLabel="All users" />
         <div className="flex flex-col items-center gap-3 rounded-card bg-surface px-6 py-16 text-center shadow-card">
-          <p className="text-[15px] font-semibold text-ink">Couldn't load this account</p>
+          <p className="text-[15px] font-semibold text-ink">
+            Couldn't load this account
+          </p>
           <p className="max-w-xs text-[13px] text-muted">{error}</p>
           <Button onClick={load}>Try again</Button>
         </div>
@@ -125,7 +136,10 @@ export default function UserDetail() {
     return (
       <>
         <AdminHeader title="Account" back="/users" backLabel="All users" />
-        <SkeletonGroup label="Loading account" className="grid gap-4 lg:grid-cols-3">
+        <SkeletonGroup
+          label="Loading account"
+          className="grid gap-4 lg:grid-cols-3"
+        >
           <section className={CARD}>
             <Skeleton className="h-[18px] w-2/3 rounded" />
             <Skeleton className="mt-2 h-[13px] w-1/2 rounded" />
@@ -192,7 +206,9 @@ export default function UserDetail() {
 
           <div className="mt-4 flex flex-wrap gap-2">
             <StatusBadge status={suspended ? "suspended" : "active"} />
-            {!user.emailVerified && <StatusBadge status="pending" label="Email unverified" />}
+            {!user.emailVerified && (
+              <StatusBadge status="pending" label="Email unverified" />
+            )}
             {user.roles
               .filter((r) => r !== "USER")
               .map((r) => (
@@ -213,7 +229,9 @@ export default function UserDetail() {
 
           {suspended && (
             <div className="mt-4 border-t border-line pt-4">
-              <p className="text-[14px] font-bold text-ink">Suspension reason</p>
+              <p className="text-[14px] font-bold text-ink">
+                Suspension reason
+              </p>
               <p className="mt-1 text-[13px] text-muted">
                 {user.suspensionReason || "No reason recorded."}
               </p>
@@ -239,19 +257,25 @@ export default function UserDetail() {
               <dt className="text-[12px] font-semibold uppercase tracking-wide text-muted">
                 Email verified
               </dt>
-              <dd className="mt-1 text-ink">{user.emailVerified ? "Yes" : "No"}</dd>
+              <dd className="mt-1 text-ink">
+                {user.emailVerified ? "Yes" : "No"}
+              </dd>
             </div>
             <div>
               <dt className="text-[12px] font-semibold uppercase tracking-wide text-muted">
                 Joined
               </dt>
-              <dd className="mt-1 text-ink">{new Date(user.createdAt).toLocaleString()}</dd>
+              <dd className="mt-1 text-ink">
+                {new Date(user.createdAt).toLocaleString()}
+              </dd>
             </div>
             <div>
               <dt className="text-[12px] font-semibold uppercase tracking-wide text-muted">
                 Status
               </dt>
-              <dd className="mt-1 text-ink">{suspended ? "Suspended" : "Active"}</dd>
+              <dd className="mt-1 text-ink">
+                {suspended ? "Suspended" : "Active"}
+              </dd>
             </div>
           </dl>
         </section>

@@ -58,7 +58,7 @@ public class ModerationService {
                 && !(listing.verificationRequested() && !listing.verified())
                 && repository.count("SELECT count(*) FROM moderation_cases WHERE listing_id = ? AND kind = 'APPEAL' AND review_version = ?",
                     id, listing.version()) == 0;
-        String reason = listing.reason() == null ? null : PublicReason.valueOf(listing.reason()).message();
+        String reason = publicReason(listing);
         return new OwnerStatus(id, listing.status(), reason, appeal);
     }
 
@@ -190,6 +190,19 @@ public class ModerationService {
             }
         }
         return result(repository.caseById(caseId), repository.listing(listing.id(), false).status());
+    }
+
+    private String publicReason(Listing listing) {
+        if (listing.reason() == null) return null;
+        try {
+            return PublicReason.valueOf(listing.reason()).message();
+        } catch (IllegalArgumentException ignored) {
+            // Direct admin takedowns historically store a private free-text audit reason.
+            // Do not expose it or fail the owner's status/appeal screen.
+            return listing.status().equals("REMOVED")
+                    ? "This listing was removed by a moderator."
+                    : "This listing requires changes after moderation review.";
+        }
     }
 
     private void approve(UUID actor, Case review, Listing listing, DecisionRequest request) {

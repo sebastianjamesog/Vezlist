@@ -31,7 +31,7 @@ public class AdminUserRepository {
             long listingCount, long activeListingCount) {
     }
 
-    public List<Summary> page(String query, Instant beforeCreatedAt, UUID beforeId, int fetchLimit) {
+    public List<Summary> page(String query, Instant beforeCreatedAt, UUID beforeId, int fetchLimit, boolean staffOnly) {
         StringBuilder sql = new StringBuilder("""
                 SELECT u.id, u.display_name, u.email, u.enabled, u.email_verified, u.created_at,
                        (SELECT count(*) FROM listings l WHERE l.owner_id = u.id AND l.status <> 'DELETED') AS listing_count
@@ -39,6 +39,7 @@ public class AdminUserRepository {
                 WHERE 1 = 1
                 """);
         List<Object> args = new java.util.ArrayList<>();
+        if (staffOnly) sql.append(" AND EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = u.id AND r.role IN ('ADMIN', 'MODERATOR')) ");
         if (query != null && !query.isBlank()) {
             sql.append(" AND (u.email ILIKE ? OR u.display_name ILIKE ?) ");
             String like = "%" + query.trim() + "%";
@@ -47,8 +48,8 @@ public class AdminUserRepository {
         }
         if (beforeCreatedAt != null) {
             sql.append(" AND (u.created_at < ? OR (u.created_at = ? AND u.id < ?)) ");
-            args.add(beforeCreatedAt);
-            args.add(beforeCreatedAt);
+            args.add(java.sql.Timestamp.from(beforeCreatedAt));
+            args.add(java.sql.Timestamp.from(beforeCreatedAt));
             args.add(beforeId);
         }
         sql.append(" ORDER BY u.created_at DESC, u.id DESC LIMIT ?");
@@ -81,13 +82,12 @@ public class AdminUserRepository {
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
-    public long countMatching(String query) {
-        if (query == null || query.isBlank()) {
-            return jdbc.queryForObject("SELECT count(*) FROM app_users", Long.class);
-        }
+    public long countMatching(String query, boolean staffOnly) {
+        String sql = "SELECT count(*) FROM app_users u WHERE 1 = 1";
+        if (staffOnly) sql += " AND EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = u.id AND r.role IN ('ADMIN', 'MODERATOR'))";
+        if (query == null || query.isBlank()) return jdbc.queryForObject(sql, Long.class);
         String like = "%" + query.trim() + "%";
-        return jdbc.queryForObject(
-                "SELECT count(*) FROM app_users WHERE email ILIKE ? OR display_name ILIKE ?", Long.class, like, like);
+        return jdbc.queryForObject(sql + " AND (u.email ILIKE ? OR u.display_name ILIKE ?)", Long.class, like, like);
     }
 
     private Set<String> roles(UUID userId) {

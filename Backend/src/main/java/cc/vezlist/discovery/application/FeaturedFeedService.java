@@ -1,6 +1,8 @@
 package cc.vezlist.discovery.application;
 
 import java.math.BigDecimal;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
@@ -24,7 +26,7 @@ public class FeaturedFeedService {
     public record Card(UUID id, String title, String businessName, BigDecimal price,
                        String categoryLabel, String provinceLabel, String locationLabel,
                        boolean verified, String imageUrl, Instant publishedAt, long viewCount, long saveCount) {}
-    public record Page(Feed feed, Instant windowStart, List<Card> items) {}
+    public record Page(Feed feed, Instant windowStart, List<Card> items, long total) {}
 
     record Candidate(UUID id, Instant publishedAt, boolean availableNow,
                              long recentSaves, long recentSlots, Instant lastShown) {}
@@ -33,6 +35,16 @@ public class FeaturedFeedService {
     private static final int SLOT_COUNT = 5;
     private static final int DIRECTORY_LIMIT = 60;
     private static final long WINDOW_SECONDS = 15 * 60;
+    private static final String AVAILABLE_FROM = """
+            FROM listings l
+            JOIN app_users u ON u.id = l.owner_id AND u.enabled = TRUE
+            JOIN user_preferences up ON up.user_id = l.owner_id AND up.available_now = TRUE
+            JOIN categories c ON c.id = l.category_id
+            JOIN locations p ON p.id = l.province_id
+            JOIN locations a ON a.id = l.location_id
+            WHERE l.site_scope = 'PERSONALS' AND l.status = 'ACTIVE'
+              AND (l.expires_at IS NULL OR l.expires_at > now())
+            """;
     private final JdbcTemplate jdbc;
     private final ObjectStorage storage;
 
@@ -44,13 +56,32 @@ public class FeaturedFeedService {
     @Transactional
     public Page get(Feed feed, boolean all) {
         Instant now = Instant.now();
+        // Availability is current account state, not a 15-minute allocation.
+        // Turning it on/off must affect the next read, even if the ad already
+        // occupies another featured slot or was published during this window.
+        if (feed == Feed.AVAILABLE_NOW) return available(now, all);
         Instant window = Instant.ofEpochSecond((now.getEpochSecond() / WINDOW_SECONDS) * WINDOW_SECONDS);
         // One worker builds a window, even when three feed requests arrive together.
         jdbc.execute("SELECT pg_advisory_xact_lock(20260928)");
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM featured_slots WHERE window_start = ?",
                 Integer.class, Timestamp.from(window));
         if (count != null && count == 0) generate(window, now);
-        return new Page(feed, window, cards(feed, window, all));
+        List<Card> items = cards(feed, window, all);
+        return new Page(feed, window, items, items.size());
+    }
+
+    private Page available(Instant now, boolean all) {
+        long total = jdbc.queryForObject("SELECT COUNT(*) " + AVAILABLE_FROM, Long.class);
+        List<Card> items = jdbc.query("""
+                SELECT l.id, l.title, l.business_name, l.price, c.label AS category_label,
+                       p.label AS province_label, a.label AS location_label, l.verified, l.view_count, l.save_count,
+                       COALESCE(l.published_at, l.created_at) AS published_at,
+                       (SELECT lm.object_key FROM listing_media lm WHERE lm.listing_id = l.id
+                        AND lm.status = 'READY' ORDER BY lm.position, lm.created_at LIMIT 1) AS cover
+                """ + AVAILABLE_FROM + """
+                ORDER BY up.updated_at DESC, COALESCE(l.published_at, l.created_at) DESC, l.id LIMIT ?
+                """, this::card, all ? DIRECTORY_LIMIT : SLOT_COUNT);
+        return new Page(Feed.AVAILABLE_NOW, now, items, total);
     }
 
     private void generate(Instant window, Instant now) {
@@ -158,15 +189,17 @@ public class FeaturedFeedService {
                 WHERE f.window_start = ? AND f.feed = ? AND (? OR f.selected = TRUE)
                   AND l.status = 'ACTIVE' AND (l.expires_at IS NULL OR l.expires_at > now())
                 ORDER BY f.score DESC, l.id LIMIT ?
-                """, (rs, n) -> {
-                    String key = rs.getString("cover");
-                    return new Card(rs.getObject("id", UUID.class), rs.getString("title"),
-                            rs.getString("business_name"), rs.getBigDecimal("price"),
-                            rs.getString("category_label"), rs.getString("province_label"),
-                            rs.getString("location_label"), rs.getBoolean("verified"),
-                            key == null ? null : storage.authorizeDownload(key).toString(),
-                            rs.getTimestamp("published_at").toInstant(), rs.getLong("view_count"),
-                            rs.getLong("save_count"));
-                }, Timestamp.from(window), feed.name(), all, all ? DIRECTORY_LIMIT : SLOT_COUNT);
+                """, this::card, Timestamp.from(window), feed.name(), all, all ? DIRECTORY_LIMIT : SLOT_COUNT);
+    }
+
+    private Card card(ResultSet rs, int row) throws SQLException {
+        String key = rs.getString("cover");
+        return new Card(rs.getObject("id", UUID.class), rs.getString("title"),
+                rs.getString("business_name"), rs.getBigDecimal("price"),
+                rs.getString("category_label"), rs.getString("province_label"),
+                rs.getString("location_label"), rs.getBoolean("verified"),
+                key == null ? null : storage.authorizeDownload(key).toString(),
+                rs.getTimestamp("published_at").toInstant(), rs.getLong("view_count"),
+                rs.getLong("save_count"));
     }
 }

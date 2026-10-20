@@ -8,4 +8,4 @@ import java.util.UUID;
  * their posts has a READY image.
  */
 public record TrendingSellerResponse(UUID id, String displayName, String avatarUrl, boolean verified,
-                                     long postCount, long viewCount, long likeCount, String coverUrl) { }
+                                     long postCount, long viewCount, long likeCount, String coverUrl, UUID coverListingId) { }

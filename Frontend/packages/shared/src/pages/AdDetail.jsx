@@ -5,21 +5,16 @@ import Link from "next/link";
 import { useNavigate } from "../lib/nav";
 import { useParams } from "next/navigation";
 import {
-  BadgeCheck,
   Flag,
   Heart,
   Mail,
   MapPin,
   Phone,
   ShieldCheck,
-  User,
-  UserRoundX,
 } from "lucide-react";
 import TopBar from "../components/layout/TopBar";
-import { useShell } from "../components/layout/AppLayout";
 import PageBody from "../components/layout/PageBody";
 import Button from "../components/ui/Button";
-import ConfirmDialog from "../components/ui/ConfirmDialog";
 import ReportDialog from "../components/ReportDialog";
 import { useToast } from "../context/ToastContext";
 import { useReports } from "../context/ReportsContext";
@@ -36,6 +31,7 @@ import { FEED_PATH, IS_PERSONALS } from "../lib/sites";
 import { usePersistedObject } from "../lib/persisted";
 import useLiveViewCount, { publishLiveViewCount } from "../lib/useLiveViewCount.js";
 import MediaImage from "../components/media/MediaImage.jsx";
+import AdPhotoGallery from "../components/media/AdPhotoGallery.jsx";
 import {
   NO_REVEALS,
   REVEALS_KEY,
@@ -52,9 +48,6 @@ import {
 } from "../lib/listings";
 
 const CARD = "rounded-card bg-surface p-4 shadow-card lg:p-6";
-
-const CALL =
-  "inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl brand-gradient h-[52px] px-6 text-[16px] font-semibold text-on-brand shadow-pop transition-all duration-150 hover:brightness-110 active:scale-[0.98] active:brightness-95";
 
 const PILL =
   "inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl brand-gradient px-3.5 text-[13px] font-semibold text-on-brand shadow-pop transition-all duration-150 hover:brightness-110 active:scale-[0.98] active:brightness-95";
@@ -96,10 +89,10 @@ function ContactRow({
 }
 
 /** Loading skeleton — fixed-height blocks in the same layout the real page fills. */
-function DetailSkeleton({ onBack, openPost }) {
+function DetailSkeleton({ onBack, headerActions }) {
   return (
     <>
-      <TopBar variant="detail" onBack={onBack} onPostAd={openPost} />
+      <TopBar variant="detail" onBack={onBack} actions={headerActions} />
       <PageBody className="px-4 pb-6 lg:px-8 lg:py-8">
         <div className="lg:grid lg:grid-cols-[1.35fr_1fr] lg:items-start lg:gap-x-8 lg:gap-y-6">
           <div className="h-64 animate-pulse rounded-card bg-surface shadow-card lg:h-[440px]" />
@@ -112,27 +105,39 @@ function DetailSkeleton({ onBack, openPost }) {
   );
 }
 
-/**
- * A backend `ListingResponse.attributes` map, rendered the way the old mock
- * body's `specs`/`details` were: a plain label/value list. There is no
- * split between "four highlight tiles" and "a ten-row table" any more — the
- * server has no notion of which attributes deserve a coloured chip — so
- * every attribute renders the same way, which is the table shape rather
- * than the tiles.
- */
+const OVERVIEW_FIELDS = [
+  ["eyeColour", "Eye colour"],
+  ["weight", "Weight"],
+  ["hairColour", "Hair colour"],
+  ["height", "Height"],
+  ["age", "Age"],
+  ["ethnicity", "Ethnicity"],
+  ["bodyStats", "Body stats"],
+];
+
 function attributesToRows(attributes) {
   if (!attributes) return [];
-  return Object.entries(attributes)
+  const labels = Object.fromEntries(OVERVIEW_FIELDS);
+  const keys = [...OVERVIEW_FIELDS.map(([key]) => key), ...Object.keys(attributes)];
+  return [...new Set(keys)]
+    .map((key) => [key, attributes[key]])
     .filter(([, v]) => v != null && v !== "")
-    .map(([label, value]) => ({ label, value }));
+    .map(([key, value]) => ({
+      key,
+      label: labels[key] ?? key
+        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+        .replace(/[_-]+/g, " ")
+        .replace(/^./, (letter) => letter.toUpperCase()),
+      value,
+    }));
 }
 
-export default function AdDetail() {
-  const { id } = useParams();
+export default function AdDetail({ listingId, onClose, headerActions, loadDetail, onSwipeAd, onReady } = {}) {
+  const params = useParams();
+  const id = listingId ?? params.id;
   const navigate = useNavigate();
-  const { openPost } = useShell();
   const toast = useToast();
-  const { isBlocked, block, unblock, reportOf } = useReports();
+  const { reportOf } = useReports();
   const { signedIn } = useAuth();
   const { isSaved, toggle: toggleSaved } = useSaved();
 
@@ -145,40 +150,42 @@ export default function AdDetail() {
   const recordedViews = useRef(new Set());
   const liveViewCount = useLiveViewCount(listing?.id, listing?.viewCount, SITE_SCOPE);
 
-  const [active, setActive] = useState(0);
   const [reporting, setReporting] = useState(false);
-  const [confirmBlock, setConfirmBlock] = useState(false);
 
   const [toggles] = usePersistedObject(SETTINGS_TOGGLES_KEY);
   const [reveals, setReveals] = usePersistedObject(REVEALS_KEY);
 
+  const loadVersion = useRef(0);
   function load() {
+    const version = ++loadVersion.current;
     setLoading(true);
     setError(null);
     setNotFound(false);
-    getListingDetail(id, SITE_SCOPE)
+    (loadDetail ? loadDetail(id) : getListingDetail(id, SITE_SCOPE))
       .then((row) => {
+        if (loadVersion.current !== version) return null;
         setListing(row);
-        setActive(0);
         // `limit: 1` rather than 0 — the service rejects anything outside
         // 1-50 — and this page only reads `sellerPage.seller`, not `items`.
         return getSellerProfile(row.ownerId, { site: SITE_SCOPE, limit: 1 }).catch(
           () => null,
         );
       })
-      .then((sellerPage) => setSeller(sellerPage?.seller ?? null))
+      .then((sellerPage) => { if (loadVersion.current === version) setSeller(sellerPage?.seller ?? null); })
       .catch((err) => {
+        if (loadVersion.current !== version) return;
         if (err instanceof ApiError && (err.status === 404 || err.status === 403)) {
           setNotFound(true);
         } else {
           setError(err);
         }
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (loadVersion.current === version) setLoading(false); });
   }
 
   useEffect(() => {
     if (id) load();
+    return () => { loadVersion.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -211,6 +218,10 @@ export default function AdDetail() {
     return undefined;
   }, [id, listing?.id]);
 
+  useEffect(() => {
+    if (!loading) onReady?.();
+  }, [loading, onReady]);
+
   const reveal = (channel) => () => {
     const at = Date.now();
     const current = reveals ?? NO_REVEALS;
@@ -237,7 +248,7 @@ export default function AdDetail() {
   }
 
   if (loading) {
-    return <DetailSkeleton onBack={() => navigate(-1)} openPost={openPost} />;
+    return <DetailSkeleton onBack={onClose ?? (() => navigate(-1))} headerActions={headerActions} />;
   }
 
   if (notFound || (!listing && !error)) {
@@ -245,8 +256,8 @@ export default function AdDetail() {
       <>
         <TopBar
           variant="detail"
-          onBack={() => navigate(-1)}
-          onPostAd={openPost}
+          actions={headerActions}
+          onBack={onClose ?? (() => navigate(-1))}
         />
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           <p className="text-[18px] font-bold text-ink">
@@ -265,8 +276,8 @@ export default function AdDetail() {
       <>
         <TopBar
           variant="detail"
-          onBack={() => navigate(-1)}
-          onPostAd={openPost}
+          actions={headerActions}
+          onBack={onClose ?? (() => navigate(-1))}
         />
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
           <p className="text-[18px] font-bold text-ink">
@@ -289,6 +300,19 @@ export default function AdDetail() {
 
   const mailHref = `mailto:${listing.contactEmail}?subject=${encodeURIComponent(listing.title)}`;
   const telHref = `tel:${(listing.contactPhone ?? "").replace(/\s+/g, "")}`;
+  const hasCoordinates = Number.isFinite(listing.latitude)
+    && Number.isFinite(listing.longitude)
+    && Math.abs(listing.latitude) <= 90
+    && Math.abs(listing.longitude) <= 180;
+  const locationLabel = listing.locationLabel || listing.provinceLabel;
+  const mapQuery = hasCoordinates
+    ? `${listing.latitude},${listing.longitude}`
+    : locationLabel
+      ? [listing.locationLabel, listing.provinceLabel, "Canada"].filter(Boolean).join(", ")
+      : null;
+  const mapHref = mapQuery
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}`
+    : null;
 
   const phoneShown = showsPhone(toggles) && Boolean(listing.contactPhone);
   const emailShown = showsEmail(toggles) && Boolean(listing.contactEmail);
@@ -333,11 +357,7 @@ export default function AdDetail() {
     .filter(Boolean)
     .join(" ");
 
-  const lead = channels[0] ?? null;
-  const LeadIcon = lead?.icon ?? User;
-
   const sellerName = seller?.displayName ?? "Vezlist seller";
-  const blocked = isBlocked(listing.ownerId);
   const reported = reportOf("listing", id);
   const rows = attributesToRows(listing.attributes);
   const saved = isSaved(id);
@@ -349,64 +369,16 @@ export default function AdDetail() {
     <>
       <TopBar
         variant="detail"
+        actions={headerActions}
         title={listing.title}
-        onBack={() => navigate(-1)}
-        onPostAd={openPost}
+        onBack={onClose ?? (() => navigate(-1))}
       />
 
       <PageBody className="px-4 pb-6 lg:px-8 lg:py-8">
         <div className="lg:grid lg:grid-cols-[1.35fr_1fr] lg:items-start lg:gap-x-8 lg:gap-y-6">
           {/* 1 — gallery */}
           <section className="lg:col-start-1 lg:row-start-1">
-            <div className="overflow-hidden rounded-card shadow-card">
-              <div className="relative h-96 bg-canvas lg:h-[560px]">
-                {photos.length > 0 ? (
-                  <>
-                    <MediaImage
-                      key={photos[active]}
-                      discreet
-                      fill
-                      preload
-                      src={photos[active]}
-                      alt={listing.title}
-                      sizes="(min-width: 1024px) 620px, 100vw"
-                      className="object-contain"
-                    />
-                  </>
-                ) : (
-                  <div className="flex size-full items-center justify-center bg-canvas text-[14px] font-medium text-muted">
-                    No photos yet
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {photos.length > 1 && (
-              <div className="no-scrollbar mt-3 flex gap-2 overflow-x-auto pb-1">
-                {photos.map((src, i) => (
-                  <button
-                    key={src}
-                    onClick={() => setActive(i)}
-                    aria-label={`Photo ${i + 1}`}
-                    aria-current={i === active}
-                    className={`relative size-16 shrink-0 overflow-hidden rounded-2xl transition-all lg:size-20 ${
-                      i === active
-                        ? "ring-2 ring-brand ring-offset-2 ring-offset-canvas"
-                        : "opacity-70 hover:opacity-100"
-                    }`}
-                  >
-                    <MediaImage
-                      discreet
-                      fill
-                      src={src}
-                      alt=""
-                      sizes="(min-width: 1024px) 80px, 64px"
-                      className="object-cover"
-                    />
-                  </button>
-                ))}
-              </div>
-            )}
+            <AdPhotoGallery key={listing.id} photos={photos} title={listing.title} onSwipeAd={onSwipeAd} />
           </section>
 
           {/* 2 — title, price, overview */}
@@ -419,9 +391,14 @@ export default function AdDetail() {
               </p>
             )}
             <div className="flex items-start justify-between gap-3">
-              <h1 className="text-[24px] font-extrabold leading-tight text-ink lg:text-[26px]">
-                {listing.title}
-              </h1>
+              <div className="min-w-0">
+                <h1 className="break-words text-[20px] font-extrabold leading-tight text-ink lg:text-[22px]">
+                  {listing.title}
+                </h1>
+                <p className="text-[24px] font-extrabold leading-tight tabular-nums text-brand lg:text-[26px]">
+                  ${Number(listing.price ?? 0).toLocaleString()}
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={onToggleSave}
@@ -439,15 +416,19 @@ export default function AdDetail() {
               </button>
             </div>
 
-            <p className="mt-2 text-[30px] font-extrabold tabular-nums text-brand">
-              ${Number(listing.price ?? 0).toLocaleString()}
-            </p>
-
             <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
-              <span className="flex items-center gap-1 rounded-full bg-canvas px-2.5 py-1 font-semibold">
-                <MapPin className="size-3.5" />
-                {listing.locationLabel}
-              </span>
+              {mapHref && (
+                <a
+                  href={mapHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`Open ${locationLabel || "ad location"} in Google Maps (opens externally)`}
+                  className="flex items-center gap-1 rounded-full bg-canvas px-2.5 py-1 font-semibold transition-colors hover:bg-brand-soft hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                >
+                  <MapPin aria-hidden="true" className="size-3.5" />
+                  {locationLabel || "View location"}
+                </a>
+              )}
               <span>
                 {postedLabel}
                 {liveViewCount != null &&
@@ -456,26 +437,32 @@ export default function AdDetail() {
             </p>
 
             {rows.length > 0 && (
-              <>
-                <h2 className="mb-3 mt-6 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
+              <div className="mt-5 border-t border-line pt-4">
+                <h2 className="mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
                   Overview
                 </h2>
-                <dl className="divide-y divide-line">
-                  {rows.map((d) => (
+                <dl className="grid grid-cols-2">
+                  {rows.map((d, index) => (
                     <div
-                      key={d.label}
-                      className="flex items-baseline justify-between gap-4 py-2.5 first:pt-0 last:pb-0"
+                      key={d.key}
+                      className={`flex min-w-0 items-baseline justify-between gap-2 border-b border-line py-3 ${
+                        index === rows.length - 1 && rows.length % 2 !== 0
+                          ? "col-span-2"
+                          : index % 2 === 0
+                            ? "border-r pr-3"
+                            : "pl-3"
+                      }`}
                     >
-                      <dt className="shrink-0 text-[13px] font-semibold text-muted">
+                      <dt className="min-w-0 max-w-[50%] break-words text-[12px] font-medium text-muted lg:text-[13px]">
                         {d.label}
                       </dt>
-                      <dd className="min-w-0 truncate text-right text-[14px] font-bold text-ink">
+                      <dd className="min-w-0 flex-1 break-words text-right text-[13px] font-bold text-ink lg:text-[14px]">
                         {d.value}
                       </dd>
                     </div>
                   ))}
                 </dl>
-              </>
+              </div>
             )}
           </section>
 
@@ -498,7 +485,7 @@ export default function AdDetail() {
           <div className="lg:col-start-2 lg:row-start-2 lg:space-y-6">
             <section className={`mt-4 lg:mt-0 ${CARD}`}>
               <h2 className="text-[18px] font-extrabold text-ink">
-                Contact the seller
+                Contact
               </h2>
               {channels.length > 0 ? (
                 <>
@@ -530,7 +517,7 @@ export default function AdDetail() {
             </section>
 
             <section className={`mt-4 lg:mt-0 ${CARD}`}>
-              <h2 className="text-[18px] font-extrabold text-ink">Seller</h2>
+              <h2 className="text-[18px] font-extrabold text-ink">Advertiser</h2>
 
               <Link
                 href={`/seller/${listing.ownerId}`}
@@ -573,52 +560,11 @@ export default function AdDetail() {
                   <Flag className="size-4" strokeWidth={2.2} />
                   {reported ? "Reported" : "Report ad"}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (blocked) {
-                      unblock(listing.ownerId);
-                      toast(`${sellerName} unblocked`);
-                    } else {
-                      setConfirmBlock(true);
-                    }
-                  }}
-                  className={`flex items-center gap-1.5 text-[13.5px] font-semibold transition-colors ${
-                    blocked ? "text-brand" : "text-muted hover:text-danger"
-                  }`}
-                >
-                  <UserRoundX className="size-4" strokeWidth={2.2} />
-                  {blocked ? "Unblock seller" : "Block seller"}
-                </button>
               </div>
             </section>
           </div>
         </div>
       </PageBody>
-
-      <div className="glass shrink-0 border-t border-line px-4 pb-nav pt-3 lg:hidden">
-        <div className="flex gap-2.5">
-          {!lead ? (
-            <Link
-              href={`/seller/${listing.ownerId}`}
-              className="brand-gradient flex h-[52px] flex-1 items-center justify-center gap-2 rounded-2xl text-[16px] font-bold text-on-brand shadow-pop transition-transform active:scale-[0.98]"
-            >
-              <User className="size-5" />
-              View seller
-            </Link>
-          ) : lead.revealed ? (
-            <a href={lead.href} className={`${CALL} flex-1`}>
-              <LeadIcon className="size-5" />
-              {lead.actionLabel}
-            </a>
-          ) : (
-            <Button size="lg" className="flex-1" onClick={reveal(lead.id)}>
-              <LeadIcon className="size-5" />
-              {lead.showLabel}
-            </Button>
-          )}
-        </div>
-      </div>
 
       <ReportDialog
         open={reporting}
@@ -628,19 +574,6 @@ export default function AdDetail() {
         onClose={() => setReporting(false)}
       />
 
-      <ConfirmDialog
-        open={confirmBlock}
-        title={`Block ${sellerName}?`}
-        body="Their ads stop appearing in your feed on this device. It takes effect straight away and you can undo it from their profile or from Account Settings. Blocking is not a report — if this ad is against the rules, report it too."
-        confirmLabel="Block"
-        destructive
-        onConfirm={() => {
-          setConfirmBlock(false);
-          block(listing.ownerId, sellerName);
-          toast(`${sellerName} blocked — their ads are hidden`);
-        }}
-        onClose={() => setConfirmBlock(false)}
-      />
     </>
   );
 }

@@ -3,7 +3,7 @@ import { api } from "./client.js";
 /**
  * GET /api/v1/admin/analytics/summary?site= -> AdminAnalyticsSummaryResponse
  * (cc.vezlist.admin.web.AdminAnalyticsController/AdminAnalyticsSummaryResponse):
- * `{site, totalUsers, suspendedUsers, totalListings, listingsByStatus:{},
+ * `{site, totalUsers, usersWithListings, suspendedUsers, totalListings, listingsByStatus:{},
  * newListingsLast7Days, newListingsLast30Days, activeReportsCount,
  * openModerationCasesCount}`.
  *
@@ -17,4 +17,8 @@ import { api } from "./client.js";
  */
 export function analyticsSummary(site) {
   return api.get("/api/v1/admin/analytics/summary", { site });
+}
+
+export function queueCounts(site) {
+  return api.get("/api/v1/admin/analytics/queues", { site });
 }

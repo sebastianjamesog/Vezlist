@@ -17,6 +17,7 @@ vi.mock("@vezlist/shared/context/FeedContext.jsx", () => ({
   }),
 }));
 vi.mock("../useDiscreet", () => ({ useDiscreet: () => [false, vi.fn()] }));
+vi.mock("../useShortcutPreviews.js", () => ({ default: () => ({}) }));
 vi.mock("@vezlist/shared/lib/api/discovery.js", () => ({
   searchListings: vi.fn().mockResolvedValue({ items: [] }),
 }));

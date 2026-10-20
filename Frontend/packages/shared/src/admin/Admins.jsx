@@ -4,7 +4,10 @@ import { useEffect, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import AdminHeader, { CARD } from "../components/admin/AdminHeader";
 import DataTable from "../components/admin/DataTable";
-import { TableHeaderSkeleton, TableRowSkeleton } from "../components/ui/Skeleton";
+import {
+  TableHeaderSkeleton,
+  TableRowSkeleton,
+} from "../components/ui/Skeleton";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
 import { useAdminAuth } from "../context/AdminAuthContext";
@@ -14,30 +17,36 @@ import { ApiError } from "../lib/api/client";
 
 /**
  * Who can get into the console: every account with a MODERATOR or ADMIN
- * role, drawn from the same `GET /api/v1/admin/users` list every other
- * screen uses — there is no dedicated "admins" endpoint, and the backend
+ * role, drawn from `GET /api/v1/admin/users?staffOnly=true` — there is no dedicated "admins" endpoint, and the backend
  * has no way to grant or revoke a role from here, so this is a read-only
  * roster rather than the old mock's add/edit/remove screen.
  */
 
 const STAFF_ROLES = new Set(["MODERATOR", "ADMIN"]);
-const MAX_PAGES = 20; // safety cap; a real staff roster is nowhere near 2000 accounts
 
 function messageFor(error) {
   if (error instanceof ApiError) return error.message;
   return "Something went wrong. Check your connection and try again.";
 }
 
-/** Walks every page of the admin user list and keeps only staff roles. */
+/** Load all staff pages without scanning ordinary member accounts. */
 async function fetchStaff() {
   let cursor;
   const staff = [];
-  for (let i = 0; i < MAX_PAGES; i++) {
-    const page = await adminUsersApi.listAdminUsers({ cursor, limit: 100 });
+  const seen = new Set();
+  while (true) {
+    const page = await adminUsersApi.listAdminUsers({
+      cursor,
+      limit: 100,
+      staffOnly: true,
+    });
     for (const u of page.items) {
       if (u.roles.some((r) => STAFF_ROLES.has(r))) staff.push(u);
     }
     if (!page.hasMore) break;
+    if (!page.nextCursor || seen.has(page.nextCursor))
+      throw new Error("Could not continue loading staff accounts.");
+    seen.add(page.nextCursor);
     cursor = page.nextCursor;
   }
   return staff;
@@ -142,7 +151,9 @@ export default function Admins() {
 
       {error ? (
         <div className="flex flex-col items-center gap-3 rounded-card bg-surface px-6 py-16 text-center shadow-card">
-          <p className="text-[15px] font-semibold text-ink">Couldn't load admins</p>
+          <p className="text-[15px] font-semibold text-ink">
+            Couldn't load admins
+          </p>
           <p className="max-w-xs text-[13px] text-muted">{error}</p>
           <Button onClick={load}>Try again</Button>
         </div>
@@ -190,7 +201,11 @@ export default function Admins() {
                   Permission
                 </th>
                 {ROLE_LIST.map((r) => (
-                  <th key={r.id} scope="col" className="pb-2 text-center font-bold text-muted">
+                  <th
+                    key={r.id}
+                    scope="col"
+                    className="pb-2 text-center font-bold text-muted"
+                  >
                     {r.label}
                   </th>
                 ))}
@@ -198,12 +213,18 @@ export default function Admins() {
             </thead>
             <tbody>
               {Object.keys(PERMISSIONS).map((permission) => (
-                <tr key={permission} className="border-b border-line last:border-0">
+                <tr
+                  key={permission}
+                  className="border-b border-line last:border-0"
+                >
                   <td className="py-1.5 text-ink">{permission}</td>
                   {ROLE_LIST.map((r) => (
                     <td key={r.id} className="py-1.5 text-center">
                       {can(r.id, permission) ? (
-                        <span className="font-bold text-emerald-600" aria-label="yes">
+                        <span
+                          className="font-bold text-emerald-600"
+                          aria-label="yes"
+                        >
                           ✓
                         </span>
                       ) : (

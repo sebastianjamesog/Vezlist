@@ -85,6 +85,9 @@ public class AdminListingService {
         } catch (IllegalStateException exception) {
             throw new ListingStateException(exception.getMessage());
         }
+        // A direct takedown resolves any open report. Otherwise it occupies the
+        // unique open-case slot and an owner appeal incorrectly reuses that report.
+        adminListings.closeOpenCases(id);
         events.save(new ListingEvent(id, "LISTING_REMOVED"));
         audit.record(actorId, "LISTING_REMOVED", "LISTING", id.toString(), request.reason());
         return detail(id);

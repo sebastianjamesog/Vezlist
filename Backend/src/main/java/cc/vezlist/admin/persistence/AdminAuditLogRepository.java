@@ -55,7 +55,7 @@ public class AdminAuditLogRepository {
         Object[] args;
         if (beforeCreatedAt != null) {
             sql.append(" AND (a.created_at < ? OR (a.created_at = ? AND a.id < ?)) ");
-            args = new Object[] {beforeCreatedAt, beforeCreatedAt, beforeId, limit};
+            args = new Object[] {java.sql.Timestamp.from(beforeCreatedAt), java.sql.Timestamp.from(beforeCreatedAt), beforeId, limit};
         } else {
             args = new Object[] {limit};
         }

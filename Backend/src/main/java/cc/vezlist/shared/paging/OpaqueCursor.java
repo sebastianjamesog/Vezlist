@@ -27,7 +27,7 @@ public final class OpaqueCursor {
     }
 
     public static String encode(Anchor anchor) {
-        String raw = anchor.createdAt().toEpochMilli() + ":" + anchor.id();
+        String raw = anchor.createdAt() + "|" + anchor.id();
         return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
     }
 
@@ -42,11 +42,13 @@ public final class OpaqueCursor {
         }
         try {
             String raw = new String(Base64.getUrlDecoder().decode(encoded), StandardCharsets.UTF_8);
-            int separator = raw.indexOf(':');
+            boolean precise = raw.indexOf('|') >= 0;
+            int separator = raw.indexOf(precise ? '|' : ':');
             if (separator < 0) {
                 throw new IllegalArgumentException("Malformed cursor.");
             }
-            Instant createdAt = Instant.ofEpochMilli(Long.parseLong(raw.substring(0, separator)));
+            Instant createdAt = precise ? Instant.parse(raw.substring(0, separator))
+                    : Instant.ofEpochMilli(Long.parseLong(raw.substring(0, separator)));
             UUID id = UUID.fromString(raw.substring(separator + 1));
             return new Anchor(createdAt, id);
         } catch (RuntimeException exception) {

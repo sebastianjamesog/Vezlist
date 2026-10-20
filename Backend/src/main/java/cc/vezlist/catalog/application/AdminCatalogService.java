@@ -55,6 +55,28 @@ public class AdminCatalogService {
                 .toList();
     }
 
+    /** Normalize tied orders and reorder one board atomically, without altering the other board. */
+    @Transactional
+    public List<AdminCategoryResponse> moveCategory(UUID actorId, String id, int direction) {
+        if (direction != -1 && direction != 1) throw new IllegalArgumentException("Direction must be -1 or 1.");
+        Category target = categories.findById(id)
+                .orElseThrow(() -> new CatalogNotFoundException("Category was not found."));
+        var ordered = new java.util.ArrayList<>(categories.lockSite(target.getSiteScope()));
+        ordered.sort(java.util.Comparator.comparing(Category::getDisplayOrder).thenComparing(Category::getLabel).thenComparing(Category::getId));
+        int index = java.util.stream.IntStream.range(0, ordered.size())
+                .filter(i -> ordered.get(i).getId().equals(id)).findFirst().orElseThrow();
+        int next = index + direction;
+        if (next >= 0 && next < ordered.size()) {
+            java.util.Collections.swap(ordered, index, next);
+            for (int i = 0; i < ordered.size(); i++) {
+                var item = ordered.get(i);
+                item.update(item.getLabel(), item.getIcon(), item.isPrimary(), i);
+            }
+            audit.record(actorId, "CATEGORY_REORDERED", "CATEGORY", id, "Moved within " + target.getSiteScope());
+        }
+        return ordered.stream().map(AdminCategoryResponse::from).toList();
+    }
+
     @Transactional
     public AdminCategoryResponse createCategory(UUID actorId, CreateCategoryRequest request) {
         String id = slug(request.label());
@@ -124,7 +146,7 @@ public class AdminCatalogService {
         if (province.getType() != LocationType.PROVINCE) {
             throw new CatalogReferenceInvalidException("'" + request.provinceId() + "' is not a province.");
         }
-        String id = request.provinceId() + "-" + slug(request.label());
+        String id = boundedId(request.provinceId() + "-" + slug(request.label()));
         if (locations.existsById(id)) {
             throw new CatalogAlreadyExistsException("An area with a similar name already exists (id: " + id + ").");
         }
@@ -172,6 +194,13 @@ public class AdminCatalogService {
                 .replaceAll("[\\p{InCombiningDiacriticalMarks}]", "")
                 .toLowerCase(Locale.ROOT);
         String slug = NON_ALNUM.matcher(normalized).replaceAll("-").replaceAll("^-+|-+$", "");
-        return slug.isBlank() ? "category" : slug;
+        return boundedId(slug.isBlank() ? "category" : slug);
+    }
+
+    private String boundedId(String value) {
+        if (value.length() <= 40) return value;
+        String suffix = UUID.nameUUIDFromBytes(value.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .toString().substring(0, 8);
+        return value.substring(0, 31) + "-" + suffix;
     }
 }

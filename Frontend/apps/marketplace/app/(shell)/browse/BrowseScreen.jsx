@@ -23,6 +23,9 @@ import Field, {
 } from "@vezlist/shared/components/create/Field.jsx";
 import LocationBar from "@vezlist/shared/components/LocationBar.jsx";
 import FilterSheet from "@vezlist/shared/components/FilterSheet.jsx";
+import { provinceById } from "@vezlist/shared/data/locations.js";
+import { useAdPopup } from "@vezlist/shared/components/AdPopup.jsx";
+import FilterChips from "@vezlist/shared/components/FilterChips.jsx";
 import FilterButton from "@vezlist/shared/components/FilterButton.jsx";
 import ListingCard from "@vezlist/shared/components/cards/ListingCard.jsx";
 import { ListingCardSkeleton } from "@vezlist/shared/components/ui/Skeleton.jsx";
@@ -30,7 +33,7 @@ import { Promos, Shortcuts } from "@vezlist/shared/components/FeedRails.jsx";
 import { useShell } from "@vezlist/shared/components/layout/AppLayout.jsx";
 import { useFeed } from "@vezlist/shared/context/FeedContext.jsx";
 import { useSearch } from "@vezlist/shared/context/SearchContext.jsx";
-import { searchListings } from "@vezlist/shared/lib/api/discovery.js";
+import useBrowseResults from "@vezlist/shared/hooks/useBrowseResults.js";
 import { SITE_SCOPE } from "@vezlist/shared/lib/api/client.js";
 import {
   DEFAULT_FILTERS,
@@ -54,6 +57,7 @@ import {
  */
 const SORT_TO_API = {
   newest: "NEWEST",
+  "verified-first": "VERIFIED_FIRST",
   "price-asc": "PRICE_ASC",
   "price-desc": "PRICE_DESC",
   nearest: "NEAREST",
@@ -79,6 +83,8 @@ function buildDiscoveryParams(filters, query, locations, cursor) {
     site: SITE_SCOPE,
     q: query.trim() || undefined,
     sort: SORT_TO_API[filters.sort],
+    minPrice: filters.minPrice || undefined,
+    maxPrice: filters.maxPrice || undefined,
     verifiedOnly: filters.verifiedOnly || undefined,
     postedWithin: POSTED_WITHIN_TO_API[filters.postedWithin],
     province: filters.province !== "all" ? filters.province : undefined,
@@ -173,7 +179,8 @@ const SHORTCUTS = [
 ];
 
 export default function BrowseScreen() {
-  const { filters, setFilters, query, setQuery, locations } = useFeed();
+  const viewer = useAdPopup();
+  const { filters, setFilters, query, setQuery, locations, browseCache, categories } = useFeed();
   const { openPost } = useShell();
   const navigate = useNavigate();
   const { recent, saved, recordSearch, clearRecent, saveSearch, deleteSaved } =
@@ -181,7 +188,7 @@ export default function BrowseScreen() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const catParam = params.get("cat");
   const subParam = params.get("sub");
 
@@ -203,9 +210,12 @@ export default function BrowseScreen() {
     // `subParam` intentionally unused now — kept read above only so a
     // future real sub-category could reuse this effect without also
     // relearning where `?sub=` comes from.
-  }, [catParam, subParam, setFilters]);
+  }, [catParam, subParam, setFilters, categories]);
 
-  const patch = (next) => setFilters((f) => ({ ...f, ...next }));
+  const patch = (next) => {
+    if (next.categories && (catParam || subParam)) setParams({});
+    setFilters((f) => ({ ...f, ...next }));
+  };
   const activeCategory =
     filters.categories.length === 1 ? filters.categories[0] : null;
   const heading = categoryPath(activeCategory, null) || "Latest ads";
@@ -213,55 +223,12 @@ export default function BrowseScreen() {
   function resetAll() {
     setFilters(DEFAULT_FILTERS);
     setQuery("");
+    if (catParam || subParam) setParams({});
   }
 
   /* --------------------------------------------------------- the feed --- */
-  const [items, setItems] = useState([]);
-  const [nextCursor, setNextCursor] = useState(null);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState(null);
-  const [reloadToken, setReloadToken] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    searchListings(buildDiscoveryParams(filters, query, locations))
-      .then((res) => {
-        if (cancelled) return;
-        setItems(res?.items ?? []);
-        setNextCursor(res?.nextCursor ?? null);
-        setHasMore(!!res?.hasMore);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // `locations` is an object that only ever changes once (mock → real);
-    // it is a real dependency (area filtering needs it) but not one worth
-    // debouncing against.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, query, locations, reloadToken]);
-
-  function loadMore() {
-    if (!hasMore || loadingMore || !nextCursor) return;
-    setLoadingMore(true);
-    searchListings(buildDiscoveryParams(filters, query, locations, nextCursor))
-      .then((res) => {
-        setItems((prev) => [...prev, ...(res?.items ?? [])]);
-        setNextCursor(res?.nextCursor ?? null);
-        setHasMore(!!res?.hasMore);
-      })
-      .catch(() => setError((e) => e ?? new Error("Couldn't load more ads")))
-      .finally(() => setLoadingMore(false));
-  }
+  const { items, hasMore, loading, loadingMore, error, loadMore, retry, scroll } =
+    useBrowseResults(buildDiscoveryParams(filters, query, locations), browseCache);
 
   const cards = useMemo(() => items.map(toCardListing), [items]);
   const filterCount = activeFilterCount(filters);
@@ -342,7 +309,7 @@ export default function BrowseScreen() {
 
   return (
     <>
-      <PageBody className="px-4 pb-8 lg:px-8">
+      <PageBody scrollMemory={scroll} className="px-4 pb-8 lg:px-8">
         <div className="pb-3 pt-3 lg:pt-4">
           <div className="flex gap-2.5">
             <SearchBar
@@ -437,6 +404,13 @@ export default function BrowseScreen() {
             />
           </div>
 
+          <p className="mb-3 text-[13px] text-muted">
+            {filters.categories.length || filters.personalsCategories.length ? "Selected categories" : "All categories"}
+            {" \u00b7 "}{provinceById(filters.province).label}
+          </p>
+          <FilterChips filters={filters} onPatch={patch} onClearAll={resetAll}
+            query={query} onClearQuery={() => setQuery("")} />
+
           {loading ? (
             <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2 lg:gap-4 xl:grid-cols-3">
               {[0, 1, 2, 3].map((i) => (
@@ -449,7 +423,7 @@ export default function BrowseScreen() {
               title="Couldn't load ads"
               body={error.message || "Something went wrong. Please try again."}
               action={
-                <Button onClick={() => setReloadToken((t) => t + 1)}>
+                <Button onClick={retry}>
                   Retry
                 </Button>
               }
@@ -458,7 +432,9 @@ export default function BrowseScreen() {
             <>
               <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2 lg:gap-4 xl:grid-cols-3">
                 {cards.map((l) => (
-                  <ListingCard key={l.id} listing={l} chevron />
+                  <ListingCard key={l.id} listing={l} chevron
+                    onOpen={!filters.verifiedOnly && ["24h", "7d"].includes(filters.postedWithin)
+                      ? (id) => viewer.open(id, cards.map((card) => card.id)) : undefined} />
                 ))}
               </div>
               {hasMore && (
@@ -501,6 +477,7 @@ export default function BrowseScreen() {
         </div>
       </PageBody>
 
+      {viewer.popup}
       <FilterSheet
         open={sheetOpen}
         filters={filters}
@@ -509,7 +486,7 @@ export default function BrowseScreen() {
         initialGroup="sort"
         onClose={() => setSheetOpen(false)}
         onApply={(next) => {
-          setFilters(next);
+          patch(next);
           setSheetOpen(false);
         }}
       />

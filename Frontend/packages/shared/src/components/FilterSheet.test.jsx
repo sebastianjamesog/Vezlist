@@ -39,9 +39,18 @@ const open = (props = {}) =>
 
 const group = (name) => screen.getByRole("button", { name });
 const applyButton = () =>
-  screen.getByRole("button", { name: /^Show \d+ ads?$/ });
+  screen.getByRole("button", { name: "Apply filters" });
 
 describe("FilterSheet", () => {
+  test("Verified first applies a sort without enabling verified-only filtering", async () => {
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    open({ onApply });
+    await user.click(screen.getByRole("radio", { name: "Verified first" }));
+    await user.click(screen.getByRole("button", { name: "Apply filters" }));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ sort: "verified-first", verifiedOnly: false }));
+  });
+
   test("opens on Sort by, and the rail marks where you are", async () => {
     const user = userEvent.setup();
     open();
@@ -134,20 +143,15 @@ describe("FilterSheet", () => {
     expect(onApply.mock.calls[0][0]).toMatchObject({ availableOnly: true });
   });
 
-  test("the personals sheet counts what 'Available now' would leave", async () => {
+  test("availability stays a draft until applied without claiming a partial-page result count", async () => {
     const user = userEvent.setup();
-    open({
-      personals: true,
-      initialGroup: "more",
-      listings: personalsListings,
-    });
-    const all = Number(applyButton().textContent.match(/\d+/)[0]);
-    expect(all).toBe(personalsListings.length);
-
+    const onApply = vi.fn();
+    open({ personals: true, initialGroup: "more", listings: personalsListings.slice(0, 1), onApply });
     await user.click(screen.getByRole("checkbox", { name: "Available now" }));
-    const free = Number(applyButton().textContent.match(/\d+/)[0]);
-    expect(free).toBe(personalsListings.filter((l) => l.available).length);
-    expect(free).toBeLessThan(all);
+    expect(applyButton().textContent).toBe("Apply filters");
+    expect(onApply).not.toHaveBeenCalled();
+    await user.click(applyButton());
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ availableOnly: true }));
   });
 
   test("editing changes nothing until Apply, and then hands over the draft", async () => {
@@ -163,20 +167,15 @@ describe("FilterSheet", () => {
     expect(onApply.mock.calls[0][0]).toMatchObject({ sort: "price-asc" });
   });
 
-  test("the Apply button counts the results the draft would give", async () => {
+  test("verified-only applies even when the currently loaded page has no matching ads", async () => {
     const user = userEvent.setup();
-    open();
-    const all = Number(applyButton().textContent.match(/\d+/)[0]);
-    expect(all).toBe(listings.length);
-
+    const onApply = vi.fn();
+    open({ listings: [], onApply });
     await user.click(group("More filters"));
-    await user.click(
-      screen.getByRole("checkbox", { name: "Verified ads only" }),
-    );
-
-    const verified = Number(applyButton().textContent.match(/\d+/)[0]);
-    expect(verified).toBe(listings.filter((l) => l.verified).length);
-    expect(verified).toBeLessThan(all);
+    await user.click(screen.getByRole("checkbox", { name: "Verified ads only" }));
+    expect(applyButton().disabled).toBe(false);
+    await user.click(applyButton());
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ verifiedOnly: true }));
   });
 
   test("the sub-category list appears under exactly one checked category", async () => {

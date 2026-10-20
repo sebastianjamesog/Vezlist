@@ -41,7 +41,7 @@ public class SellerService {
         if (limit < 1 || limit > MAX_LIMIT) throw new IllegalArgumentException("Limit must be between 1 and 50.");
         return sellers.findTrending(site, limit).stream().map(row -> new TrendingSellerResponse(row.id(),
                 row.displayName(), row.avatarUrl(), row.verified(), row.postCount(), row.viewCount(), row.likeCount(),
-                row.coverObjectKey() == null ? null : storage.authorizeDownload(row.coverObjectKey()).toString()))
+                row.coverObjectKey() == null ? null : storage.authorizeDownload(row.coverObjectKey()).toString(), row.coverListingId()))
                 .toList();
     }
     private DiscoveryListingResponse listing(SellerRepository.ListingRow row) {

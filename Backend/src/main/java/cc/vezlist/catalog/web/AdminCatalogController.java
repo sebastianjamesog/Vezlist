@@ -40,6 +40,15 @@ public class AdminCatalogController {
         return service.listCategories(site);
     }
 
+    public record MoveCategoryRequest(@jakarta.validation.constraints.NotNull Integer direction) { }
+
+    @PostMapping("/categories/{id}/move")
+    @PreAuthorize("hasRole('ADMIN')")
+    public List<AdminCategoryResponse> moveCategory(@AuthenticationPrincipal VezlistUserPrincipal actor,
+            @PathVariable String id, @Valid @RequestBody MoveCategoryRequest request) {
+        return service.moveCategory(actor.id(), id, request.direction());
+    }
+
     @PostMapping("/categories")
     @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.CREATED)

@@ -72,13 +72,7 @@ function ProvinceRow({ province, current, onPick }) {
  * Edits are held in a draft until Done — a location change re-runs the feed, so
  * committing on every tick would thrash the results behind the modal.
  *
- * Two things about the frame this now sits in. The value it shows can *correct
- * itself* a tick after hydration, because the country detection in
- * data/locations.js runs after the tree is mounted and may narrow All Canada to
- * a province; so both variants below are fixed-height and single-line, and the
- * word inside them changes without anything around them moving. And the list is
- * openly Canada-only — the note at step one says so rather than leaving a
- * visitor in Lagos to work out why every option is a province.
+ * All Canada is the default. Only a deliberate selection narrows the board.
  */
 export default function LocationBar({
   filters,

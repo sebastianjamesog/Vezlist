@@ -1,5 +1,7 @@
 "use client";
 
+import { useLayoutEffect, useRef } from "react";
+
 /**
  * Scroll container every screen shares, width-capped once we hit desktop.
  *
@@ -20,9 +22,24 @@ export default function PageBody({
   width = "max-w-7xl",
   className = "",
   pinnedFooter = false,
+  scrollMemory,
 }) {
+  const container = useRef(null);
+  useLayoutEffect(() => {
+    if (scrollMemory && container.current)
+      container.current.scrollTop = scrollMemory.top;
+  }, [scrollMemory]);
   return (
     <div
+      ref={container}
+      data-preserve-scroll={scrollMemory ? "true" : undefined}
+      onScroll={
+        scrollMemory
+          ? (event) => {
+              scrollMemory.top = event.currentTarget.scrollTop;
+            }
+          : undefined
+      }
       data-scroll
       className={`min-h-0 flex-1 overflow-y-auto ${
         pinnedFooter ? "" : "pb-nav lg:pb-0"

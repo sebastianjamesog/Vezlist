@@ -5,6 +5,7 @@ import java.util.Map;
 public record AdminAnalyticsSummaryResponse(
         String site,
         long totalUsers,
+        long usersWithListings,
         long suspendedUsers,
         long totalListings,
         Map<String, Long> listingsByStatus,

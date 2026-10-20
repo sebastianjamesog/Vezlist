@@ -165,7 +165,7 @@ function Shortcut({ item, active, onPatch }) {
           {thumbs.slice(0, 4).map((src, i) => (
             <span
               key={`${src}-${i}`}
-              className="relative size-5 shrink-0 overflow-hidden rounded-full ring-2 ring-surface"
+              className="relative size-6 shrink-0 overflow-hidden rounded-full ring-2 ring-surface"
             >
               {/* The same call `Promo`'s stack below makes, for the same
                   reason: the wrapper reserves the box, so the rail is laid out
@@ -173,7 +173,7 @@ function Shortcut({ item, active, onPatch }) {
                   do. `discreet` unconditionally, as `Promo` does — this rail is
                   shared and the personals board's photos ride through it, and a
                   shared component withholds by default or not at all. */}
-              <MediaImage discreet fill src={src} alt="" sizes="24px" />
+              <MediaImage discreet fill src={src} alt="" sizes="24px" className="object-cover object-top" />
             </span>
           ))}
         </span>
@@ -193,7 +193,7 @@ function Shortcut({ item, active, onPatch }) {
   // listing off a phone screen. Every reduction is padding, leading and the
   // face stack — nothing that carries meaning got smaller, and `mt-auto` on
   // the footer still holds the tiles level whatever each one happens to hold.
-  const shell = `relative flex w-[112px] shrink-0 flex-col items-start overflow-hidden rounded-2xl bg-surface px-2.5 pb-2 pt-2.5 text-left shadow-card ring-1 transition-transform hover:-translate-y-0.5 active:scale-95 ${
+  const shell = `relative flex min-h-[108px] w-[124px] shrink-0 flex-col items-start overflow-hidden rounded-2xl bg-surface px-2.5 pb-2 pt-2.5 text-left shadow-card ring-1 transition-transform hover:-translate-y-0.5 active:scale-95 ${
     active ? "ring-brand" : (ACCENT_RING[hue] ?? "ring-line")
   }`;
 

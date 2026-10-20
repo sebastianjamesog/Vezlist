@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import AdminHeader from "../components/admin/AdminHeader";
 import DataTable from "../components/admin/DataTable";
@@ -78,12 +78,16 @@ export default function Listings() {
   const [removing, setRemoving] = useState(null); // { row } | { batch: true }
   const [reason, setReason] = useState("");
   const [actionError, setActionError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const request = useRef(0);
 
   const siteScope = SITE_TO_SCOPE[site];
 
   const load = useCallback(async () => {
+    const version = ++request.current;
     setError(null);
     setRows(null);
+    setLoadingMore(false);
     setSelected([]);
     try {
       const page = await browseListings({
@@ -92,25 +96,28 @@ export default function Listings() {
         query: query.trim() || undefined,
         limit: 50,
       });
+      if (version !== request.current) return;
       setRows(page.items);
       setCursor(page.nextCursor);
       setHasMore(page.hasMore);
       setTotalCount(page.totalCount);
     } catch (err) {
-      setError(err);
+      if (version === request.current) setError(err);
     }
   }, [siteScope, status, query]);
 
   // Debounced: a search box firing one request per keystroke is not what
   // "search" should cost against a real API.
   useEffect(() => {
+    request.current += 1;
     const t = setTimeout(load, query ? 300 : 0);
-    return () => clearTimeout(t);
+    return () => { clearTimeout(t); request.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteScope, status, query]);
 
   async function loadMore() {
-    if (!cursor) return;
+    if (!cursor || loadingMore) return;
+    const version = request.current;
     setLoadingMore(true);
     try {
       const page = await browseListings({
@@ -120,11 +127,12 @@ export default function Listings() {
         cursor,
         limit: 50,
       });
+      if (version !== request.current) return;
       setRows((prev) => [...(prev ?? []), ...page.items]);
       setCursor(page.nextCursor);
       setHasMore(page.hasMore);
     } catch {
-      toast("Couldn't load more listings");
+      if (version === request.current) toast("Couldn't load more listings");
     } finally {
       setLoadingMore(false);
     }
@@ -158,6 +166,12 @@ export default function Listings() {
   }
 
   async function confirmRemove() {
+    if (submitting || !removing || !reason.trim()) return;
+    setSubmitting(true);
+    try { await removeTargets(); } finally { setSubmitting(false); }
+  }
+
+  async function removeTargets() {
     setActionError(null);
     const targets = removing.batch ? removableBatch : [removing.row];
 
@@ -281,10 +295,12 @@ export default function Listings() {
         title="Listings"
         subtitle={
           rows
-            ? `${visible.length} of ${totalCount} ad${totalCount === 1 ? "" : "s"}${hasMore ? " (more loaded on scroll)" : ""}`
+            ? `${visible.length} of ${totalCount} ad${totalCount === 1 ? "" : "s"}${hasMore ? " (use Load more for additional ads)" : ""}`
             : "Loading…"
         }
         actions={
+          <div className="flex flex-wrap gap-2">
+          <Button to={site === "all" ? "/reviews" : `/reviews?site=${site}`} size="sm" variant="outline">Review queue</Button>
           <Button
             size="sm"
             variant="outline"
@@ -293,6 +309,7 @@ export default function Listings() {
           >
             Export CSV
           </Button>
+          </div>
         }
       />
 
@@ -312,7 +329,7 @@ export default function Listings() {
             aria-label="Category"
             className="h-9 rounded-xl border border-line bg-surface px-3 text-[13px] font-semibold text-ink outline-none"
           >
-            <option value="all">All categories</option>
+            <option value="all">All loaded categories</option>
             {categoryOptions.map(([id, label]) => (
               <option key={id} value={id}>
                 {label}
@@ -379,17 +396,17 @@ export default function Listings() {
         title={removing?.batch ? `Remove ${removableBatch.length} ads` : "Remove this ad"}
         subtitle="Only active ads can be removed. The reason is recorded on the audit log."
         size="max-w-md"
-        onClose={() => setRemoving(null)}
+        onClose={() => !submitting && setRemoving(null)}
         footer={
           <div className="flex gap-3">
-            <Button variant="outline" size="lg" className="flex-1" onClick={() => setRemoving(null)}>
+            <Button variant="outline" size="lg" className="flex-1" disabled={submitting} onClick={() => setRemoving(null)}>
               Cancel
             </Button>
             <Button
               variant="danger"
               size="lg"
               className="flex-1"
-              disabled={!reason.trim()}
+              disabled={!reason.trim() || submitting}
               onClick={confirmRemove}
             >
               Remove

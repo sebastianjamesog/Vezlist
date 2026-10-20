@@ -502,3 +502,27 @@ test("a stored sub-category that no longer matches its category is dropped on th
   assert.deepEqual(filters.categories, ["Vehicles", "Property"]);
   assert.equal(filters.subcategory, null);
 });
+
+test("price bounds survive saved searches and clear together", () => {
+  const filters = { ...DEFAULT_FILTERS, minPrice: "25.50", maxPrice: "100" };
+  assert.deepEqual(paramsToFilters(filtersToQueryString(filters)).filters, filters);
+  assert.equal(activeFilterCount(filters), 1);
+  assert.deepEqual(activeFilterChips(filters)[0].clear, { minPrice: "", maxPrice: "" });
+  assert.equal(paramsToFilters("minPrice=-1&maxPrice=oops").filters.minPrice, "");
+  assert.deepEqual(applyFilters([{ price: 25 }, { price: 50 }, { price: 110 }], filters).map((ad) => ad.price), [50]);
+});
+
+
+test("verified-first keeps both groups, newest within each, and survives saved search round-trip", () => {
+  const rows = [
+    { id: "unverified-new", verified: false, postedMsAgo: 1 },
+    { id: "verified-old", verified: true, postedMsAgo: 10 },
+    { id: "verified-new", verified: true, postedMsAgo: 5 },
+    { id: "unverified-old", postedMsAgo: 20 },
+  ];
+  const filters = { ...DEFAULT_FILTERS, sort: "verified-first" };
+  assert.deepEqual(applyFilters(rows, filters).map((row) => row.id),
+    ["verified-new", "verified-old", "unverified-new", "unverified-old"]);
+  assert.equal(paramsToFilters(filtersToQueryString(filters)).filters.sort, "verified-first");
+  assert.equal(paramsToFilters(filtersToQueryString(filters)).filters.verifiedOnly, false);
+});

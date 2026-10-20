@@ -11,5 +11,9 @@ public interface CategoryRepository extends JpaRepository<Category, String> {
 
     List<Category> findBySiteScope(SiteScope siteScope);
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select c from Category c where c.siteScope = :site order by c.id")
+    List<Category> lockSite(@org.springframework.data.repository.query.Param("site") SiteScope site);
+
     boolean existsByIdAndSiteScopeAndEnabledTrue(String id, SiteScope siteScope);
 }

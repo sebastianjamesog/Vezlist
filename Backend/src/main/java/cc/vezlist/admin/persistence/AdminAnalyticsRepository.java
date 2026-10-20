@@ -20,6 +20,21 @@ public class AdminAnalyticsRepository {
         return count("SELECT count(*) FROM app_users");
     }
 
+    public long usersWithListings(SiteScope site) {
+        return count("SELECT count(DISTINCT owner_id) FROM listings WHERE site_scope=? AND submitted_at IS NOT NULL", site.name());
+    }
+
+    public Map<String, Long> queueCounts(SiteScope site) {
+        String scope = site == null ? "" : " AND l.site_scope=?";
+        Object[] args = site == null ? new Object[0] : new Object[] {site.name()};
+        return Map.of(
+            "pending", count("SELECT count(*) FROM listings l WHERE l.status='PENDING_REVIEW'" + scope, args),
+            "openReports", count("SELECT count(*) FROM moderation_cases c JOIN listings l ON l.id=c.listing_id WHERE c.status='OPEN' AND c.kind='REPORT'" + scope, args),
+            "openAppeals", count("SELECT count(*) FROM moderation_cases c JOIN listings l ON l.id=c.listing_id WHERE c.status='OPEN' AND c.kind='APPEAL'" + scope, args),
+            "openVerifications", count("SELECT count(*) FROM listing_verification_requests v JOIN listings l ON l.id=v.listing_id WHERE v.status='PENDING_REVIEW'" + scope, args),
+            "openTickets", count("SELECT count(*) FROM support_tickets l WHERE l.status='OPEN'" + scope, args));
+    }
+
     public long suspendedUsers() {
         return count("SELECT count(*) FROM app_users WHERE enabled = FALSE");
     }

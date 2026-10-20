@@ -24,7 +24,7 @@ class DiscoveryCursorCodecTest {
                 Instant.parse("2026-09-09T10:00:00Z"),
                 new BigDecimal("42.50"),
                 3.25,
-                UUID.fromString("00000000-0000-0000-0000-000000000123"));
+                UUID.fromString("00000000-0000-0000-0000-000000000123"), true);
 
         String encoded = codec.encode(DiscoverySort.NEAREST, "fingerprint", asOf, anchor);
         DiscoveryCursorCodec.DecodedCursor decoded = codec.decode(
@@ -40,7 +40,7 @@ class DiscoveryCursorCodecTest {
                 Instant.parse("2026-09-09T10:00:00Z"),
                 BigDecimal.TEN,
                 null,
-                UUID.randomUUID());
+                UUID.randomUUID(), null);
         String encoded = codec.encode(
                 DiscoverySort.NEWEST,
                 "original",
@@ -54,4 +54,24 @@ class DiscoveryCursorCodecTest {
         assertThatThrownBy(() -> codec.decode("not-a-cursor", DiscoverySort.NEWEST, "original"))
                 .isInstanceOf(DiscoveryCursorInvalidException.class);
     }
+    @Test
+    void verifiedSortRequiresVerificationAnchorButOlderSortsAcceptMissingField() {
+        Instant now = Instant.parse("2026-09-10T10:00:00Z");
+        for (boolean verified : new boolean[] {true, false}) {
+            CursorAnchor anchor = new CursorAnchor(now, BigDecimal.TEN, null, UUID.randomUUID(), verified);
+            String encoded = codec.encode(DiscoverySort.VERIFIED_FIRST, "query", now, anchor);
+            assertThat(codec.decode(encoded, DiscoverySort.VERIFIED_FIRST, "query").anchor()).isEqualTo(anchor);
+        }
+        CursorAnchor oldAnchor = new CursorAnchor(now, BigDecimal.TEN, null, UUID.randomUUID(), null);
+        String invalid = codec.encode(DiscoverySort.VERIFIED_FIRST, "query", now, oldAnchor);
+        assertThatThrownBy(() -> codec.decode(invalid, DiscoverySort.VERIFIED_FIRST, "query"))
+                .isInstanceOf(DiscoveryCursorInvalidException.class);
+        String encoded = codec.encode(DiscoverySort.NEWEST, "query", now, oldAnchor);
+        String oldJson = new String(java.util.Base64.getUrlDecoder().decode(encoded), java.nio.charset.StandardCharsets.UTF_8)
+                .replace(",\"verified\":null", "");
+        String legacy = java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(oldJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        assertThat(codec.decode(legacy, DiscoverySort.NEWEST, "query").anchor()).isEqualTo(oldAnchor);
+    }
+
 }

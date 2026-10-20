@@ -122,32 +122,14 @@ export default function Taxonomy() {
   }
 
   async function move(category, delta) {
-    const sorted = [...categories].sort((a, b) => a.displayOrder - b.displayOrder);
-    const i = sorted.findIndex((c) => c.id === category.id);
-    const j = i + delta;
-    if (j < 0 || j >= sorted.length) return;
-    const other = sorted[j];
+    if (saving) return;
+    setSaving(true);
     try {
-      const [a, b] = await Promise.all([
-        catalogApi.updateCategory(category.id, {
-          label: category.label,
-          icon: category.icon,
-          primary: category.primary,
-          displayOrder: other.displayOrder,
-          enabled: category.enabled,
-        }),
-        catalogApi.updateCategory(other.id, {
-          label: other.label,
-          icon: other.icon,
-          primary: other.primary,
-          displayOrder: category.displayOrder,
-          enabled: other.enabled,
-        }),
-      ]);
-      setCategories((rows) => rows.map((c) => (c.id === a.id ? a : c.id === b.id ? b : c)));
+      const updated = await catalogApi.moveCategory(category.id, delta);
+      setCategories((rows) => [...rows.filter((row) => row.site !== category.site), ...updated]);
     } catch (err) {
       toast(err instanceof ApiError ? err.message : "Couldn't reorder");
-    }
+    } finally { setSaving(false); }
   }
 
   async function confirmDeleteCategory() {
@@ -260,6 +242,8 @@ export default function Taxonomy() {
     }
   }
 
+  const orderedCategories = [...(categories ?? [])].sort((a, b) =>
+    a.site.localeCompare(b.site) || a.displayOrder - b.displayOrder || a.label.localeCompare(b.label));
   return (
     <>
       <AdminHeader
@@ -314,14 +298,12 @@ export default function Taxonomy() {
                 <p className="text-[14px] text-muted">No categories for this site yet.</p>
               ) : (
                 <ul className="divide-y divide-line">
-                  {[...categories]
-                    .sort((a, b) => a.displayOrder - b.displayOrder)
-                    .map((category, i) => (
-                      <li key={category.id} className="flex items-center gap-3 py-2.5">
+                  {orderedCategories.map((category, i) => (
+                      <li key={category.id} className="flex flex-wrap items-center gap-3 py-2.5">
                         <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-canvas text-brand">
                           <Icon name={category.icon} className="size-[18px]" strokeWidth={2.4} />
                         </span>
-                        <div className="min-w-0 flex-1">
+                        <div className="min-w-0 basis-24 flex-1">
                           <p className="truncate text-[14.5px] font-bold text-ink">
                             {category.label}
                             {!category.enabled && (
@@ -339,7 +321,7 @@ export default function Taxonomy() {
                           <input
                             type="checkbox"
                             checked={category.primary}
-                            disabled={!canEdit}
+                            disabled={!canEdit || saving}
                             onChange={() =>
                               catalogApi
                                 .updateCategory(category.id, {
@@ -367,31 +349,33 @@ export default function Taxonomy() {
                           <div className="flex shrink-0 gap-1">
                             <IconButton
                               label={`Move ${category.label} up`}
-                              disabled={i === 0}
+                              disabled={saving || i === 0 || orderedCategories[i - 1]?.site !== category.site}
                               onClick={() => move(category, -1)}
                             >
                               <ChevronUp className="size-4" strokeWidth={2.6} />
                             </IconButton>
                             <IconButton
                               label={`Move ${category.label} down`}
-                              disabled={i === categories.length - 1}
+                              disabled={saving || orderedCategories[i + 1]?.site !== category.site}
                               onClick={() => move(category, 1)}
                             >
                               <ChevronDown className="size-4" strokeWidth={2.6} />
                             </IconButton>
                             <IconButton
                               label={category.enabled ? `Disable ${category.label}` : `Enable ${category.label}`}
+                              disabled={saving}
                               onClick={() => toggleEnabled(category)}
                             >
                               <span className="text-[11px] font-bold">
                                 {category.enabled ? "On" : "Off"}
                               </span>
                             </IconButton>
-                            <IconButton label={`Edit ${category.label}`} onClick={() => setEditing({ ...category })}>
+                            <IconButton disabled={saving} label={`Edit ${category.label}`} onClick={() => setEditing({ ...category })}>
                               <Pencil className="size-4" strokeWidth={2.4} />
                             </IconButton>
                             <IconButton
                               label={`Delete ${category.label}`}
+                              disabled={saving}
                               danger
                               onClick={() => {
                                 setDeleteError(null);

@@ -59,9 +59,7 @@ public class AdminAuditService {
         Instant before = cursor == null ? null : cursor.createdAt();
 
         List<Entry> generalEntries = auditLog.page(before, cursor == null ? null : cursor.id(), limit + 1);
-        List<Entry> moderationEntries = site == null
-                ? List.of()
-                : moderationAudit.page(site, before, limit + 1);
+        List<Entry> moderationEntries = moderationAudit.page(site, before, cursor == null ? null : cursor.id(), limit + 1);
         // Security events (login/logout/register/password-change) aren't
         // site-scoped -- one account serves both boards -- so they're
         // included regardless of the site filter, same as generalEntries.
@@ -72,7 +70,7 @@ public class AdminAuditService {
         merged.addAll(moderationEntries);
         merged.addAll(securityEntries);
         merged.sort(Comparator.comparing(Entry::createdAt).reversed()
-                .thenComparing(Entry::id, Comparator.reverseOrder()));
+                .thenComparing(entry -> entry.id().toString(), Comparator.reverseOrder()));
 
         boolean hasMore = merged.size() > limit;
         List<Entry> page = hasMore ? merged.subList(0, limit) : merged;

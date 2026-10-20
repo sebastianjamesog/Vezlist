@@ -15,8 +15,8 @@ import { api } from "./client.js";
  * `cursor` is the opaque `nextCursor` from a previous page — omit for the
  * first page. `limit` defaults to 25 server-side, max 100.
  */
-export function listAdminUsers({ query, cursor, limit } = {}) {
-  return api.get("/api/v1/admin/users", { query, cursor, limit });
+export function listAdminUsers({ query, cursor, limit, staffOnly } = {}) {
+  return api.get("/api/v1/admin/users", { query, cursor, limit, staffOnly });
 }
 
 /**

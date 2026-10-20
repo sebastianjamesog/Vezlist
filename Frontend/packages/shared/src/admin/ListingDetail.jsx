@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Eye, Heart, MapPin, Tag } from "lucide-react";
@@ -41,15 +41,18 @@ export default function ListingDetail() {
   const [reason, setReason] = useState("");
   const [actionError, setActionError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const request = useRef(0);
 
   const load = useCallback(async () => {
+    const version = ++request.current;
     setError(null);
     setNotFound(false);
     setData(null);
     try {
       const detail = await adminListingDetail(id);
-      setData(detail);
+      if (version === request.current) setData(detail);
     } catch (err) {
+      if (version !== request.current) return;
       if (err instanceof ApiError && err.status === 404) setNotFound(true);
       else setError(err);
     }
@@ -57,6 +60,7 @@ export default function ListingDetail() {
 
   useEffect(() => {
     load();
+    return () => { request.current += 1; };
   }, [load]);
 
   if (notFound) {
@@ -114,6 +118,7 @@ export default function ListingDetail() {
   }
 
   async function confirmRemove() {
+    if (submitting || !reason.trim()) return;
     setSubmitting(true);
     setActionError(null);
     try {
@@ -146,6 +151,9 @@ export default function ListingDetail() {
             >
               View on site ↗
             </a>
+            {can("listing.moderate") && row.status === "PENDING_REVIEW" && (
+              <Button size="sm" to={`${row.verificationRequested ? "/verifications" : "/reviews"}?site=${row.site.toLowerCase()}`}>Review submission</Button>
+            )}
             {can("listing.delete") && row.status === "ACTIVE" && (
               <Button size="sm" variant="danger" onClick={openRemove}>
                 Remove
@@ -261,10 +269,10 @@ export default function ListingDetail() {
         title="Remove this ad"
         subtitle="Legal only while the ad is active. The reason is recorded on the audit log."
         size="max-w-md"
-        onClose={() => setRemoving(false)}
+        onClose={() => !submitting && setRemoving(false)}
         footer={
           <div className="flex gap-3">
-            <Button variant="outline" size="lg" className="flex-1" onClick={() => setRemoving(false)}>
+            <Button variant="outline" size="lg" className="flex-1" disabled={submitting} onClick={() => setRemoving(false)}>
               Cancel
             </Button>
             <Button

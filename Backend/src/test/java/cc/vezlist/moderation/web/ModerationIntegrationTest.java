@@ -309,6 +309,48 @@ class ModerationIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT verified FROM listings WHERE id = ?", Boolean.class, listing)).isTrue();
     }
 
+    @Test void adminListingCursorHandlesMicrosecondsAndPostgresTimestampBinding() throws Exception {
+        var owner = account(Role.USER);
+        var admin = account(Role.ADMIN);
+        UUID first = listing(owner, "MARKETPLACE", "ACTIVE");
+        UUID second = listing(owner, "MARKETPLACE", "ACTIVE");
+        jdbc.update("UPDATE listings SET created_at = '2030-01-01T00:00:00.123456Z' WHERE id IN (?, ?)", first, second);
+        var initial = json.readTree(mvc.perform(get("/api/v1/admin/listings").with(user(admin))
+                .param("query", owner.email()).param("limit", "1"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.hasMore").value(true))
+                .andReturn().getResponse().getContentAsString());
+        var next = json.readTree(mvc.perform(get("/api/v1/admin/listings").with(user(admin))
+                .param("query", owner.email()).param("limit", "1").param("cursor", initial.get("nextCursor").asText()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.hasMore").value(false))
+                .andReturn().getResponse().getContentAsString());
+        assertThat(Set.of(initial.get("items").get(0).get("id").asText(), next.get("items").get(0).get("id").asText()))
+                .isEqualTo(Set.of(first.toString(), second.toString()));
+    }
+
+    @Test void adminTakedownClosesReportsAndKeepsOwnerStatusAndAppealsUsable() throws Exception {
+        var owner = account(Role.USER);
+        var reporter = account(Role.USER);
+        var admin = account(Role.ADMIN);
+        UUID listing = listing(owner, "MARKETPLACE", "ACTIVE");
+        post(reporter, "/api/v1/listings/" + listing + "/reports",
+                Map.of("site", "MARKETPLACE", "reason", "SPAM")).andExpect(status().isOk());
+        UUID reportCase = review(listing);
+        post(admin, "/api/v1/admin/listings/" + listing + "/remove",
+                Map.of("reason", "Private investigation notes"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.listing.status").value("REMOVED"));
+        assertThat(jdbc.queryForObject("SELECT status FROM moderation_cases WHERE id = ?", String.class, reportCase)).isEqualTo("CLOSED");
+        mvc.perform(get("/api/v1/me/listings/" + listing + "/moderation?site=MARKETPLACE").with(user(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.publicReason").value("This listing was removed by a moderator."))
+                .andExpect(jsonPath("$.appealAllowed").value(true));
+        post(owner, "/api/v1/me/listings/" + listing + "/moderation/appeals",
+                Map.of("site", "MARKETPLACE", "message", "Please reconsider this removal."))
+                .andExpect(status().isOk());
+        UUID appealCase = review(listing);
+        assertThat(appealCase).isNotEqualTo(reportCase);
+        assertThat(jdbc.queryForObject("SELECT kind FROM moderation_cases WHERE id = ?", String.class, appealCase)).isEqualTo("APPEAL");
+    }
+
     @Test void migrationUpgradesExistingPendingListingsWithoutLosingData() throws Exception {
         jdbc.execute("CREATE DATABASE moderation_upgrade");
         String upgradeUrl = "jdbc:postgresql://" + POSTGRES.getHost() + ":" + POSTGRES.getMappedPort(5432) + "/moderation_upgrade";

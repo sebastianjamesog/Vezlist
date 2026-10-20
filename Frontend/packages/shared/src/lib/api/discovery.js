@@ -55,13 +55,13 @@ export function searchListings(params = {}) {
  * `area`, `minPrice`, `maxPrice`, `verifiedOnly`, `postedWithin` and `limit`
  * (1-500) are optional, with the same array-flattening as `searchListings`.
  */
-export function mapPins(params = {}) {
+export function mapPins(params = {}, options) {
   const { category, area, ...rest } = params;
   return api.get("/api/v1/listings/map", {
     ...rest,
     category: joinList(category),
     area: joinList(area),
-  });
+  }, options);
 }
 
 /**

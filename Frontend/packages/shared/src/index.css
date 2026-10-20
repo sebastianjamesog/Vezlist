@@ -268,8 +268,8 @@ body {
     pointer-events: none;
   }
 }
-/* Card geometry follows the space a feed gives each card. The narrow layout
-   keeps all metadata visible in a three-column feed without growing the row. */
+/* Card geometry follows the space a feed gives each card. Metadata rows can
+   wrap on narrow cards while location and views share their own final row. */
 .listing-card,
 .listing-card-skeleton-container {
   container-type: inline-size;
@@ -285,24 +285,18 @@ body {
     width: 120px;
     height: 120px;
   }
-  .listing-card__title,
   .listing-card-skeleton__title {
     min-height: 40px;
   }
   .listing-card__title {
-    font-size: 17px;
-    line-height: 20px;
+    font-size: 18px;
+    line-height: 22px;
   }
-  .listing-card__meta,
   .listing-card-skeleton__meta {
     height: 20px;
   }
   .listing-card__chevron {
     display: block;
-  }
-  .listing-card__save {
-    left: 92px;
-    top: 16px;
   }
 }
 /* Live player: a tapped heart rises out of the button and fades. Each one

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import AdminHeader, { CARD } from "../components/admin/AdminHeader";
 import StatCard from "../components/admin/StatCard";
 import StatusBadge from "../components/admin/StatusBadge";
@@ -84,11 +84,13 @@ export default function Dashboard() {
   const { admin } = useAdminAuth();
   const [site] = useSiteScope();
 
+  const request = useRef(0);
   const [summary, setSummary] = useState(null);
   const [audit, setAudit] = useState(null);
   const [error, setError] = useState(null);
 
   const load = useCallback(() => {
+    const version = ++request.current;
     setError(null);
     setSummary(null);
     setAudit(null);
@@ -97,20 +99,24 @@ export default function Dashboard() {
         backendSites(site).map((s) => adminAnalyticsApi.analyticsSummary(s)),
       ),
       adminAuditApi.auditFeed({ limit: 7 }),
+      adminAnalyticsApi.queueCounts(site === ALL_SITES ? undefined : SITE_SCOPE[site]),
     ])
-      .then(([summaries, auditPage]) => {
-        setSummary(combineSummaries(summaries));
+      .then(([summaries, auditPage, queues]) => {
+        if (version !== request.current) return;
+        setSummary({ ...combineSummaries(summaries), openAppealsCount: queues.openAppeals });
         setAudit(auditPage.items ?? []);
       })
-      .catch((err) => setError(messageFor(err)));
+      .catch((err) => { if (version === request.current) setError(messageFor(err)); });
   }, [site]);
 
   useEffect(() => {
     load();
+    return () => { request.current++; };
   }, [load]);
 
   const scopeLabel = site === ALL_SITES ? "both sites" : site;
-  const pending = summary?.listingsByStatus?.PENDING ?? 0;
+  const scoped = (path) => site === ALL_SITES ? path : `${path}${path.includes("?") ? "&" : "?"}site=${encodeURIComponent(site)}`;
+  const pending = summary?.listingsByStatus?.PENDING_REVIEW ?? 0;
 
   return (
     <>
@@ -124,7 +130,7 @@ export default function Dashboard() {
               : `Loading the numbers for ${scopeLabel}…`
         }
         actions={
-          <Button to="/listings?status=pending" size="sm">
+          <Button to={scoped("/listings?status=PENDING_REVIEW")} size="sm">
             Open the queue
           </Button>
         }
@@ -149,7 +155,7 @@ export default function Dashboard() {
               icon="Megaphone"
               tone="amber"
               deltaLabel="ads awaiting a moderator"
-              to="/listings?status=pending"
+              to={scoped("/listings?status=PENDING_REVIEW")}
             />
             <StatCard
               label="Open reports"
@@ -157,15 +163,15 @@ export default function Dashboard() {
               icon="ShieldCheck"
               tone="rose"
               deltaLabel="raised by members"
-              to="/reports"
+              to={scoped("/reports")}
             />
             <StatCard
-              label="Open moderation cases"
-              value={summary.openModerationCasesCount}
+              label="Open appeals"
+              value={summary.openAppealsCount}
               icon="ClipboardCheck"
               tone="blue"
               deltaLabel="awaiting a decision"
-              to="/appeals"
+              to={scoped("/appeals")}
             />
             <StatCard
               label="New listings, 7d"
@@ -173,7 +179,7 @@ export default function Dashboard() {
               icon="CalendarDays"
               tone="green"
               deltaLabel={`${summary.newListingsLast30Days} in the last 30 days`}
-              to="/listings"
+              to={scoped("/listings")}
             />
           </div>
 
@@ -189,7 +195,7 @@ export default function Dashboard() {
                   </p>
                 </div>
                 <Link
-                  href="/listings"
+                  href={scoped("/listings")}
                   className="shrink-0 text-[13px] font-bold text-brand hover:underline"
                 >
                   Open listings
@@ -222,7 +228,7 @@ export default function Dashboard() {
                 <h2 className="text-[17px] font-extrabold text-ink">
                   Accounts
                 </h2>
-                <p className="text-[13px] text-muted">{scopeLabel}</p>
+                <p className="text-[13px] text-muted">Shared across both sites</p>
                 <p className="mt-2 text-[28px] font-extrabold leading-none text-ink">
                   {summary.totalUsers}
                 </p>
