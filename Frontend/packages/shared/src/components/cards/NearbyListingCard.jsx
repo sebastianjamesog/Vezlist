@@ -1,5 +1,6 @@
 "use client";
 
+import ListingStatusBadges from "./ListingStatusBadges.jsx";
 import Link from "next/link";
 import { BadgeCheck } from "lucide-react";
 import { timeAgo } from "../../lib/format";
@@ -27,22 +28,21 @@ export default function NearbyListingCard({ item }) {
       </div>
 
       <div className="min-w-0 flex-1">
+        <ListingStatusBadges listing={item} className="mb-1" />
         <div className="flex items-center gap-1.5">
           <h3 className="truncate text-[15px] font-bold text-ink transition-colors group-hover:text-brand">
             {item.title}
           </h3>
           {verified && (
-            <BadgeCheck
-              className="size-4 shrink-0 text-emerald-500"
-              strokeWidth={2.6}
-              aria-label="Verified"
-            />
+            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-emerald-50 px-1 py-0.5 text-[8px] font-bold text-emerald-800">
+              <BadgeCheck className="size-3" strokeWidth={2.6} aria-hidden="true" /> VERIFIED
+            </span>
           )}
         </div>
 
         <div className="mt-1 flex items-center gap-2">
           {item.price > 0 && (
-            <span className="rounded-lg bg-brand-soft px-2 py-0.5 text-[13px] font-bold tabular-nums text-brand">
+            <span className="text-[12px] font-medium tabular-nums text-muted">
               ${item.price.toLocaleString()}
             </span>
           )}

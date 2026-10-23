@@ -1,6 +1,9 @@
 package cc.vezlist.notifications.domain;
 
 public enum NotificationType {
+    APPEAL_SUBMITTED("Appeal received", "Your appeal was received. Follow its review status in My Ads.", "/profile/ads"),
+    APPEAL_APPROVED("Appeal approved", "Your appeal was approved and your ad was restored. View its current status in My Ads.", "/profile/ads"),
+    APPEAL_REJECTED("Appeal not approved", "Your appeal was reviewed and the moderation decision was upheld. View the reason in My Ads.", "/profile/ads"),
     LISTING_APPROVED("Ad approved", "Your ad was approved. View its current status in My Ads.", "/profile/ads"),
     LISTING_REJECTED("Ad review update", "Your ad was rejected. View the review reason and your options in My Ads.", "/profile/ads"),
     LISTING_REMOVED("Ad removed", "Your ad was removed. View the review reason and appeal options in My Ads.", "/profile/ads"),

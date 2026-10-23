@@ -31,7 +31,7 @@ export function adminListingDetail(id) {
 /**
  * POST /api/v1/admin/listings/{id}/remove -> AdminListingDetailResponse.
  *
- * ADMIN only. Legal only from ACTIVE — the backend answers 409
+ * ADMIN only. Allowed from ACTIVE or PENDING_REVIEW — the backend answers 409
  * (`LISTING_CONFLICT`) from any other status, which the caller should show
  * as an inline error rather than a crash.
  */

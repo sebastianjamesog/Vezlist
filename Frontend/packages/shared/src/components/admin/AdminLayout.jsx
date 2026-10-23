@@ -14,6 +14,7 @@ import { MARKETPLACE_URL, PERSONALS_URL, SITES } from "../../lib/sites";
 import { adminNav, pathIsScoped } from "./adminNav";
 import RequireAdmin from "./RequireAdmin";
 import MediaImage from "../media/MediaImage.jsx";
+import AdminThemeToggle from "./AdminThemeToggle.jsx";
 
 /**
  * The console shell.
@@ -251,7 +252,7 @@ function TopBar({ onMenu }) {
   }
 
   return (
-    <header className="sticky top-0 z-30 flex shrink-0 items-center gap-3 border-b border-line bg-surface px-4 py-3 lg:px-8">
+    <header className="sticky top-0 z-30 flex shrink-0 flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-3 lg:px-8">
       <button
         type="button"
         onClick={onMenu}
@@ -269,7 +270,7 @@ function TopBar({ onMenu }) {
         <div
           role="group"
           aria-label="Site scope"
-          className="flex gap-1 rounded-2xl bg-canvas p-1 ring-1 ring-line"
+          className="order-last flex w-full gap-1 rounded-2xl bg-canvas p-1 ring-1 ring-line sm:order-none sm:w-auto"
         >
           {SCOPES.map((s) => (
             <button
@@ -293,7 +294,8 @@ function TopBar({ onMenu }) {
         </p>
       )}
 
-      <div className="relative ml-auto">
+      <AdminThemeToggle className="ml-auto" />
+      <div className="relative">
         <button
           type="button"
           onClick={() => setMenu((m) => !m)}

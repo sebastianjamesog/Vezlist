@@ -129,3 +129,27 @@ test("fatal stream errors stop loading and show reconnection instead of a replay
   expect(screen.getByRole("button", { name: "Reconnect video" })).toBeTruthy();
   expect(screen.queryByRole("slider")).toBeNull();
 });
+
+test("immersive controls remain accessible without a separate video toolbar", async () => {
+  render(
+    <LivePlayer
+      immersive
+      playbackUrl="https://live.example.gvideo.io/cmaf/session/master.m3u8"
+    />,
+  );
+  await waitFor(() => expect(instances).toHaveLength(1));
+  const disclosure = screen.getByLabelText("Video controls");
+  const details = disclosure.closest("details");
+  expect(details.open).toBe(false);
+  fireEvent.click(disclosure);
+  expect(details.open).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Turn sound on" }));
+  expect(screen.getByLabelText("Live video").muted).toBe(false);
+  expect(screen.getByRole("button", { name: "Mute live video" })).toBeTruthy();
+  Object.defineProperty(screen.getByLabelText("Live video"), "paused", { value: false, configurable: true });
+  fireEvent.click(screen.getByRole("button", { name: "Pause live video" }));
+  expect(HTMLMediaElement.prototype.pause).toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "Play live video" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Back to live" }));
+  expect(HTMLMediaElement.prototype.play).toHaveBeenCalled();
+});

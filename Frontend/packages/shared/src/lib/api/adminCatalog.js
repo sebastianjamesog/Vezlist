@@ -33,7 +33,7 @@ export function deleteCategory(id) {
   return api.delete(`/api/v1/admin/categories/${id}`);
 }
 
-/** GET /api/v1/admin/locations?provinceId= -> AdminLocationResponse[] (provinces and/or their areas). */
+/** GET /api/v1/admin/locations?provinceId= -> flat province, region and neighbourhood rows. */
 export function listLocations(provinceId) {
   return api.get("/api/v1/admin/locations", { provinceId });
 }
@@ -48,15 +48,19 @@ export function createArea(request) {
   return api.post("/api/v1/admin/locations/areas", request);
 }
 
-/** PATCH /api/v1/admin/locations/{id} -> AdminLocationResponse. `{label, displayOrder, popular, enabled}`. Works for provinces and areas alike. */
+/** POST /api/v1/admin/locations/neighbourhoods. `{label, areaId, displayOrder, popular}`. */
+export function createNeighbourhood(request) {
+  return api.post("/api/v1/admin/locations/neighbourhoods", request);
+}
+
+/** PATCH /api/v1/admin/locations/{id} -> AdminLocationResponse. Works at all three levels. */
 export function updateLocation(id, request) {
   return api.patch(`/api/v1/admin/locations/${id}`, request);
 }
 
 /**
- * DELETE /api/v1/admin/locations/{id} -> 204. Works for provinces and areas
- * alike; 409 CATALOG_ENTRY_IN_USE if a province still has areas under it or
- * anything (province or area) is still referenced by an active listing.
+ * DELETE /api/v1/admin/locations/{id} -> 204. Works at all three levels;
+ * 409 CATALOG_ENTRY_IN_USE if children or any listing references remain.
  */
 export function deleteArea(id) {
   return api.delete(`/api/v1/admin/locations/${id}`);
@@ -65,4 +69,17 @@ export function deleteArea(id) {
 /** Move within its board; the server updates all affected orders in one transaction. */
 export function moveCategory(id, direction) {
   return api.post(`/api/v1/admin/categories/${encodeURIComponent(id)}/move`, { direction });
+}
+
+/** Personals vocabulary. Removing an option preserves existing listing values. */
+export function listEthnicities() {
+  return api.get("/api/v1/admin/ethnicities");
+}
+
+export function createEthnicity(label) {
+  return api.post("/api/v1/admin/ethnicities", { label });
+}
+
+export function deleteEthnicity(id) {
+  return api.delete(`/api/v1/admin/ethnicities/${encodeURIComponent(id)}`);
 }

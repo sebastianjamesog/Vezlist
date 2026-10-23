@@ -6,7 +6,10 @@ import LocationPicker from "./LocationPicker";
 export default function StepContact({ draft, errors, onPatch }) {
   return (
     <div className="space-y-4">
-      <LocationPicker draft={draft} error={errors.location} onPatch={onPatch} />
+      <LocationPicker draft={draft} error={errors.location} onPatch={(patch) => onPatch({
+        ...patch,
+        ...(patch.locationId !== draft.locationId ? { latitude: null, longitude: null } : {}),
+      })} />
 
       <Field label="Email" error={errors.email}>
         <input

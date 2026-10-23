@@ -1,4 +1,9 @@
 import { api, SITE_SCOPE } from "./client.js";
+import { IS_ADMIN } from "../sites.js";
+
+const NOTIFICATIONS_PATH = IS_ADMIN
+  ? "/api/v1/admin/me/notifications"
+  : "/api/v1/me/notifications";
 
 /**
  * GET /api/v1/me/notifications -> NotificationService.Page
@@ -6,12 +11,12 @@ import { api, SITE_SCOPE } from "./client.js";
  * `site` defaults to this build's SITE_SCOPE — notifications are per-site.
  */
 export function listNotifications({ limit, cursor, site = SITE_SCOPE } = {}) {
-  return api.get("/api/v1/me/notifications", { site, limit, cursor });
+  return api.get(NOTIFICATIONS_PATH, { site, limit, cursor });
 }
 
 /** GET /api/v1/me/notifications/unread-count -> NotificationService.Count ({count}). */
 export function getUnreadCount({ site = SITE_SCOPE } = {}) {
-  return api.get("/api/v1/me/notifications/unread-count", { site });
+  return api.get(`${NOTIFICATIONS_PATH}/unread-count`, { site });
 }
 
 /**
@@ -21,13 +26,13 @@ export function getUnreadCount({ site = SITE_SCOPE } = {}) {
  */
 export function markNotificationRead(id, { site = SITE_SCOPE } = {}) {
   return api.post(
-    `/api/v1/me/notifications/${encodeURIComponent(id)}/read?site=${encodeURIComponent(site)}`,
+    `${NOTIFICATIONS_PATH}/${encodeURIComponent(id)}/read?site=${encodeURIComponent(site)}`,
   );
 }
 
 /** POST /api/v1/me/notifications/read-all -> Count. */
 export function markAllNotificationsRead({ site = SITE_SCOPE } = {}) {
   return api.post(
-    `/api/v1/me/notifications/read-all?site=${encodeURIComponent(site)}`,
+    `${NOTIFICATIONS_PATH}/read-all?site=${encodeURIComponent(site)}`,
   );
 }

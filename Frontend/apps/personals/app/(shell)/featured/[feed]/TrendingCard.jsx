@@ -1,6 +1,7 @@
 "use client";
 
 import { openAdClick } from "@vezlist/shared/lib/openAdClick.js";
+import ListingStatusBadges from "@vezlist/shared/components/cards/ListingStatusBadges.jsx";
 import Link from "next/link";
 import { BadgeCheck, Eye, Heart, ImageOff } from "lucide-react";
 import MediaImage from "@vezlist/shared/components/media/MediaImage.jsx";
@@ -46,13 +47,14 @@ export default function TrendingCard({ listing, rank, onOpen }) {
           #{rank}
         </span>
 
+        <ListingStatusBadges listing={listing} className="absolute right-1 top-1 max-w-[75%] flex-col items-end" />
         <div className="absolute inset-x-0 bottom-0 p-1.5 text-white lg:p-2">
           <div className="flex min-w-0 items-center gap-1">
             <span aria-hidden="true" className="grid size-4 shrink-0 place-items-center rounded-full bg-brand text-[8px] font-bold ring-1 ring-white/60 lg:size-5 lg:text-[9px]">
               {initials(name)}
             </span>
             <h2 className="min-w-0 truncate text-[10px] font-bold leading-4 lg:text-xs" title={name}>{name}</h2>
-            {listing.verified && <BadgeCheck className="size-3 shrink-0 text-sky-300" aria-label="Verified ad" />}
+            {listing.verified && <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-emerald-900/90 px-1 text-[7px] font-bold leading-3 text-white" aria-label="Verified ad"><BadgeCheck className="size-2.5" aria-hidden="true" />VERIFIED</span>}
           </div>
           <div className="mt-0.5 flex items-center gap-1.5 text-[9px] font-medium leading-3 tabular-nums text-white/95 lg:text-[11px] lg:leading-4">
             <span className="inline-flex items-center gap-0.5" aria-label={views == null ? "View count unavailable" : `${views} views`}>

@@ -484,12 +484,12 @@ test("nothing stored parses back to the untouched default", () => {
   });
 });
 
-test("a hand-edited sort, province or postedWithin falls back to the default rather than sticking", () => {
+test("invalid sort and time windows fall back, while dynamic province IDs survive hydration", () => {
   const { filters } = paramsToFilters(
     "sort=not-a-real-sort&province=nowhere&postedWithin=never",
   );
   assert.equal(filters.sort, DEFAULT_FILTERS.sort);
-  assert.equal(filters.province, DEFAULT_FILTERS.province);
+  assert.equal(filters.province, "nowhere");
   assert.equal(filters.postedWithin, DEFAULT_FILTERS.postedWithin);
 });
 
@@ -525,4 +525,31 @@ test("verified-first keeps both groups, newest within each, and survives saved s
     ["verified-new", "verified-old", "unverified-new", "unverified-old"]);
   assert.equal(paramsToFilters(filtersToQueryString(filters)).filters.sort, "verified-first");
   assert.equal(paramsToFilters(filtersToQueryString(filters)).filters.verifiedOnly, false);
+});
+
+
+test("ethnicity labels containing commas and quotes survive refresh and shared URLs", () => {
+  const ethnicities = ["Asian, mixed", 'Regional "heritage"', "Latino / Hispanic"];
+  const filters = f({ ethnicities });
+  const params = filtersToParams(filters);
+  assert.equal(params.ethnicities, JSON.stringify(ethnicities));
+  const queryString = filtersToQueryString(filters, "nearby");
+  for (const input of [queryString, new URLSearchParams(queryString), params]) {
+    assert.deepEqual(paramsToFilters(input).filters.ethnicities, ethnicities);
+  }
+  assert.equal(paramsToFilters(queryString).query, "nearby");
+});
+
+test("older ethnicity bookmarks still load comma-separated labels", () => {
+  assert.deepEqual(paramsToFilters({ ethnicities: "Asian, Black, ,Mixed" }).filters.ethnicities,
+    ["Asian", "Black", "Mixed"]);
+  const restored = paramsToFilters({ ethnicities: "Asian,Black" }).filters;
+  assert.equal(filtersToParams(restored).ethnicities, '["Asian","Black"]');
+});
+
+test("malformed or oversized ethnicity URL values are ignored safely", () => {
+  for (const value of ['["unfinished"', '[1]', '[null]', '[""]', JSON.stringify(["x".repeat(81)]), JSON.stringify(Array.from({length:21},(_,index)=>`Choice ${index}`))]) {
+    assert.deepEqual(paramsToFilters({ethnicities:value}).filters.ethnicities, []);
+  }
+  assert.deepEqual(paramsToFilters({ethnicities:'["Asian","Asian"]'}).filters.ethnicities, ["Asian"]);
 });

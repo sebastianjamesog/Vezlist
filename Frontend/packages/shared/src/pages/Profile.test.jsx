@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
   user: { id: "owner-1", name: "Session Name" },
   creator: true,
   site: "MARKETPLACE",
+  openPost: vi.fn(),
 }));
 vi.mock("../context/AuthContext", () => ({
   useAuth: () => ({
@@ -33,7 +34,7 @@ vi.mock("../context/StatusContext", () => ({
 }));
 vi.mock("../context/ToastContext", () => ({ useToast: () => vi.fn() }));
 vi.mock("../components/layout/AppLayout", () => ({
-  useShell: () => ({ openStory: vi.fn() }),
+  useShell: () => ({ openStory: vi.fn(), openPost: state.openPost }),
 }));
 vi.mock("../components/layout/TopBar", () => ({ default: () => null }));
 vi.mock("../components/media/MediaImage.jsx", () => ({
@@ -256,4 +257,14 @@ describe("backend-backed profile card", () => {
     expect(hero().queryByText("2")).toBeNull();
     expect(hero().queryByText("3")).toBeNull();
   });
+});
+
+
+test("Post Ad is the first profile action and opens the ad composer", async () => {
+  render(<Profile />);
+  const nav = screen.getByRole("navigation");
+  const first = within(nav).getAllByRole("button")[0];
+  expect(first.textContent).toContain("Post Ad");
+  await userEvent.click(first);
+  expect(state.openPost).toHaveBeenCalledOnce();
 });

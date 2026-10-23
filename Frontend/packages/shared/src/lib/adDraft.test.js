@@ -14,7 +14,6 @@ import {
   toListingWriteRequest,
   validateStep,
 } from "./adDraft.js";
-import { ethnicities } from "../data/mock.js";
 
 const draft = (over) => ({ ...EMPTY_DRAFT, ...over });
 const good = draft({
@@ -223,22 +222,11 @@ test("weight is optional, but needs a number in it when given", () => {
     );
 });
 
-test("ethnicity is optional, but must be one of the offered values", () => {
-  assert.equal(
-    validateStep("details", draft({ ...person, ethnicity: "" })).ethnicity,
-    undefined,
-  );
-  assert.equal(
-    validateStep("details", draft({ ...person, ethnicity: ethnicities[0] }))
-      .ethnicity,
-    undefined,
-  );
-  // Only reachable from a draft that outlived a rename — the pills cannot
-  // produce it — which is exactly why it is checked rather than trusted.
-  assert.ok(
-    validateStep("details", draft({ ...person, ethnicity: "Martian" }))
-      .ethnicity,
-  );
+test("ethnicity accepts dynamic and historical labels, with a length bound", () => {
+  for (const ethnicity of ["", "Asian", "Admin-created choice", "Retired choice"])
+    assert.equal(validateStep("details", draft({ ...person, ethnicity })).ethnicity, undefined);
+  assert.ok(validateStep("details", draft({ ...person, ethnicity: "x".repeat(81) })).ethnicity);
+  assert.ok(validateStep("details", draft({ ...person, ethnicity: 123 })).ethnicity);
 });
 
 test("the personals group is not checked outside a personals category", () => {
@@ -517,4 +505,23 @@ test("an unrecognised top-level key is simply not carried over", () => {
   });
   assert.equal(draft.futureField, undefined);
   assert.equal(draft.title, "T");
+});
+
+test("prices allow cents but are limited to four digits and reject non-finite or overprecise values", () => {
+  for (const price of ["9999", "1200", "12.34", "0.01"]) {
+    assert.equal(validateStep("details", draft({ ...good, price })).price, undefined);
+  }
+  for (const price of ["10000", "9999.01", "Infinity", "1.234", "1e3", "-1"]) {
+    assert.ok(validateStep("details", draft({ ...good, price })).price);
+  }
+});
+
+test("editing preserves an ad's saved coordinates through mapping and draft storage", () => {
+  const edited = draftFromListing({ latitude: 49.28, longitude: -123.12 });
+  const restored = normaliseDraft(edited);
+  assert.equal(restored.latitude, 49.28);
+  assert.equal(restored.longitude, -123.12);
+  const request = toListingWriteRequest(restored, { site: "MARKETPLACE" });
+  assert.equal(request.latitude, 49.28);
+  assert.equal(request.longitude, -123.12);
 });

@@ -16,6 +16,9 @@ import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
 
 public interface ListingRepository extends JpaRepository<Listing, UUID> {
+    @Query(value = "SELECT EXISTS(SELECT 1 FROM moderation_cases WHERE listing_id=:listingId AND kind='APPEAL' AND status='OPEN')", nativeQuery = true)
+    boolean hasOpenAppeal(@Param("listingId") UUID listingId);
+
 
     @Query(value = """
             select count(*) from listings listing
@@ -30,7 +33,35 @@ public interface ListingRepository extends JpaRepository<Listing, UUID> {
             @Param("site") String site,
             @Param("asOf") Instant asOf);
 
-    @EntityGraph(attributePaths = {"category", "location", "location.parent", "attributes"})
+    interface OwnedPosition {
+        UUID getId();
+        Long getPosition();
+    }
+
+    /** Personals shares one posting rank; Marketplace ranks within category and area. */
+    @Query(value = """
+            WITH ranked AS (
+                SELECT l.id, l.owner_id,
+                    row_number() OVER (PARTITION BY
+                        CASE WHEN :site = 'PERSONALS' THEN NULL ELSE l.category_id END,
+                        CASE WHEN :site = 'PERSONALS' THEN NULL ELSE l.location_id END
+                        ORDER BY coalesce(l.published_at, l.created_at) DESC, l.id DESC) AS position
+                FROM listings l
+                JOIN app_users u ON u.id = l.owner_id AND u.enabled = true
+                WHERE l.site_scope = :site AND l.status = 'ACTIVE'
+                  AND (l.expires_at IS NULL OR l.expires_at > :asOf)
+                  AND EXISTS (SELECT 1 FROM listings owned
+                      WHERE owned.owner_id = :ownerId AND owned.site_scope = :site
+                        AND owned.status = 'ACTIVE'
+                        AND (:site = 'PERSONALS' OR (owned.category_id = l.category_id
+                            AND owned.location_id = l.location_id)))
+            )
+            SELECT id, position FROM ranked WHERE owner_id = :ownerId
+            """, nativeQuery = true)
+    List<OwnedPosition> ownedPositions(@Param("ownerId") UUID ownerId,
+            @Param("site") String site, @Param("asOf") Instant asOf);
+
+    @EntityGraph(attributePaths = {"category", "location", "location.parent", "location.parent.parent", "attributes"})
     @Query("select listing from Listing listing where listing.id = :id and listing.status <> :deleted")
     Optional<Listing> findDetailedById(
             @Param("id") UUID id,
@@ -44,7 +75,7 @@ public interface ListingRepository extends JpaRepository<Listing, UUID> {
             @Param("id") UUID id,
             @Param("deleted") ListingStatus deleted);
 
-    @EntityGraph(attributePaths = {"category", "location", "location.parent", "attributes"})
+    @EntityGraph(attributePaths = {"category", "location", "location.parent", "location.parent.parent", "attributes"})
     @Query("""
             select distinct listing from Listing listing
             where listing.ownerId = :ownerId

@@ -91,7 +91,7 @@ export default function Profile() {
   const toast = useToast();
   const { user, signOut, signedIn } = useAuth();
   const { can, isCreator, roleMeta } = useAccount();
-  const { openStory } = useShell();
+  const { openPost, openStory } = useShell();
   const navigate = useNavigate();
   const [confirmLogout, setConfirmLogout] = useState(false);
   const userId = signedIn ? user?.id : null;
@@ -244,35 +244,17 @@ export default function Profile() {
 
           <div className="mt-4 lg:mt-0">
             <nav className="overflow-hidden rounded-card bg-surface shadow-card lg:grid lg:grid-cols-2 lg:gap-px lg:bg-line">
-              {/* Your story starts here, and only on personals.
-
-                  It used to be the first tile in the board's story rail — a
-                  composer wearing the same ring as everybody else's photos,
-                  which made the one thing you can *do* look like one more
-                  thing to scroll past. It belongs with the other rows about
-                  your own account, so this is where it went.
-
-                  The row is written out here rather than added to profileMenu
-                  because it is not a plain link: it opens the composer the
-                  shell hosts. That is also why it leads the list — it is an
-                  action, and the rest of these are destinations.
-
-                  Once you have posted, it is two controls rather than one.
-                  The rail on the board deliberately drops `mine` (see
-                  `groupStatuses`), so without a way in from here the story
-                  you just posted would be reachable only by typing
-                  /status/me — you could add to a story you could never
-                  watch. The left three-quarters opens the player, the plus
-                  on the right adds another update, and they are siblings
-                  rather than nested because a <button> inside an <a> is not
-                  a thing a browser will do.
-
-                  The marketplace has no stories at all, so none of it ever
-                  renders. A browsing account does render it and gets told
-                  why it cannot post — `openStory` asks that question, the
-                  same way it asks it for the create chooser — which is the
-                  treatment every other creator-only control in this build
-                  gives: a sentence beats a dead button. */}
+              <button type="button" onClick={openPost}
+                className="flex w-full items-center gap-3.5 border-b border-line bg-surface p-4 text-left transition-colors hover:bg-canvas lg:border-0">
+                <span className="brand-gradient grid size-11 shrink-0 place-items-center rounded-2xl text-on-brand">
+                  <Plus className="size-[22px]" strokeWidth={2.2} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[16px] font-bold leading-tight text-ink">Post Ad</span>
+                  <span className="mt-0.5 block text-[13px] text-muted">Create a new listing</span>
+                </span>
+                <ChevronRight className="size-5 shrink-0 text-muted" />
+              </button>
               {IS_PERSONALS &&
                 (myUpdates.length ? (
                   <div className="flex w-full items-center border-b border-line bg-surface lg:border-0">
@@ -314,7 +296,7 @@ export default function Profile() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-[16px] font-bold leading-tight text-ink">
-                        Add a story
+                        Post Story
                       </span>
                       <span className="mt-0.5 block truncate text-[13px] text-muted">
                         A photo or video for 24 hours
@@ -376,11 +358,15 @@ export default function Profile() {
         body="You'll need to sign in again to manage your ads."
         confirmLabel="Log out"
         destructive
-        onConfirm={() => {
-          setConfirmLogout(false);
-          signOut();
-          toast("Logged out");
-          navigate("/login", { replace: true });
+        onConfirm={async () => {
+          try {
+            await signOut();
+            setConfirmLogout(false);
+            toast("Logged out");
+            navigate("/login", { replace: true });
+          } catch {
+            toast("Couldn't log out. Please try again.");
+          }
         }}
         onClose={() => setConfirmLogout(false)}
       />

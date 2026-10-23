@@ -25,7 +25,7 @@ export function reportListing(listingId, { site, reason, details }) {
  * cc.vezlist.moderation.application.ModerationService.OwnerStatus)
  */
 
-/** GET /api/v1/me/listings/{id}/moderation?site= -> { listingId, status, publicReason, appealAllowed }. */
+/** GET /api/v1/me/listings/{id}/moderation?site= -> { listingId, status, publicReason, appealAllowed, appealId, appealStatus, appealSubmittedAt, appealDecidedAt }. */
 export function ownerStatus(listingId, site) {
   return api.get(`/api/v1/me/listings/${listingId}/moderation`, { site });
 }

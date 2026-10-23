@@ -155,6 +155,17 @@ describe.each([false, true])(
       expect(screen.queryByText("Hello creator")).toBeNull();
     });
 
+    test.each(["ADMIN", "MODERATOR"])("a public %s viewer has no host moderation controls", async (role) => {
+      auth.signedIn = true;
+      auth.user = { id: "staff-viewer", roles: [role] };
+      render(<LiveChat overlay={overlay} sessionId="session-1" />);
+      await ready(true);
+      act(() => sockets[0].message({ type: "message", message }));
+      expect(screen.getByText("Hello creator")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Remove message from Viewer" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Mute Viewer" })).toBeNull();
+    });
+
     test("host can unmute a creator from server moderation state", async () => {
       auth.signedIn = true;
       auth.user = { id: "host" };

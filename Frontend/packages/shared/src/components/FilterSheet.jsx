@@ -3,13 +3,15 @@
 import { useState } from "react";
 import ChoiceRow from "./ui/ChoiceRow";
 import Modal from "./ui/Modal";
-import {
-  DEFAULT_FILTERS,
-  reconcileSubcategory,
-} from "../lib/filters";
+import { DEFAULT_FILTERS, reconcileSubcategory } from "../lib/filters";
 import { getCategories, subsFor } from "../lib/taxonomy";
 import { postedWithinOptions, sortOptions } from "../data/mock";
-import { ALL_CANADA, areasFor, provinces } from "../data/locations";
+import { ALL_CANADA } from "../data/locations";
+import useLocationCatalog from "../hooks/useLocationCatalog.js";
+import { provinceLabel } from "../lib/locationCatalog.js";
+import LocationHierarchy, {
+  LocationCatalogStatus,
+} from "./LocationHierarchy.jsx";
 
 /**
  * `site` marks a group only one board offers. The personals board's own two —
@@ -41,6 +43,15 @@ export default function FilterSheet({
   // One flag rather than one per group: every difference between the two
   // sheets is the same difference — which board is asking.
   const site = personals ? "personals" : "marketplace";
+  const {
+    locations,
+    status: locationStatus,
+    retry: retryLocations,
+  } = useLocationCatalog({ enabled: open });
+  const provinces = [
+    { id: ALL_CANADA, label: "All Canada", areas: [] },
+    ...(locations?.provinces ?? []),
+  ];
   const groups = GROUPS.filter(offeredOn(site));
   // Read fresh on every render — see `CategoryGrid.jsx` for why a module-
   // level constant would freeze this on whichever list was current at
@@ -48,6 +59,9 @@ export default function FilterSheet({
   const filterableCategories = getCategories().map((c) => c.label);
   const [draft, setDraft] = useState(filters);
   const [group, setGroup] = useState(initialGroup);
+  const [choosingProvince, setChoosingProvince] = useState(
+    filters.province === ALL_CANADA,
+  );
 
   // Reopening should always start from what is currently applied, on whichever
   // group the caller opened it for ("More" in the strip means Category).
@@ -73,6 +87,7 @@ export default function FilterSheet({
     if (open) {
       if (!prev.open || filters !== prev.filters) {
         setDraft(reconcileSubcategory(filters));
+        setChoosingProvince(filters.province === ALL_CANADA);
       }
       if (
         !prev.open ||
@@ -127,11 +142,15 @@ export default function FilterSheet({
     draft.categories.length === 1 ? draft.categories[0] : null;
   const subs = onlyCategory ? subsFor(onlyCategory) : [];
 
-
-  const priceError = [draft.minPrice, draft.maxPrice].some((value) => value && !/^\d+(\.\d{1,2})?$/.test(value))
+  const priceError = [draft.minPrice, draft.maxPrice].some(
+    (value) => value && !/^\d+(\.\d{1,2})?$/.test(value),
+  )
     ? "Enter a valid price with up to two decimal places."
-    : draft.minPrice && draft.maxPrice && Number(draft.minPrice) > Number(draft.maxPrice)
-      ? "Maximum price must be at least the minimum price." : null;
+    : draft.minPrice &&
+        draft.maxPrice &&
+        Number(draft.minPrice) > Number(draft.maxPrice)
+      ? "Maximum price must be at least the minimum price."
+      : null;
 
   return (
     // The body height is pinned, not just floored: with only a minimum the
@@ -146,7 +165,10 @@ export default function FilterSheet({
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => setDraft(DEFAULT_FILTERS)}
+            onClick={() => {
+              setDraft(DEFAULT_FILTERS);
+              setChoosingProvince(true);
+            }}
             className="flex-1 rounded-2xl border border-line py-3 text-[15px] font-semibold text-ink transition-colors hover:bg-canvas"
           >
             Clear all
@@ -189,16 +211,18 @@ export default function FilterSheet({
       <div className="min-w-0 flex-1 overflow-y-auto p-2">
         {group === "sort" && (
           <div role="radiogroup" aria-label="Sort by">
-            {sortOptions.filter((o) => o.value !== "nearest").map((o) => (
-              <ChoiceRow
-                key={o.value}
-                type="radio"
-                checked={draft.sort === o.value}
-                onChange={() => patch({ sort: o.value })}
-              >
-                {o.label}
-              </ChoiceRow>
-            ))}
+            {sortOptions
+              .filter((o) => o.value !== "nearest")
+              .map((o) => (
+                <ChoiceRow
+                  key={o.value}
+                  type="radio"
+                  checked={draft.sort === o.value}
+                  onChange={() => patch({ sort: o.value })}
+                >
+                  {o.label}
+                </ChoiceRow>
+              ))}
           </div>
         )}
 
@@ -209,8 +233,15 @@ export default function FilterSheet({
             Indented with padding on the group itself, not on a wrapper around
             each row, so the radios stay direct children of the radiogroup —
             an intervening div breaks the ownership assistive tech reads. */}
-        {group === "category" && <ChoiceRow type="checkbox" checked={!draft.categories.length}
-          onChange={() => patch({ categories: [], subcategory: null })}>All categories</ChoiceRow>}
+        {group === "category" && (
+          <ChoiceRow
+            type="checkbox"
+            checked={!draft.categories.length}
+            onChange={() => patch({ categories: [], subcategory: null })}
+          >
+            All categories
+          </ChoiceRow>
+        )}
         {group === "category" &&
           filterableCategories.map((c) => {
             const showSubs = c === onlyCategory && subs.length > 0;
@@ -262,55 +293,86 @@ export default function FilterSheet({
         {group === "location" && (
           <div>
             <p className="px-3 pb-1 pt-2 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
-              Province
+              1. Province
             </p>
-            <div role="radiogroup" aria-label="Province">
-              {provinces.map((p) => (
-                <ChoiceRow
-                  key={p.id}
-                  type="radio"
-                  checked={draft.province === p.id}
-                  // Switching province drops areas that no longer exist.
-                  onChange={() => patch({ province: p.id, cities: [] })}
-                >
-                  {p.label}
-                </ChoiceRow>
-              ))}
-            </div>
-
-            {draft.province !== ALL_CANADA && (
-              <>
-                <p className="px-3 pb-1 pt-4 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">
-                  Cities in{" "}
-                  {provinces.find((p) => p.id === draft.province).label}
-                </p>
-                {areasFor(draft.province).map((a) => (
+            <LocationCatalogStatus
+              status={locationStatus}
+              retry={retryLocations}
+            />
+            {!choosingProvince && (
+              <button
+                type="button"
+                aria-label="Change province"
+                onClick={() => setChoosingProvince(true)}
+                className="mx-3 mb-2 text-left text-sm font-semibold text-brand underline"
+              >
+                {provinceLabel(draft.province, locations)} · Change province
+              </button>
+            )}
+            {choosingProvince && (
+              <div role="radiogroup" aria-label="Province">
+                {(locationStatus === "success"
+                  ? provinces
+                  : provinces.slice(0, 1)
+                ).map((p) => (
                   <ChoiceRow
-                    key={a}
-                    type="checkbox"
-                    checked={draft.cities.includes(a)}
-                    onChange={() => toggle("cities", a)}
+                    key={p.id}
+                    type="radio"
+                    checked={draft.province === p.id}
+                    // Switching province drops areas that no longer exist.
+                    onChange={() => {
+                      patch({ province: p.id, cities: [] });
+                      setChoosingProvince(p.id === ALL_CANADA);
+                    }}
                   >
-                    {a}
+                    {p.label}
                   </ChoiceRow>
                 ))}
-              </>
+              </div>
             )}
+
+            {!choosingProvince &&
+              draft.province !== ALL_CANADA &&
+              locationStatus === "success" && (
+                <>
+                  <LocationHierarchy
+                    key={draft.province}
+                    catalog={locations}
+                    filters={draft}
+                    onChange={setDraft}
+                  />
+                </>
+              )}
           </div>
         )}
 
         {group === "price" && (
           <div className="space-y-4 p-3">
-            <p className="text-sm text-muted">Leave either field empty for no limit.</p>
-            {[["minPrice", "Minimum price"], ["maxPrice", "Maximum price"]].map(([key, label]) => (
+            <p className="text-sm text-muted">
+              Leave either field empty for no limit.
+            </p>
+            {[
+              ["minPrice", "Minimum price"],
+              ["maxPrice", "Maximum price"],
+            ].map(([key, label]) => (
               <label key={key} className="block text-sm font-semibold text-ink">
                 {label} (CAD)
-                <input type="number" min="0" step="0.01" inputMode="decimal"
-                  value={draft[key] ?? ""} onChange={(event) => patch({ [key]: event.target.value })}
-                  className="mt-2 w-full rounded-xl border border-line bg-surface px-3 py-2 text-ink" />
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={draft[key] ?? ""}
+                  onChange={(event) => patch({ [key]: event.target.value })}
+                  className="mt-2 w-full rounded-xl border border-line bg-surface px-3 py-2 text-ink"
+                />
               </label>
             ))}
-            {priceError && <p role="alert" className="text-sm text-red-600">{priceError}</p>}
+            {priceError && (
+              <p role="alert" className="text-sm text-red-600">
+                {priceError}
+              </p>
+            )}
           </div>
         )}
         {group === "more" && (

@@ -1,31 +1,22 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { DEFAULT_FILTERS } from "../lib/filters";
-import { getCategories as fetchCategories, getLocations } from "../lib/api/catalog.js";
+import { getCategories as fetchCategories } from "../lib/api/catalog.js";
 import { SITE_SCOPE } from "../lib/api/client.js";
+import useLocationCatalog from "../hooks/useLocationCatalog.js";
 import { setCategories } from "../lib/taxonomy.js";
 
-/**
- * What you were browsing on the home feed: the filters and the search box —
- * plus, now, the real taxonomy and location tree those filters are drawn
- * from.
- *
- * It lives above the routes because the status player is a full-screen route of
- * its own — opening a story unmounts the whole shell, so page-local state would
- * be gone by the time you closed it and you'd land back on a reset feed instead
- * of the category you left.
- *
- * Categories and locations are fetched once here, from GET /api/v1/categories
- * and GET /api/v1/locations (cc.vezlist.catalog.web.CatalogController — both
- * public and cacheable), rather than by every screen that used to import them
- * from `data/mock.js`. Categories are also pushed into `lib/taxonomy.js`'s
- * registry as soon as they answer, so every existing consumer of that
- * module — the filter sheet, the search suggester, the category grid — sees
- * the real list without itself knowing there was a network call. Until that
- * answers (or if it fails), those consumers keep reading the mock list
- * `taxonomy.js` falls back to, which is a real taxonomy — just not the one
- * the server currently has seeded — rather than an empty one.
+/** Shared browsing state; category and location requests fail independently.
+ * Locations are refreshed through one shared catalog for both public boards.
  */
 const FeedContext = createContext(null);
 
@@ -35,29 +26,38 @@ export function FeedProvider({ children }) {
   const [query, setQuery] = useState("");
 
   const [categories, setLocalCategories] = useState([]);
-  const [locations, setLocations] = useState(null);
-  const [taxonomyReady, setTaxonomyReady] = useState(false);
-  const [taxonomyError, setTaxonomyError] = useState(null);
+  const {
+    locations,
+    status: locationStatus,
+    error: locationError,
+    retry: reloadLocations,
+  } = useLocationCatalog();
+  const [categoriesReady, setCategoriesReady] = useState(false);
+  const [categoryError, setCategoryError] = useState(null);
+  const taxonomyReady = categoriesReady && locationStatus !== "loading";
+  const taxonomyError = categoryError ?? locationError;
   const [reloadToken, setReloadToken] = useState(0);
 
-  const reloadTaxonomy = useCallback(() => setReloadToken((t) => t + 1), []);
+  const reloadTaxonomy = useCallback(() => {
+    setReloadToken((t) => t + 1);
+    reloadLocations();
+  }, [reloadLocations]);
 
   useEffect(() => {
     let cancelled = false;
-    setTaxonomyError(null);
-    Promise.all([fetchCategories(SITE_SCOPE), getLocations()])
-      .then(([cats, locs]) => {
+    setCategoryError(null);
+    fetchCategories(SITE_SCOPE)
+      .then((cats) => {
         if (cancelled) return;
         setLocalCategories(cats ?? []);
         setCategories(cats ?? []);
-        setLocations(locs ?? null);
-        setTaxonomyReady(true);
+        setCategoriesReady(true);
       })
       .catch((err) => {
         if (cancelled) return;
-        setTaxonomyError(err);
+        setCategoryError(err);
         setCategories([]);
-        setTaxonomyReady(true);
+        setCategoriesReady(true);
       });
     return () => {
       cancelled = true;

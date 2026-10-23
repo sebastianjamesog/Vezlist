@@ -17,7 +17,7 @@ public class ModerationRepository {
 
     public record Listing(UUID id, UUID owner, SiteScope site, String category, String status,
                           long version, Instant expiresAt, boolean enabled, String reason,
-                          boolean verificationRequested, boolean verified) { }
+                          boolean verificationRequested, boolean verified, UUID moderationEpisode, String provinceId, String locationId) { }
     public record Case(UUID id, UUID listingId, String kind, String status, UUID assignee, long reviewVersion) { }
 
     public Listing listing(UUID id, boolean lock) {
@@ -29,7 +29,8 @@ public class ModerationRepository {
                 rs.getString("category_id"), rs.getString("status"), rs.getLong("version"),
                 rs.getTimestamp("expires_at") == null ? null : rs.getTimestamp("expires_at").toInstant(),
                 rs.getBoolean("enabled"), rs.getString("moderation_reason"),
-                rs.getBoolean("verification_requested"), rs.getBoolean("verified")), id);
+                rs.getBoolean("verification_requested"), rs.getBoolean("verified"), rs.getObject("moderation_episode", UUID.class),
+                rs.getString("province_id"), rs.getString("location_id")), id);
         if (rows.isEmpty()) throw new ModerationException(NOT_FOUND, "Listing not found.");
         return rows.getFirst();
     }
@@ -41,9 +42,12 @@ public class ModerationRepository {
         return rows.getFirst();
     }
     public UUID openCase(Listing listing, String kind) {
-        var existing = jdbc.queryForList("SELECT id FROM moderation_cases WHERE listing_id = ? AND status = 'OPEN'",
-                UUID.class, listing.id());
-        if (!existing.isEmpty()) return existing.getFirst();
+        var existing = jdbc.queryForList("SELECT id,kind FROM moderation_cases WHERE listing_id=? AND status='OPEN'", listing.id());
+        if (!existing.isEmpty()) {
+            if (!kind.equals(existing.getFirst().get("kind")))
+                throw new ModerationException(org.springframework.http.HttpStatus.CONFLICT, "A different review is already open for this listing.");
+            return (UUID) existing.getFirst().get("id");
+        }
         UUID id = UUID.randomUUID();
         jdbc.update("INSERT INTO moderation_cases(id, listing_id, kind, review_version) VALUES (?, ?, ?, ?)",
                 id, listing.id(), kind, listing.version());

@@ -405,6 +405,59 @@ describe("Gcore creator live flow", () => {
     ).toBe(true);
   });
 
+  test("uses server time for expiry warnings on a restored live session", async () => {
+    const serverTime = "2020-01-01T00:00:00Z";
+    const current = {
+      ...session,
+      status: "LIVE",
+      serverTime,
+      endsAt: "2020-01-01T00:04:00Z",
+    };
+    live.getMyLiveSession.mockResolvedValue({ session: current });
+    live.getLiveSession.mockResolvedValue(current);
+    render(<GoLive />);
+    expect(await screen.findByRole("timer")).toHaveProperty(
+      "textContent",
+      "04:00",
+    );
+    expect(screen.getByRole("alert").textContent).toContain(
+      "5 minutes or less",
+    );
+    expect(screen.getByRole("button", { name: "End Live" })).toBeTruthy();
+    live.getLiveSession.mockResolvedValue({
+      ...current,
+      endsAt: "2020-01-01T00:00:45Z",
+    });
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(screen.getByRole("alert").textContent).toContain("1 minute or less");
+    expect(screen.getByRole("timer").textContent).toBe("00:45");
+    live.getLiveSession.mockResolvedValue({
+      ...current,
+      endsAt: "2019-12-31T23:59:59Z",
+    });
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(screen.getByText("Your session has ended")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "End Live" })).toBeNull();
+  });
+
+  test("closing creator controls asks before ending the live", async () => {
+    const user = userEvent.setup();
+    live.getMyLiveSession.mockResolvedValue({
+      session: { ...session, status: "LIVE" },
+    });
+    render(<GoLive />);
+    await user.click(
+      await screen.findByRole("button", { name: "End live and leave" }),
+    );
+    expect(screen.getByRole("dialog").textContent).toContain(
+      "End live and leave?",
+    );
+    expect(live.endLiveSession).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(live.endLiveSession).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   test("guest cannot access creator APIs or camera", async () => {
     account.signedIn = false;
     render(<GoLive />);

@@ -13,21 +13,9 @@ import { timeAgo } from "../lib/format";
 import { useSiteScope } from "../lib/adminScope";
 
 /**
- * This admin's own notifications — over `GET /api/v1/me/notifications` and
- * friends (`packages/shared/src/lib/api/notifications.js`), the same module
- * the public sites' Notifications screen already uses. `NotificationController`
- * reads off whoever the session belongs to, so it works unchanged for the
- * signed-in admin account; nothing admin-specific was needed in the API
- * layer, only in how this screen presents it.
- *
- * This replaces what used to live at this route: a client-only "compose a
- * push broadcast" form over `state.broadcasts`. There is no backend for
- * sending a broadcast (no endpoint anywhere in `admin.web`), so that screen
- * had nothing real to be wired to — it was inventing a "Sent" history rather
- * than reading one. What the backend does expose at `/notifications` is a
- * per-principal inbox, and this account has one like any other, so that's
- * what this screen now shows. A broadcast composer can come back once
- * there's an endpoint underneath it.
+ * This administrator's own inbox. The shared notifications client selects
+ * /api/v1/admin/me/notifications in the console so a public login in another
+ * tab cannot change which account's inbox is read or marked as read.
  */
 
 const TYPE_META = {

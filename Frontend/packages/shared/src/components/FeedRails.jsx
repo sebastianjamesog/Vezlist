@@ -16,13 +16,13 @@ import MediaImage from "./media/MediaImage.jsx";
 ------------------------------------------------------------------------- */
 
 /**
- * The four faces of one accent.
+ * The three faces of one accent.
  *
- * Split into four maps rather than derived from one, because Tailwind reads
+ * Split into three maps rather than derived from one, because Tailwind reads
  * this file as text: a class assembled at runtime out of `${accent}-700` is a
  * class the compiler never sees and therefore never emits. Every value here is
  * a literal for that reason, and adding a hue means adding a row to each of the
- * four rather than one clever entry to a single one.
+ * three rather than one clever entry to a single one.
  */
 const ACCENT_RING = {
   brand: "ring-brand/40",
@@ -53,25 +53,6 @@ const ACCENT_TEXT = {
   green: "text-emerald-700",
   purple: "text-violet-700",
   amber: "text-amber-700",
-};
-
-/**
- * The 3px rule across the top of a tile.
- *
- * It is the whole reason the redesigned rail reads as a set of separate
- * measurements rather than one grey texture: five white cards with five tinted
- * icons still scan as one block, five white cards each capped by its own colour
- * do not. Decorative, and no text sits on it, so this is the one place an accent
- * is allowed to be bright — the contrast rules above govern lettering, and there
- * is none here.
- */
-const ACCENT_RULE = {
-  brand: "from-brand",
-  "brand-2": "from-sky-500",
-  rose: "from-rose-500",
-  green: "from-emerald-500",
-  purple: "from-violet-500",
-  amber: "from-amber-500",
 };
 
 /** The filled dot: the `dot` variant's glyph, and the count pill's marker. */
@@ -112,21 +93,11 @@ function Shortcut({ item, active, onPatch }) {
   const { Icon, label, sub, stat, accent, pill, dot, thumbs, count } = item;
   const hue = accent ?? "brand";
   const tint = ACCENT_TEXT[hue] ?? ACCENT_TEXT.brand;
-  const rule = ACCENT_RULE[hue] ?? ACCENT_RULE.brand;
   const marker = ACCENT_DOT[hue] ?? ACCENT_DOT.brand;
 
   const body = (
     <>
-      <span
-        aria-hidden="true"
-        className={`absolute inset-x-0 top-0 h-[3px] rounded-t-2xl bg-gradient-to-r to-transparent ${rule}`}
-      />
-
-      {/* The pill sits beside the icon now rather than replacing it. It used to
-          replace it, which spent the one mark that says what kind of thing the
-          tile is on a badge that says "new" — and now that the icon is what
-          ties the tile to the coloured rule above it, dropping it leaves a
-          stripe belonging to nothing. */}
+      {/* Keep the badge beside the icon so both remain visible. */}
       <span className="flex w-full items-center justify-between gap-1">
         {dot ? (
           // A filled dot instead of a glyph, for a tile whose subject is

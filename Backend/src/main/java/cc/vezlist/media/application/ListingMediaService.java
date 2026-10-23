@@ -214,6 +214,19 @@ public class ListingMediaService {
                 .toList();
     }
 
+    /** Caller holds the listing lock and has authorized a staff verification decision. */
+    @Transactional
+    public void verifyPhotos(UUID listingId, List<UUID> selectedIds) {
+        List<UUID> selected = selectedIds == null ? List.of() : selectedIds;
+        List<ListingMedia> images = media.findAllByListingIdOrderByPositionAscCreatedAtAsc(listingId);
+        Set<UUID> readyIds = images.stream().filter(image -> image.getStatus() == ListingMediaStatus.READY)
+                .map(ListingMedia::getId).collect(java.util.stream.Collectors.toSet());
+        if (new HashSet<>(selected).size() != selected.size() || !readyIds.containsAll(selected)) {
+            throw new MediaValidationException("Select only ready photos belonging to this listing.");
+        }
+        images.forEach(image -> image.setPhotoVerified(selected.contains(image.getId())));
+    }
+
     private ListingMediaResponse response(ListingMedia image) {
         String url = image.getStatus() == ListingMediaStatus.READY
                 ? storage.authorizeDownload(image.getObjectKey()).toString()
@@ -227,6 +240,9 @@ public class ListingMediaService {
         if (!listing.getOwnerId().equals(ownerId)) throw new ListingNotFoundException();
         if (listing.getStatus() != ListingStatus.DRAFT && listing.getStatus() != ListingStatus.REJECTED) {
             throw new ListingStateException("Images can only be changed on draft or rejected listings.");
+        }
+        if (listings.hasOpenAppeal(listingId)) {
+            throw new ListingStateException("Images cannot be changed while an appeal is awaiting review. Wait for the decision or edit and resubmit the listing.");
         }
         return listing;
     }

@@ -1,4 +1,5 @@
-import { provinceById, provinces } from "../data/locations.js";
+import { provinceById } from "../data/locations.js";
+import { provinceLabel, locationLabel } from "./locationCatalog.js";
 import { isSubOf } from "./taxonomy.js";
 
 const WINDOWS = { "24h": 86_400_000, "7d": 604_800_000, "30d": 2_592_000_000 };
@@ -116,7 +117,7 @@ export function activeFilterChips(f) {
   if (f.province !== "all") {
     chips.push({
       key: `prov:${f.province}`,
-      label: provinceById(f.province).label,
+      label: provinceLabel(f.province),
       // Dropping the province drops the areas inside it too.
       clear: { province: "all", cities: [] },
     });
@@ -124,7 +125,7 @@ export function activeFilterChips(f) {
   for (const c of f.cities) {
     chips.push({
       key: `city:${c}`,
-      label: c,
+      label: locationLabel(c),
       clear: { cities: f.cities.filter((x) => x !== c) },
     });
   }
@@ -255,8 +256,8 @@ const POSTED_WITHINS = new Set(Object.keys(WINDOWS));
  * the string this produces — there is no second, parallel shape for "what a
  * filter set means" to fall out of sync with this one.
  *
- * Array fields join on a comma, the convention the browse screen's own
- * `?cat=`/`?sub=` already use for a single value. Only fields that differ from
+ * Most array fields join on a comma. Ethnicities use a JSON array so an
+ * administrator-defined label can contain a comma. Only fields that differ from
  * `DEFAULT_FILTERS` are written, so a filter set with nothing narrowed
  * round-trips to an empty object rather than a page-wide dump of defaults.
  */
@@ -273,7 +274,7 @@ export function filtersToParams(filters, query = "") {
   if (f.personalsCategories.length) {
     params.personalsCategories = f.personalsCategories.join(",");
   }
-  if (f.ethnicities.length) params.ethnicities = f.ethnicities.join(",");
+  if (f.ethnicities.length) params.ethnicities = JSON.stringify(f.ethnicities);
   if (f.province !== DEFAULT_FILTERS.province) params.province = f.province;
   if (f.cities.length) params.cities = f.cities.join(",");
   if (f.verifiedOnly) params.verified = "1";
@@ -294,6 +295,20 @@ const csv = (value) =>
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+
+/** Preserve current JSON labels while accepting existing comma-separated bookmarks. */
+function ethnicityParams(value) {
+  if (!value || value.length > 10_000) return [];
+  let labels;
+  if (value.trimStart().startsWith("[")) {
+    try { labels = JSON.parse(value); } catch { return []; }
+  } else {
+    labels = csv(value);
+  }
+  if (!Array.isArray(labels) || labels.length > 20 || labels.some(label =>
+    typeof label !== "string" || !label.trim() || label.trim().length > 80)) return [];
+  return [...new Set(labels.map(label => label.trim()))];
+}
 
 /**
  * `filtersToParams`'s inverse: a query string, a `URLSearchParams`, or a
@@ -330,9 +345,9 @@ export function paramsToFilters(paramsLike) {
     categories: csv(params.get("categories")),
     subcategory: params.get("subcategory") || null,
     personalsCategories: csv(params.get("personalsCategories")),
-    ethnicities: csv(params.get("ethnicities")),
+    ethnicities: ethnicityParams(params.get("ethnicities")),
     province:
-      province && provinces.some((p) => p.id === province)
+      province && /^[A-Za-z0-9_-]{1,40}$/.test(province)
         ? province
         : DEFAULT_FILTERS.province,
     cities: csv(params.get("cities")),

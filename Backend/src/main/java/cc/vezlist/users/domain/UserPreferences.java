@@ -36,6 +36,9 @@ public class UserPreferences {
     @Column(name = "available_now", nullable = false)
     private boolean availableNow;
 
+    @Column(name = "available_until")
+    private Instant availableUntil;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -64,10 +67,16 @@ public class UserPreferences {
     public void update(boolean pushNotifications, boolean emailUpdates, Boolean availableNow) {
         this.pushNotifications = pushNotifications;
         this.emailUpdates = emailUpdates;
-        if (availableNow != null) this.availableNow = availableNow;
+        if (availableNow != null) {
+            // Unrelated preference saves must never extend an active window.
+            if (availableNow && !isAvailableNow()) availableUntil = Instant.now().plusSeconds(20 * 60);
+            if (!availableNow) availableUntil = null;
+            this.availableNow = availableNow;
+        }
     }
 
     public boolean isPushNotifications() { return pushNotifications; }
     public boolean isEmailUpdates() { return emailUpdates; }
-    public boolean isAvailableNow() { return availableNow; }
+    public boolean isAvailableNow() { return availableNow && availableUntil != null && availableUntil.isAfter(Instant.now()); }
+    public Instant getAvailableUntil() { return availableUntil; }
 }

@@ -52,6 +52,7 @@ export default function Verifications() {
   const [detail, setDetail] = useState(null);
   const [detailError, setDetailError] = useState(null);
   const [reason, setReason] = useState("");
+  const [verifiedMediaIds, setVerifiedMediaIds] = useState([]);
   const [reasonError, setReasonError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [decisionError, setDecisionError] = useState(null);
@@ -74,6 +75,7 @@ export default function Verifications() {
     setDetail(null);
     setDetailError(null);
     setReason("");
+    setVerifiedMediaIds([]);
     setReasonError(null);
     try {
       const d = await verificationApi.verificationDetail(row.id);
@@ -98,6 +100,7 @@ export default function Verifications() {
       await verificationApi.decideVerification(acting.id, {
         decision,
         reason: decision === "REJECT" ? reason.trim() : undefined,
+        verifiedMediaIds: decision === "APPROVE" ? verifiedMediaIds : undefined,
       });
       load();
       toast(decision === "APPROVE" ? "Listing verified" : "Verification request rejected");
@@ -286,7 +289,7 @@ export default function Verifications() {
                       src={detail.photoUrl}
                       alt="Verification photo"
                       sizes="240px"
-                      className="object-cover"
+                      className="object-contain"
                     />
                   </div>
                 ) : (
@@ -302,6 +305,25 @@ export default function Verifications() {
               photo before approving. Rejecting requires a reason the seller
               will see.
             </p>
+
+            <fieldset className="space-y-2">
+              <legend className="text-[13px] font-bold text-ink">Verify listing pictures</legend>
+              <p className="text-[12px] text-muted">Select only pictures you have checked against the verification photo. Unselected pictures stay non-verified.</p>
+              <div className="grid grid-cols-2 gap-3">
+                {(detail.media ?? []).filter((photo) => photo.url).map((photo, index) => (
+                  <label key={photo.id} className="cursor-pointer rounded-xl border border-line p-2">
+                    <span className="relative mb-2 block aspect-square overflow-hidden rounded-lg bg-canvas">
+                      <MediaImage fill src={photo.url} alt={`Listing photo ${index + 1}`} sizes="220px" className="object-contain" />
+                    </span>
+                    <span className="flex items-center gap-2 text-xs font-medium">
+                      <input type="checkbox" aria-label={`Verify photo ${index + 1}`} checked={verifiedMediaIds.includes(photo.id)} disabled={submitting}
+                        onChange={(event) => setVerifiedMediaIds((ids) => event.target.checked ? [...ids, photo.id] : ids.filter((id) => id !== photo.id))} />
+                      Verify photo {index + 1}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
 
             <Field label="Reason" hint="Required for reject" error={reasonError}>
               <textarea

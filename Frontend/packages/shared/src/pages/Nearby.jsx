@@ -1,6 +1,7 @@
 "use client";
+import { resolveLocationIds } from "../lib/locationCatalog.js";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { SlidersHorizontal } from "lucide-react";
 import TopBar from "../components/layout/TopBar";
@@ -13,6 +14,8 @@ import { DEFAULT_FILTERS, activeFilterCount } from "../lib/filters";
 import { searchListings } from "../lib/api/discovery.js";
 import { SITE_SCOPE, ApiError } from "../lib/api/client.js";
 import { categoryByLabel } from "../lib/taxonomy.js";
+import { rememberNearbyPosition } from "../hooks/useNearbyPreview.js";
+import { useFeed } from "../context/FeedContext.jsx";
 import { IS_PERSONALS } from "../lib/sites";
 
 // Leaflet reads `window` while it is being imported, so the map is fetched in
@@ -38,10 +41,14 @@ const PAGE_SIZE = 24;
  */
 const POSTED_WITHIN_TO_API = { "24h": "HOURS_24", "7d": "DAYS_7", "30d": "DAYS_30" };
 
-function buildNearbyParams(filters, coords, radiusKm, cursor) {
+export function buildNearbyParams(filters, coords, radiusKm, cursor, locations) {
   const params = {
     site: SITE_SCOPE,
-    sort: "NEAREST",
+    sort: ({ nearest: "NEAREST", newest: "NEWEST", "verified-first": "VERIFIED_FIRST", "price-asc": "PRICE_ASC", "price-desc": "PRICE_DESC" })[filters.sort] ?? "NEAREST",
+    minPrice: filters.minPrice || undefined,
+    maxPrice: filters.maxPrice || undefined,
+    availableOnly: filters.availableOnly || undefined,
+    province: filters.province !== "all" ? filters.province : undefined,
     latitude: coords.lat,
     longitude: coords.lng,
     radiusKm,
@@ -54,6 +61,7 @@ function buildNearbyParams(filters, coords, radiusKm, cursor) {
     const ids = filters.categories.map((label) => categoryByLabel(label)?.id).filter(Boolean);
     if (ids.length) params.category = ids;
   }
+  if (filters.cities.length) params.area = resolveLocationIds(locations, filters);
   return params;
 }
 
@@ -72,6 +80,7 @@ function toCardListing(row) {
     image: row.imageUrl,
     latitude: row.latitude,
     longitude: row.longitude,
+    publishedAt: row.publishedAt, availableNow: row.availableNow, availableUntil: row.availableUntil,
   };
 }
 
@@ -85,6 +94,8 @@ function toCardListing(row) {
  * — is asking for that. Everything below is gated on having it.
  */
 export default function Nearby() {
+  const { locations } = useFeed();
+  const generation = useRef(0);
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS, sort: "nearest" });
   const [radiusKm, setRadiusKm] = useState(DEFAULT_RADIUS_KM);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -107,6 +118,7 @@ export default function Nearby() {
     }
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        rememberNearbyPosition(position);
         setCoords({ lat: position.coords.latitude, lng: position.coords.longitude });
         setGeoStatus("ready");
       },
@@ -129,9 +141,11 @@ export default function Nearby() {
   useEffect(() => {
     if (!coords) return undefined;
     let cancelled = false;
+    generation.current += 1;
+    setLoadingMore(false);
     setLoading(true);
     setError(null);
-    searchListings(buildNearbyParams(filters, coords, radiusKm))
+    searchListings(buildNearbyParams(filters, coords, radiusKm, undefined, locations))
       .then((res) => {
         if (cancelled) return;
         setItems(res?.items ?? []);
@@ -146,21 +160,24 @@ export default function Nearby() {
       });
     return () => {
       cancelled = true;
+      generation.current += 1;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coords, radiusKm, filters, reloadToken]);
+  }, [coords, radiusKm, filters, reloadToken, locations]);
 
   function loadMore() {
     if (!hasMore || loadingMore || !nextCursor || !coords) return;
+    const requestedGeneration = generation.current;
     setLoadingMore(true);
-    searchListings(buildNearbyParams(filters, coords, radiusKm, nextCursor))
+    searchListings(buildNearbyParams(filters, coords, radiusKm, nextCursor, locations))
       .then((res) => {
+        if (requestedGeneration !== generation.current) return;
         setItems((prev) => [...prev, ...(res?.items ?? [])]);
         setNextCursor(res?.nextCursor ?? null);
         setHasMore(!!res?.hasMore);
       })
-      .catch(() => setError((e) => e ?? new Error("Couldn't load more ads")))
-      .finally(() => setLoadingMore(false));
+      .catch(() => { if (requestedGeneration === generation.current) setError((e) => e ?? new Error("Couldn't load more ads")); })
+      .finally(() => { if (requestedGeneration === generation.current) setLoadingMore(false); });
   }
 
   const cards = useMemo(() => items.map(toCardListing), [items]);
@@ -267,7 +284,7 @@ export default function Nearby() {
                   ? "Turn on location for this site to see what's nearby, or browse everything instead."
                   : "Try again, or browse everything instead."}
               </p>
-              {geoStatus === "error" && (
+              {geoStatus !== "unsupported" && (
                 <Button className="mt-4" onClick={retryLocation}>
                   Try again
                 </Button>

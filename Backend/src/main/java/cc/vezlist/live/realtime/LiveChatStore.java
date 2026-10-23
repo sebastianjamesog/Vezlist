@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
@@ -47,6 +48,20 @@ public class LiveChatStore {
     }
     public long count(UUID room) {
         return runLong("redis.call('ZREMRANGEBYSCORE',KEYS[1],'-inf',ARGV[1]); return redis.call('ZCARD',KEYS[1])",List.of(prefix(room)+"presence"),""+System.currentTimeMillis());
+    }
+    /** Batched presence snapshot. Counts only unexpired identities; hosts never enter presence. */
+    public Map<UUID,Long> counts(Collection<UUID> rooms) {
+        List<UUID> ids=rooms.stream().distinct().toList();
+        if(ids.isEmpty()) return Map.of();
+        if(ids.size()>100) throw new IllegalArgumentException("At most 100 live rooms per snapshot");
+        long firstUnexpired=System.currentTimeMillis()+1;
+        List<Object> results=redis.executePipelined((RedisCallback<Object>) connection -> {
+            for(UUID id:ids) connection.zSetCommands().zCount((prefix(id)+"presence").getBytes(StandardCharsets.UTF_8),firstUnexpired,Double.POSITIVE_INFINITY);
+            return null;
+        });
+        Map<UUID,Long> counts=new HashMap<>();
+        for(int i=0;i<ids.size();i++) if(results.get(i) instanceof Number count) counts.put(ids.get(i),count.longValue());
+        return Map.copyOf(counts);
     }
     public List<Object> history(UUID room) {
         List<String> list=redis.opsForList().range(prefix(room)+"messages",0,-1);

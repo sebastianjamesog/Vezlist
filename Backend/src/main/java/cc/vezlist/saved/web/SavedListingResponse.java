@@ -23,5 +23,7 @@ public record SavedListingResponse(
         int photoCount,
         Instant publishedAt,
         Instant savedAt,
-        long viewCount) {
+        long viewCount,
+        boolean availableNow,
+        Instant availableUntil) {
 }

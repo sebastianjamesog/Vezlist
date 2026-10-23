@@ -72,7 +72,8 @@ class SupportTicketIntegrationTest {
         assertThat(strangerList.getBody().get("total")).isEqualTo(0);
 
         ResponseEntity<Map> staffList = exchange("/api/v1/admin/tickets?site=MARKETPLACE", HttpMethod.GET, null, owner);
-        assertThat(staffList.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        // Public authentication is not a console session, even in the same browser.
+        assertThat(staffList.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
 
         ResponseEntity<Map> anonymous = rest.getForEntity(url("/api/v1/me/tickets?site=MARKETPLACE"), Map.class);
         assertThat(anonymous.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
@@ -90,7 +91,16 @@ class SupportTicketIntegrationTest {
                 "name", "Ticket Test User", "email", "ticket-" + UUID.randomUUID() + "@example.test",
                 "password", "SafeTestPass123!", "acceptedTerms", true), requestHeaders), Map.class);
         assertThat(registration.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        return new Session(header, token, cookies + "; " + cookies(registration.getHeaders()));
+        String authenticatedCookies = mergeCookies(cookies, cookies(registration.getHeaders()));
+        HttpHeaders csrfHeaders = new HttpHeaders();
+        csrfHeaders.set(HttpHeaders.COOKIE, authenticatedCookies);
+        ResponseEntity<Map> authenticatedCsrf = rest.exchange(url("/api/v1/auth/csrf"), HttpMethod.GET,
+                new HttpEntity<>(csrfHeaders), Map.class);
+        assertThat(authenticatedCsrf.getStatusCode()).isEqualTo(HttpStatus.OK);
+        header = (String) authenticatedCsrf.getBody().get("headerName");
+        token = (String) authenticatedCsrf.getBody().get("token");
+        authenticatedCookies = mergeCookies(authenticatedCookies, cookies(authenticatedCsrf.getHeaders()));
+        return new Session(header, token, authenticatedCookies);
     }
 
     private ResponseEntity<Map> exchange(String path, HttpMethod method, Object body, Session session) {
@@ -103,6 +113,22 @@ class SupportTicketIntegrationTest {
     private String cookies(HttpHeaders headers) {
         return headers.getOrEmpty(HttpHeaders.SET_COOKIE).stream()
                 .map(cookie -> cookie.substring(0, cookie.indexOf(';')))
+                .collect(Collectors.joining("; "));
+    }
+
+    private String mergeCookies(String... cookieHeaders) {
+        Map<String, String> jar = new java.util.LinkedHashMap<>();
+        for (String header : cookieHeaders) {
+            if (header == null || header.isBlank()) continue;
+            for (String pair : header.split("; ")) {
+                int equals = pair.indexOf('=');
+                String name = pair.substring(0, equals);
+                String value = pair.substring(equals + 1);
+                if (value.isBlank()) jar.remove(name);
+                else jar.put(name, value);
+            }
+        }
+        return jar.entrySet().stream().map(entry -> entry.getKey() + "=" + entry.getValue())
                 .collect(Collectors.joining("; "));
     }
 

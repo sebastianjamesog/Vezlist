@@ -1,14 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Video, MapPin, Radio } from "lucide-react";
+import { Eye, MapPin, Radio } from "lucide-react";
 import SubPageBar from "@vezlist/shared/components/layout/SubPageBar.jsx";
 import PageBody from "@vezlist/shared/components/layout/PageBody.jsx";
 import EmptyState from "@vezlist/shared/components/ui/EmptyState.jsx";
 import Button from "@vezlist/shared/components/ui/Button.jsx";
 import MediaImage from "@vezlist/shared/components/media/MediaImage.jsx";
+import { compactCount } from "@vezlist/shared/lib/format.js";
 import { listLiveCreators } from "@vezlist/shared/lib/api/live.js";
+
+const PHOTO_GRID =
+  "grid grid-cols-3 gap-1.5 lg:grid-cols-4 lg:gap-3 xl:grid-cols-5";
 
 function startedLabel(startedAt, now) {
   const seconds = Math.max(
@@ -24,62 +28,72 @@ function startedLabel(startedAt, now) {
   return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
 }
 
-function LiveCard({ creator, now }) {
+function LiveCard({ creator, now, index }) {
+  const viewers =
+    Number.isInteger(creator.viewerCount) && creator.viewerCount >= 0
+      ? creator.viewerCount
+      : null;
   return (
     <Link
-      href={`/live/${creator.id}`}
-      className="group relative block aspect-[5/4] min-w-0 overflow-hidden rounded-[22px] bg-[#16243a] text-white shadow-[0_8px_24px_rgba(18,43,76,.13)] transition-transform hover:-translate-y-0.5 hover:shadow-xl focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-blue-500 sm:aspect-[1.15]"
+      href={`/live/${encodeURIComponent(creator.id)}`}
+      aria-label={`${creator.creatorName || "Creator"}: ${creator.title || "Live session"}. Watch live`}
+      className="group relative block aspect-[4/5] min-w-0 overflow-hidden rounded-lg bg-slate-800 text-white focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white"
     >
-      {creator.imageUrl ? (
+      {creator.imageUrl || creator.avatarUrl ? (
         <MediaImage
           discreet
           fill
-          src={creator.imageUrl}
+          src={creator.imageUrl || creator.avatarUrl}
           alt=""
-          sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
-          className="object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+          sizes="(min-width: 1280px) 20vw, (min-width: 1024px) 25vw, 33vw"
+          loading={index < 3 ? "eager" : "lazy"}
+          className="object-cover transition-transform duration-300 motion-safe:group-hover:scale-105"
         />
       ) : (
-        <span className="absolute inset-0 grid place-items-center bg-[radial-gradient(circle_at_50%_35%,#685c87,#16243a_72%)]">
-          <Radio className="size-14 text-white/45" aria-hidden="true" />
+        <span className="absolute inset-0 grid place-items-center bg-slate-700">
+          <Radio className="size-8 text-white/70" aria-hidden="true" />
         </span>
       )}
       <span
-        className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-black/25"
+        className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/10 to-transparent"
         aria-hidden="true"
       />
-      <span className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-lg bg-[#ff2854] px-2.5 py-1 text-xs font-extrabold uppercase tracking-wide">
-        <span className="size-2 rounded-full bg-white" />
-        {creator.status === "RECONNECTING" ? "Reconnecting" : "Live"}
+      <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded bg-rose-600 px-1 py-0.5 text-[9px] font-extrabold leading-none lg:text-[11px]">
+        <span className="size-1.5 rounded-full bg-white" aria-hidden="true" />
+        {creator.status === "RECONNECTING" ? "Reconnecting" : "LIVE"}
       </span>
-      <span className="absolute bottom-0 left-0 right-0 p-4">
-        <span className="block line-clamp-2 text-lg font-extrabold leading-tight sm:text-xl">
-          {creator.title}
+      <span className="absolute inset-x-0 bottom-0 p-1.5 lg:p-2">
+        <span
+          data-no-translate
+          className="block truncate text-[10px] font-bold leading-4 lg:text-xs"
+        >
+          {creator.creatorName || "Creator"}
         </span>
-        <span className="mt-3 flex items-center gap-2">
-          <span className="relative grid size-9 shrink-0 place-items-center overflow-hidden rounded-full border border-white/70 bg-[#4770a5] text-sm font-bold">
-            {creator.avatarUrl ? (
-              <MediaImage
-                discreet
-                fill
-                src={creator.avatarUrl}
-                alt=""
-                sizes="36px"
-                className="object-cover"
-              />
-            ) : (
-              creator.creatorName?.charAt(0)
-            )}
+        {creator.title && (
+          <span className="block truncate text-[9px] leading-3 text-white/95 lg:text-[11px] lg:leading-4">
+            {creator.title}
           </span>
-          <span className="min-w-0 truncate text-sm font-semibold">
-            {creator.creatorName}
+        )}
+        {creator.location && (
+          <span className="mt-0.5 flex min-w-0 items-center gap-0.5 text-[9px] leading-3 text-white/95 lg:text-[11px] lg:leading-4">
+            <MapPin
+              className="size-2.5 shrink-0 lg:size-3"
+              aria-hidden="true"
+            />
+            <span className="truncate">{creator.location}</span>
           </span>
-        </span>
-        <span className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-white/80 sm:text-sm">
-          <MapPin className="size-3.5 shrink-0" />
-          <span className="truncate">{creator.location}</span>
-          <span aria-hidden="true">·</span>
-          <span className="shrink-0">
+        )}
+        <span className="mt-0.5 flex min-w-0 items-center gap-1 text-[9px] leading-3 text-white/95 lg:text-[11px] lg:leading-4">
+          {viewers !== null && (
+            <span
+              className="inline-flex shrink-0 items-center gap-0.5 tabular-nums"
+              aria-label={`${viewers} watching`}
+            >
+              <Eye className="size-2.5 shrink-0 lg:size-3" aria-hidden="true" />
+              {compactCount(viewers)}
+            </span>
+          )}
+          <span className="truncate">
             {startedLabel(creator.startedAt, now)}
           </span>
         </span>
@@ -93,27 +107,82 @@ export default function LiveDirectory() {
   const [error, setError] = useState(null);
   const [now, setNow] = useState(Date.now());
 
+  const requestVersion = useRef(0);
+  const pending = useRef(null);
+  const clockOffset = useRef(0);
+
   const refresh = useCallback(async () => {
+    const version = ++requestVersion.current;
+    pending.current?.abort();
+    const controller = new AbortController();
+    pending.current = controller;
     try {
-      setDirectory(await listLiveCreators());
+      // Directory supports a limit, not Browse's category/location filters.
+      const page = await listLiveCreators(30, {
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      if (version !== requestVersion.current) return;
+      const serverNow = Date.parse(
+        page.serverTime ?? page.items?.[0]?.serverTime,
+      );
+      clockOffset.current = Number.isFinite(serverNow)
+        ? serverNow - Date.now()
+        : 0;
+      setDirectory(page);
+      setNow(Date.now() + clockOffset.current);
       setError(null);
     } catch (caught) {
-      setError(caught);
+      if (version === requestVersion.current && !controller.signal.aborted)
+        setError(caught);
     }
   }, []);
 
   useEffect(() => {
     refresh();
-    const timer = setInterval(refresh, 15_000);
-    const clock = setInterval(() => setNow(Date.now()), 30_000);
+    const visibleRefresh = () => {
+      if (document.visibilityState !== "hidden") refresh();
+    };
+    const timer = setInterval(visibleRefresh, 15_000);
+    const clock = setInterval(
+      () => setNow(Date.now() + clockOffset.current),
+      30_000,
+    );
+    window.addEventListener("focus", visibleRefresh);
+    document.addEventListener("visibilitychange", visibleRefresh);
     return () => {
+      ++requestVersion.current;
+      pending.current?.abort();
       clearInterval(timer);
       clearInterval(clock);
+      window.removeEventListener("focus", visibleRefresh);
+      document.removeEventListener("visibilitychange", visibleRefresh);
     };
   }, [refresh]);
 
-  const creators = (directory?.items ?? []).filter((session) =>
-    ["LIVE", "RECONNECTING"].includes(session.status),
+  useEffect(() => {
+    const deadline = Math.min(
+      ...(directory?.items ?? [])
+        .map((item) => Date.parse(item.endsAt))
+        .filter((time) => time > now),
+    );
+    if (!Number.isFinite(deadline)) return undefined;
+    const timer = setTimeout(
+      () => setNow(Date.now() + clockOffset.current),
+      Math.min(deadline - now + 20, 2_147_483_647),
+    );
+    return () => clearTimeout(timer);
+  }, [directory, now]);
+
+  const loaded = directory?.items ?? [];
+  const creators = loaded.filter(
+    (session) =>
+      ["LIVE", "RECONNECTING"].includes(session.status) &&
+      !(Date.parse(session.endsAt) <= now),
+  );
+  const total = Math.max(
+    creators.length,
+    (directory?.total ?? 0) - (loaded.length - creators.length),
   );
 
   return (
@@ -122,18 +191,14 @@ export default function LiveDirectory() {
         title="Live now"
         subtitle={
           directory
-            ? `${directory.total} ${directory.total === 1 ? "creator" : "creators"} online`
+            ? `${total} ${total === 1 ? "creator" : "creators"} online`
             : "Checking who is live"
         }
       />
-      <PageBody className="px-4 pb-8 pt-4 lg:px-8 lg:pt-6">
-        <div className="mb-4 flex items-start gap-3 rounded-2xl border border-blue-100 bg-[#edf6ff] p-3 text-sm text-[#284b83]">
-          <Video className="mt-0.5 size-5 shrink-0" />
-          <p>
-            Watch creators live for free. Sign in to join the chat, and tap a
-            card to open its live video session.
-          </p>
-        </div>
+      <PageBody className="px-4 pb-8 lg:px-8">
+        <p className="mb-3 text-xs text-muted">
+          Watch live for free. Sign in to join the chat.
+        </p>
         {error && (
           <div
             role="alert"
@@ -143,31 +208,44 @@ export default function LiveDirectory() {
             <button
               type="button"
               onClick={refresh}
-              className="font-bold underline"
+              className="font-bold underline focus-visible:outline-2 focus-visible:outline-brand"
             >
               Retry
             </button>
           </div>
         )}
         {!directory && !error ? (
-          <p role="status" className="text-sm text-muted">
-            Loading live creators…
-          </p>
+          <div role="status" aria-label="Loading live creators">
+            <span className="sr-only">Loading live creators...</span>
+            <div className={PHOTO_GRID} aria-hidden="true">
+              {Array.from({ length: 12 }, (_, index) => (
+                <div
+                  key={index}
+                  className="aspect-[4/5] rounded-lg bg-line motion-safe:animate-pulse"
+                />
+              ))}
+            </div>
+          </div>
         ) : creators.length ? (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
-            {creators.map((creator) => (
-              <LiveCard key={creator.id} creator={creator} now={now} />
+          <div className={PHOTO_GRID}>
+            {creators.map((creator, index) => (
+              <LiveCard
+                key={creator.id}
+                creator={creator}
+                now={now}
+                index={index}
+              />
             ))}
           </div>
-        ) : (
+        ) : !error ? (
           <EmptyState
             icon="Radio"
             title="Nobody is live right now"
             body="Check back soon to find creators broadcasting live."
             action={<Button to="/">Back to browsing</Button>}
           />
-        )}
-        {directory && directory.total > creators.length && (
+        ) : null}
+        {directory && total > creators.length && (
           <p className="mt-4 text-center text-sm text-muted">
             Showing the latest {creators.length} active creators.
           </p>

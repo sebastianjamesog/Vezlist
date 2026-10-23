@@ -25,7 +25,7 @@ public class FeaturedFeedService {
     public enum Feed { AVAILABLE_NOW, NEW_TODAY, TRENDING }
     public record Card(UUID id, String title, String businessName, BigDecimal price,
                        String categoryLabel, String provinceLabel, String locationLabel,
-                       boolean verified, String imageUrl, Instant publishedAt, long viewCount, long saveCount) {}
+                       boolean verified, String imageUrl, Instant publishedAt, long viewCount, long saveCount, boolean availableNow, Instant availableUntil) {}
     public record Page(Feed feed, Instant windowStart, List<Card> items, long total) {}
 
     record Candidate(UUID id, Instant publishedAt, boolean availableNow,
@@ -38,7 +38,7 @@ public class FeaturedFeedService {
     private static final String AVAILABLE_FROM = """
             FROM listings l
             JOIN app_users u ON u.id = l.owner_id AND u.enabled = TRUE
-            JOIN user_preferences up ON up.user_id = l.owner_id AND up.available_now = TRUE
+            JOIN user_preferences up ON up.user_id = l.owner_id AND up.available_now = TRUE AND up.available_until > now()
             JOIN categories c ON c.id = l.category_id
             JOIN locations p ON p.id = l.province_id
             JOIN locations a ON a.id = l.location_id
@@ -76,6 +76,7 @@ public class FeaturedFeedService {
                 SELECT l.id, l.title, l.business_name, l.price, c.label AS category_label,
                        p.label AS province_label, a.label AS location_label, l.verified, l.view_count, l.save_count,
                        COALESCE(l.published_at, l.created_at) AS published_at,
+                       COALESCE(up.available_now AND up.available_until > now(), FALSE) AS available_now, up.available_until,
                        (SELECT lm.object_key FROM listing_media lm WHERE lm.listing_id = l.id
                         AND lm.status = 'READY' ORDER BY lm.position, lm.created_at LIMIT 1) AS cover
                 """ + AVAILABLE_FROM + """
@@ -94,7 +95,7 @@ public class FeaturedFeedService {
                     FROM featured_slots WHERE selected = TRUE AND window_start >= ? GROUP BY listing_id
                 )
                 SELECT l.id, COALESCE(l.published_at, l.created_at) AS published_at,
-                       COALESCE(up.available_now, FALSE) AS available_now,
+                       COALESCE(up.available_now AND up.available_until > now(), FALSE) AS available_now,
                        COALESCE(s.saves, 0) AS recent_saves,
                        COALESCE(x.slots, 0) AS recent_slots, x.last_shown
                 FROM listings l JOIN app_users u ON u.id = l.owner_id AND u.enabled = TRUE
@@ -103,7 +104,7 @@ public class FeaturedFeedService {
                 LEFT JOIN recent_slots x ON x.listing_id = l.id
                 WHERE l.site_scope = 'PERSONALS' AND l.status = 'ACTIVE'
                   AND (l.expires_at IS NULL OR l.expires_at > ?)
-                ORDER BY COALESCE(s.saves, 0) DESC, COALESCE(up.available_now, FALSE) DESC,
+                ORDER BY COALESCE(s.saves, 0) DESC, COALESCE(up.available_now AND up.available_until > now(), FALSE) DESC,
                          COALESCE(l.published_at, l.created_at) DESC, l.id
                 LIMIT 10000
                 """, (rs, row) -> new Candidate(rs.getObject("id", UUID.class),
@@ -179,9 +180,11 @@ public class FeaturedFeedService {
                 SELECT l.id, l.title, l.business_name, l.price, c.label AS category_label,
                        p.label AS province_label, a.label AS location_label, l.verified, l.view_count, l.save_count,
                        COALESCE(l.published_at, l.created_at) AS published_at,
+                       COALESCE(up.available_now AND up.available_until > now(), FALSE) AS available_now, up.available_until,
                        (SELECT lm.object_key FROM listing_media lm WHERE lm.listing_id = l.id
                         AND lm.status = 'READY' ORDER BY lm.position, lm.created_at LIMIT 1) AS cover
                 FROM featured_slots f JOIN listings l ON l.id = f.listing_id
+                LEFT JOIN user_preferences up ON up.user_id = l.owner_id
                 JOIN app_users u ON u.id = l.owner_id AND u.enabled = TRUE
                 JOIN categories c ON c.id = l.category_id
                 JOIN locations p ON p.id = l.province_id
@@ -200,6 +203,7 @@ public class FeaturedFeedService {
                 rs.getString("location_label"), rs.getBoolean("verified"),
                 key == null ? null : storage.authorizeDownload(key).toString(),
                 rs.getTimestamp("published_at").toInstant(), rs.getLong("view_count"),
-                rs.getLong("save_count"));
+                rs.getLong("save_count"), rs.getBoolean("available_now"),
+                rs.getTimestamp("available_until") == null ? null : rs.getTimestamp("available_until").toInstant());
     }
 }

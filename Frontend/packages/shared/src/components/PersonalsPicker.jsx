@@ -3,17 +3,13 @@
 import { useState } from "react";
 import Modal from "./ui/Modal";
 import SegmentedControl from "./ui/SegmentedControl";
-import { ethnicities } from "../data/mock";
+import useEthnicities from "../hooks/useEthnicities.js";
 import { getCategories } from "../lib/taxonomy";
 
 const TABS = [
   { value: "category", label: "Category", key: "categories" },
   { value: "ethnicity", label: "Ethnicity", key: "ethnicities" },
 ];
-
-const OPTIONS = {
-  ethnicities,
-};
 
 /**
  * The two questions the personals board is actually searched by: what a post is
@@ -35,6 +31,11 @@ export default function PersonalsPicker({
   onClose,
   onApply,
 }) {
+  const {
+    status: ethnicityStatus,
+    ethnicities,
+    retry: retryEthnicities,
+  } = useEthnicities({ enabled: open });
   const [draft, setDraft] = useState(filters);
   const [tab, setTab] = useState(initialTab);
 
@@ -59,7 +60,14 @@ export default function PersonalsPicker({
   }
 
   const options = {
-    ...OPTIONS,
+    // Keep already-applied retired labels visible so they can be cleared;
+    // retired choices are never offered to someone who has not selected them.
+    ethnicities: [
+      ...new Set([
+        ...ethnicities.map((option) => option.label),
+        ...draft.ethnicities,
+      ]),
+    ],
     categories: getCategories().map((category) => category.label),
   };
   const active = TABS.find((t) => t.value === tab) ?? TABS[0];
@@ -71,7 +79,9 @@ export default function PersonalsPicker({
       ...d,
       [active.key]: d[active.key].includes(value)
         ? d[active.key].filter((v) => v !== value)
-        : [...d[active.key], value],
+        : active.key === "ethnicities" && d[active.key].length >= 20
+          ? d[active.key]
+          : [...d[active.key], value],
     }));
 
   return (
@@ -120,6 +130,30 @@ export default function PersonalsPicker({
         onChange={setTab}
       />
 
+      {active.key === "ethnicities" && ethnicityStatus === "loading" && (
+        <p role="status" className="mt-4 text-[13px] text-muted">
+          Loading ethnicities...
+        </p>
+      )}
+      {active.key === "ethnicities" && ethnicityStatus === "error" && (
+        <div role="alert" className="mt-4 text-[13px] text-danger">
+          Could not load ethnicities.{" "}
+          <button
+            type="button"
+            onClick={retryEthnicities}
+            className="font-semibold underline"
+          >
+            Retry ethnicities
+          </button>
+        </div>
+      )}
+      {active.key === "ethnicities" &&
+        ethnicityStatus === "success" &&
+        !ethnicities.length && (
+          <p className="mt-4 text-[13px] text-muted">
+            No ethnicity choices are available.
+          </p>
+        )}
       <div className="mt-5 flex flex-wrap gap-2">
         {options[active.key].map((option) => {
           const on = picked.includes(option);
@@ -128,8 +162,11 @@ export default function PersonalsPicker({
               key={option}
               type="button"
               aria-pressed={on}
+              disabled={
+                active.key === "ethnicities" && !on && picked.length >= 20
+              }
               onClick={() => toggle(option)}
-              className={`rounded-full border px-4 py-2.5 text-[14px] font-semibold transition-all active:scale-[0.97] ${
+              className={`max-w-full break-words rounded-full border px-4 py-2.5 text-[14px] font-semibold transition-all active:scale-[0.97] ${
                 on
                   ? "border-transparent bg-brand text-on-brand shadow-pop"
                   : "border-line bg-surface text-ink hover:border-ink/25"

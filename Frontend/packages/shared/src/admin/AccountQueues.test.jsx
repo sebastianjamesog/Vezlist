@@ -12,8 +12,9 @@ import * as users from "../lib/api/adminUsers";
 import * as tickets from "../lib/api/tickets.js";
 const state = vi.hoisted(() => ({ query: "", set: vi.fn() }));
 vi.mock("../context/AdminAuthContext", () => ({
-  useAdminAuth: () => ({ can: () => false }),
+  useAdminAuth: () => ({ admin: { id: "staff" }, can: () => false }),
 }));
+vi.mock("../hooks/useTicketEvents.js", () => ({ useTicketEvents: vi.fn() }));
 vi.mock("../context/ToastContext", () => ({ useToast: () => vi.fn() }));
 vi.mock("../lib/adminScope", () => ({
   useQueryParam: (key, fallback) => [

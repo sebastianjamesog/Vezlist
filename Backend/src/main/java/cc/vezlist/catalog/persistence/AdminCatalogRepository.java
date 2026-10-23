@@ -18,9 +18,18 @@ public class AdminCatalogRepository {
         return count == null ? 0 : count;
     }
 
+    public void lockLocation(String locationId) {
+        jdbc.query("SELECT id FROM locations WHERE id=? FOR UPDATE", (rs, row) -> rs.getString("id"), locationId);
+    }
+
+    public boolean hasLocationChildren(String locationId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM locations WHERE parent_id=?)", Boolean.class, locationId));
+    }
+
+    // All statuses retain foreign keys and historical meaning, including deleted ads.
     public long activeListingsReferencingLocation(String locationId) {
         Long count = jdbc.queryForObject(
-                "SELECT count(*) FROM listings WHERE (location_id = ? OR province_id = ?) AND status <> 'DELETED'",
+                "SELECT count(*) FROM listings WHERE (location_id = ? OR province_id = ?)",
                 Long.class, locationId, locationId);
         return count == null ? 0 : count;
     }

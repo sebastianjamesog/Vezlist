@@ -1,4 +1,7 @@
 import "@vezlist/shared/index.css";
+import "./admin-theme.css";
+import Script from "next/script";
+import { ADMIN_THEME_INIT } from "@vezlist/shared/lib/adminTheme.js";
 import { ADMIN_URL } from "@vezlist/shared/lib/sites.js";
 import Providers from "./providers";
 
@@ -37,11 +40,14 @@ export const viewport = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="en" data-admin-theme="light" suppressHydrationWarning>
       {/* The public sites float a phone mockup on a neutral desk below lg; a
           console is a desktop app at every width, so it paints the canvas
           itself rather than inheriting that backdrop. */}
       <body className="bg-canvas">
+        <Script id="admin-theme-init" strategy="beforeInteractive">
+          {ADMIN_THEME_INIT}
+        </Script>
         <Providers>{children}</Providers>
       </body>
     </html>

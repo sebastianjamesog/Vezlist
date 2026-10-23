@@ -36,6 +36,11 @@ export function updatePreferences({ pushNotifications, emailUpdates, showPhoneOn
   });
 }
 
+/** Explicitly share one current map location for this advertiser's ads. */
+export function updateAdLocation({ latitude, longitude }) {
+  return api.patch("/api/v1/me/ad-location", { latitude, longitude });
+}
+
 /**
  * PATCH /api/v1/me/password -> 204.
  *

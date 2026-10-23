@@ -27,8 +27,16 @@ const LIMIT = 30;
 function CreatorTile({ creator, rank, live, onOpen }) {
   return (
     <Link
-      href={creator.coverListingId ? `/ad/${creator.coverListingId}` : `/seller/${creator.id}`}
-      onClick={creator.coverListingId ? (event) => openAdClick(event, () => onOpen(creator.coverListingId)) : undefined}
+      href={
+        creator.coverListingId
+          ? `/ad/${creator.coverListingId}`
+          : `/seller/${creator.id}`
+      }
+      onClick={
+        creator.coverListingId
+          ? (event) => openAdClick(event, () => onOpen(creator.coverListingId))
+          : undefined
+      }
       aria-label={`${creator.displayName}${live?.status === "LIVE" ? " (live now)" : ""} — ${creator.viewCount} views, ${creator.likeCount} likes`}
       className="group relative block overflow-hidden rounded-lg transition-transform hover:-translate-y-0.5 active:scale-[0.99]"
     >
@@ -76,10 +84,10 @@ function CreatorTile({ creator, rank, live, onOpen }) {
             {creator.displayName}
           </p>
           {creator.verified && (
-            <BadgeCheck
-              className="size-2.5 shrink-0 text-sky-300"
-              strokeWidth={2.6}
-            />
+            <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-emerald-950/80 px-1 py-0.5 text-[8px] font-bold uppercase text-emerald-200">
+              <BadgeCheck className="size-2.5" strokeWidth={2.6} />
+              Verified
+            </span>
           )}
         </div>
         <p className="mt-1 flex items-center gap-1.5 text-[8px] font-semibold tabular-nums text-white/75 lg:text-[10px]">
@@ -173,18 +181,24 @@ export default function TrendingGrid() {
 
   return (
     <>
-    <Panel>
-      {shown.map((c, i) => (
-        <CreatorTile
-          key={c.id}
-          creator={c}
-          onOpen={(id) => viewer.open(id, shown.map((creator) => creator.coverListingId))}
-          rank={i + 1}
-          live={liveStreamFor(c.id, sessions)}
-        />
-      ))}
-    </Panel>
-    {viewer.popup}
+      <Panel>
+        {shown.map((c, i) => (
+          <CreatorTile
+            key={c.id}
+            creator={c}
+            onOpen={(id) =>
+              viewer.open(
+                id,
+                shown.map((creator) => creator.coverListingId),
+                { mode: "vertical" },
+              )
+            }
+            rank={i + 1}
+            live={liveStreamFor(c.id, sessions)}
+          />
+        ))}
+      </Panel>
+      {viewer.popup}
     </>
   );
 }

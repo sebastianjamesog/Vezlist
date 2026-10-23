@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import * as authApi from "../lib/api/auth";
@@ -28,13 +29,15 @@ function mapUser(response) {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [ready, setReady] = useState(false);
+  const revision = useRef(0);
   const refreshUser = useCallback(async () => {
+    const currentRevision = ++revision.current;
     try {
       const response = await authApi.me();
-      setUser(mapUser(response));
+      if (revision.current === currentRevision) setUser(mapUser(response));
       return response;
-    } catch {
-      setUser(null);
+    } catch (error) {
+      if (revision.current === currentRevision && (error?.status === 401 || error?.status === 403)) setUser(null);
       return null;
     }
   }, []);
@@ -44,6 +47,7 @@ export function AuthProvider({ children }) {
   }, [refreshUser]);
 
   const signIn = useCallback(async (payload, mode = "signin") => {
+    ++revision.current;
     const response =
       mode === "signup"
         ? await authApi.register({
@@ -73,11 +77,9 @@ export function AuthProvider({ children }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    try {
-      await authApi.logout();
-    } finally {
-      setUser(null);
-    }
+    await authApi.logout();
+    ++revision.current;
+    setUser(null);
   }, []);
 
   const updateProfile = useCallback(

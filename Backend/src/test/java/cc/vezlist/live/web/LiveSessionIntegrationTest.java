@@ -14,6 +14,7 @@ import cc.vezlist.identity.domain.Role;
 import cc.vezlist.live.application.*;
 import cc.vezlist.media.storage.ObjectStorage;
 import cc.vezlist.live.realtime.LiveEncoder;
+import cc.vezlist.live.realtime.LiveChatStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,6 +47,7 @@ class LiveSessionIntegrationTest {
     private static final String PLAYBACK="https://play.gvideo.io/cmaf/test/master.m3u8";
     private static final java.util.concurrent.atomic.AtomicLong PROVIDER_IDS=new java.util.concurrent.atomic.AtomicLong(1000);
     @MockitoBean GcoreLiveProvider gcore;@MockitoBean ObjectStorage storage;@MockitoBean LiveEncoder encoder;
+    @MockitoBean LiveChatStore chats;
     @BeforeEach void setup(){
         for(String table:List.of("live_cleanup_jobs","live_provider_assets","live_broadcast_tickets","live_webhook_events","live_sessions"))jdbc.update("DELETE FROM "+table);
         when(gcore.configured()).thenReturn(true);
@@ -72,6 +74,34 @@ class LiveSessionIntegrationTest {
         live.maintain();assertThat(live.publicSession(id).status()).isEqualTo("LIVE");
         jdbc.update("UPDATE live_sessions SET ends_at=now()-interval '1 second' WHERE id=?",id);
         live.maintain();assertThat(jdbc.queryForObject("SELECT status FROM live_sessions WHERE id=?",String.class,id)).isEqualTo("ENDED");
+    }
+    @Test void liveDirectoryAndSessionExposeRealPresenceAndServerClockWithoutIngestSecrets()throws Exception{
+        var owner=account(Role.USER);var session=start(owner);providerStatus(session.id(),"active");
+        when(chats.counts(anyCollection())).thenReturn(Map.of(session.id(),17L));
+        Instant before=Instant.now();
+        var directory=live.directory(30,false,null);
+        var card=directory.items().getFirst();
+        assertThat(card.viewerCount()).isEqualTo(17L);
+        assertThat(card.serverTime()).isBetween(before,Instant.now());
+        assertThat(live.mine(owner.id()).session().viewerCount()).isEqualTo(17L);
+        mvc.perform(get("/api/v1/live/sessions/"+session.id())).andExpect(status().isOk())
+            .andExpect(jsonPath("$.viewerCount").value(17)).andExpect(jsonPath("$.serverTime").isString())
+            .andExpect(jsonPath("$.streamKey").doesNotExist()).andExpect(jsonPath("$.providerId").doesNotExist());
+        assertThat(json.writeValueAsString(card)).doesNotContain("private-stream-key");
+    }
+    @Test void presenceOutageKeepsPlaybackAvailableAndExpiredSessionsHidePresenceAndPlayback(){
+        var session=start(account(Role.USER));providerStatus(session.id(),"active");
+        when(chats.counts(anyCollection())).thenThrow(new org.springframework.data.redis.RedisConnectionFailureException("unavailable"));
+        var active=live.publicSession(session.id());
+        assertThat(active.viewerCount()).isNull();assertThat(active.playbackUrl()).isEqualTo(PLAYBACK);
+        assertThat(live.directory(30,false,null).items()).hasSize(1);
+        clearInvocations(chats);
+        jdbc.update("UPDATE live_sessions SET ends_at=now()-interval '1 second' WHERE id=?",session.id());
+        var expired=live.publicSession(session.id());
+        assertThat(expired.status()).isEqualTo("ENDED");assertThat(expired.viewerCount()).isNull();
+        assertThat(expired.playbackUrl()).isNull();assertThat(expired.paymentDetails()).isEmpty();
+        assertThat(live.directory(30,false,null).items()).isEmpty();
+        verify(chats,never()).counts(anyCollection());
     }
     @Test void legacyAdAssociationDoesNotControlBroadcastEligibility()throws Exception{
         var owner=account(Role.USER);UUID ad=listing(owner.id());var session=start(owner);
@@ -183,6 +213,63 @@ class LiveSessionIntegrationTest {
         mvc.perform(post("/api/v1/admin/live/"+session.id()+"/end").with(user(moderator)).with(csrf())).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ENDED"));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM admin_audit_log WHERE action='LIVE_SESSION_ENDED' AND target_id=?",Integer.class,session.id().toString())).isEqualTo(1);
     }
+    @Test void publicLiveEndCannotUseStaffPrivilegesAgainstAnotherCreator() throws Exception {
+        var owner = account(Role.USER);
+        var session = start(owner);
+        for (Role role : List.of(Role.ADMIN, Role.MODERATOR)) {
+            var staff = account(role);
+            mvc.perform(post("/api/v1/live/sessions/" + session.id() + "/end")
+                            .with(user(staff)).with(csrf()))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("LIVE_SESSION_NOT_FOUND"));
+            assertThat(live.publicSession(session.id()).status()).isEqualTo("PREPARING");
+        }
+        mvc.perform(post("/api/v1/live/sessions/" + session.id() + "/end")
+                        .with(user(owner)).with(csrf()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ENDED"));
+        var next = start(owner);
+        mvc.perform(post("/api/v1/admin/live/" + next.id() + "/end")
+                        .with(user(account(Role.MODERATOR))).with(csrf()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ENDED"));
+    }
+
+    @Test void chatModerationSeparatesCreatorRoutesFromStaffRoutes() throws Exception {
+        var owner = account(Role.USER);
+        var staff = account(Role.MODERATOR);
+        var viewer = account(Role.USER);
+        var session = start(owner);
+        providerStatus(session.id(), "active");
+        UUID message = UUID.randomUUID();
+        String publicPath = "/api/v1/live/sessions/" + session.id();
+        String adminPath = "/api/v1/admin/live/sessions/" + session.id();
+        for (var nonOwner : List.of(staff, viewer)) {
+            mvc.perform(delete(publicPath + "/chat/" + message).with(user(nonOwner)).with(csrf()))
+                    .andExpect(status().isForbidden());
+            mvc.perform(put(publicPath + "/chat/mutes/" + viewer.id()).with(user(nonOwner)).with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON).content("{\"muted\":true}"))
+                    .andExpect(status().isForbidden());
+        }
+        verify(chats, never()).delete(any(), any());
+        verify(chats, never()).mute(any(), any(), anyBoolean());
+        mvc.perform(delete(publicPath + "/chat/" + message).with(user(owner)).with(csrf()))
+                .andExpect(status().isNoContent());
+        mvc.perform(put(publicPath + "/chat/mutes/" + viewer.id()).with(user(owner)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"muted\":true}"))
+                .andExpect(status().isNoContent());
+        mvc.perform(delete(adminPath + "/chat/" + message).with(user(owner)).with(csrf()))
+                .andExpect(status().isForbidden());
+        mvc.perform(put(adminPath + "/chat/mutes/" + viewer.id()).with(user(owner)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"muted\":true}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(delete(adminPath + "/chat/" + message).with(user(staff)).with(csrf()))
+                .andExpect(status().isNoContent());
+        mvc.perform(put(adminPath + "/chat/mutes/" + viewer.id()).with(user(staff)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"muted\":true}"))
+                .andExpect(status().isNoContent());
+        verify(chats, times(2)).delete(session.id(), message.toString());
+        verify(chats, times(2)).mute(session.id(), viewer.id(), true);
+    }
+
     @Test void guestsCanWatchForFreeWithoutExposingBroadcastCredentials()throws Exception{
         var owner=account(Role.USER);var session=start(owner);providerStatus(session.id(),"active");
         String response=mvc.perform(get("/api/v1/live/sessions/"+session.id()))

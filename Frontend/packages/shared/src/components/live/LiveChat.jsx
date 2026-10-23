@@ -15,6 +15,7 @@ export default function LiveChat({
   host = false,
   onViewerCount,
   overlay = false,
+  composerAction = null,
 }) {
   const { signedIn, user } = useAuth();
   const [messages, setMessages] = useState([]);
@@ -236,19 +237,11 @@ export default function LiveChat({
       <div
         className={
           overlay
-            ? "mb-3 flex items-center gap-2"
+            ? "mb-2 flex items-center gap-2"
             : "mb-3 flex items-center justify-between"
         }
       >
-        <h2
-          className={
-            overlay
-              ? "text-xs font-semibold tracking-wide text-white/80"
-              : "font-bold"
-          }
-        >
-          Live chat
-        </h2>
+        <h2 className={overlay ? "sr-only" : "font-bold"}>Live chat</h2>
         {overlay && (
           <span
             aria-hidden="true"
@@ -257,7 +250,7 @@ export default function LiveChat({
         )}
         <span
           className={
-            overlay ? "text-[11px] text-white/70" : "text-xs text-slate-500"
+            overlay ? "text-[10px] text-white/65" : "text-xs text-slate-500"
           }
         >
           {ended || connection === "ended"
@@ -282,7 +275,7 @@ export default function LiveChat({
         }}
         className={
           overlay
-            ? "max-h-40 min-h-16 space-y-3 overflow-y-auto overscroll-contain text-sm [scrollbar-width:thin] focus-visible:outline-2 focus-visible:outline-white sm:max-h-48"
+            ? "max-h-[min(22dvh,160px)] min-h-8 space-y-2 overflow-y-auto overscroll-contain text-[13px] leading-snug [scrollbar-width:thin] focus-visible:outline-2 focus-visible:outline-white"
             : "max-h-64 min-h-24 space-y-3 overflow-y-auto text-sm"
         }
       >
@@ -300,7 +293,7 @@ export default function LiveChat({
               {overlay && (
                 <span
                   aria-hidden="true"
-                  className="grid size-8 shrink-0 place-items-center rounded-full border border-white/25 bg-white/15 text-xs font-bold"
+                  className="grid size-6 shrink-0 place-items-center rounded-full border border-white/25 bg-white/15 text-[10px] font-bold"
                 >
                   {(message.name || "?").trim().slice(0, 1).toUpperCase()}
                 </span>
@@ -366,44 +359,58 @@ export default function LiveChat({
       {!ended &&
         connection !== "ended" &&
         (signedIn ? (
-          <form onSubmit={send} className="mt-4 flex gap-2">
-            <input
-              aria-label="Chat message"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              disabled={!canChat || pending}
-              maxLength={500}
-              placeholder={canChat ? "Add a comment..." : "Chat is unavailable"}
+          <form onSubmit={send} className="mt-3 flex items-center gap-2">
+            <div
               className={
                 overlay
-                  ? "min-h-11 min-w-0 flex-1 rounded-full border border-white/35 bg-black/25 px-4 py-2 text-base text-white placeholder:text-white/70 focus-visible:outline-2 focus-visible:outline-white disabled:opacity-60"
-                  : "min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50"
-              }
-            />
-            <button
-              type="submit"
-              disabled={!canChat || pending || !draft.trim()}
-              aria-label="Send message"
-              className={
-                overlay
-                  ? "grid size-11 shrink-0 place-items-center rounded-full bg-white text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:opacity-40"
-                  : "rounded-xl bg-blue-600 px-3 text-white disabled:opacity-40"
+                  ? "flex min-w-0 flex-1 items-center rounded-full border border-white/30 bg-black/30"
+                  : "flex min-w-0 flex-1 gap-2"
               }
             >
-              <Send className="size-4" />
-            </button>
+              <input
+                aria-label="Chat message"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                disabled={!canChat || pending}
+                maxLength={500}
+                placeholder={
+                  canChat ? "Add a comment..." : "Chat is unavailable"
+                }
+                className={
+                  overlay
+                    ? "min-h-11 min-w-0 flex-1 rounded-full bg-transparent px-4 py-2 text-base text-white placeholder:text-white/70 focus-visible:outline-2 focus-visible:outline-white disabled:opacity-60"
+                    : "min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50"
+                }
+              />
+              <button
+                type="submit"
+                disabled={!canChat || pending || !draft.trim()}
+                aria-label="Send message"
+                className={
+                  overlay
+                    ? "grid size-11 shrink-0 place-items-center rounded-full text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:opacity-40"
+                    : "rounded-xl bg-blue-600 px-3 text-white disabled:opacity-40"
+                }
+              >
+                <Send className="size-4" />
+              </button>
+            </div>
+            {composerAction}
           </form>
         ) : (
-          <Link
-            href={`/login?next=${encodeURIComponent(`/live/${sessionId}`)}`}
-            className={
-              overlay
-                ? "mt-4 block rounded-full border border-white/35 bg-white/10 px-4 py-3 text-center text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-white"
-                : "mt-4 block rounded-xl bg-blue-50 p-3 text-center text-sm font-bold text-blue-700"
-            }
-          >
-            Sign in to chat
-          </Link>
+          <div className="mt-3 flex items-center gap-2">
+            <Link
+              href={`/login?next=${encodeURIComponent(`/live/${sessionId}`)}`}
+              className={
+                overlay
+                  ? "min-w-0 flex-1 rounded-full border border-white/35 bg-white/10 px-4 py-3 text-center text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-white"
+                  : "mt-4 block rounded-xl bg-blue-50 p-3 text-center text-sm font-bold text-blue-700"
+              }
+            >
+              Sign in to chat
+            </Link>
+            {composerAction}
+          </div>
         ))}
     </section>
   );

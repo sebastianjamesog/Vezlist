@@ -27,16 +27,16 @@ import { Table2, ChartColumn } from "lucide-react";
  */
 
 /** Validated single hue for one-series marks. */
-const SERIES = "#2563eb";
+const SERIES = "var(--admin-chart-series, #2563eb)";
 
 /** Reserved status fills. Meaning, not identity — never a "series 4". */
 export const STATUS_FILL = {
-  active: "#059669",
-  pending: "#f59e0b",
-  rejected: "#be123c",
+  active: "var(--admin-chart-active, #059669)",
+  pending: "var(--admin-chart-pending, #f59e0b)",
+  rejected: "var(--admin-chart-rejected, #be123c)",
   // Intentionally achromatic: "expired" is absence, and a hue here would
   // claim it is a category.
-  expired: "#64748b",
+  expired: "var(--admin-chart-expired, #64748b)",
 };
 
 const STATUS_LABEL = {
@@ -233,7 +233,7 @@ export function StatusBar({ data }) {
                       a clipped label is worse than none. White on these fills
                       clears contrast in every case. */}
                   {pct >= 12 && (
-                    <span className="px-1 text-[12px] font-bold text-white [font-variant-numeric:tabular-nums]">
+                    <span style={{ color: "var(--admin-chart-label, #fff)" }} className="px-1 text-[12px] font-bold [font-variant-numeric:tabular-nums]">
                       {nf.format(d.value)}
                     </span>
                   )}

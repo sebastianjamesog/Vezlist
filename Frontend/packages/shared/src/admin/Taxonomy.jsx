@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, Pencil, Trash2 } from "lucide-react";
 import AdminHeader, { CARD } from "../components/admin/AdminHeader";
 import SegmentedControl from "../components/ui/SegmentedControl";
@@ -15,19 +15,16 @@ import { useToast } from "../context/ToastContext";
 import { useQueryParam, useSiteScope } from "../lib/adminScope";
 import { ApiError } from "../lib/api/client.js";
 import * as catalogApi from "../lib/api/adminCatalog.js";
+import EthnicityTaxonomy from "./EthnicityTaxonomy.jsx";
+import LocationTaxonomy from "./LocationTaxonomy.jsx";
 
 /**
  * Categories and areas, over `AdminCatalogController` (categories + locations
  * CRUD; delete answers 409 `CATALOG_ENTRY_IN_USE` when active listings still
  * reference the entry, shown inline rather than crashing).
  *
- * The old mock also had a nine-tile "home launcher" and personals-only word
- * lists (post categories, ethnicities) with per-category sub-categories —
- * none of that exists on the server (`Category` carries no sub-category
- * list, and there is no launcher-config or vocabulary endpoint at all), so
- * those sections are gone rather than left as dead local-only state. What is
- * real is a flat, site-scoped category list and a shared area list under each
- * province — that's what this screen wires up.
+ * Personals ethnicity options have their own catalog; removing an option
+ * preserves the value already stored on existing ads.
  */
 
 const TABS = [
@@ -42,8 +39,10 @@ export default function Taxonomy() {
   const { can } = useAdminAuth();
   const toast = useToast();
   const canEdit = can("taxonomy.edit");
-  const [tab, setTab] = useQueryParam("tab", "categories");
+  const [selectedTab, setTab] = useQueryParam("tab", "categories");
   const [site] = useSiteScope();
+  const tab = selectedTab === "ethnicities" && site === "marketplace" ? "categories" : selectedTab;
+  const tabs = site === "marketplace" ? TABS : [...TABS, { value: "ethnicities", label: "Ethnicity" }];
   const siteScope = SITE_TO_SCOPE[site]; // undefined when "all"
 
   /* ---------------------------------------------------------- categories */
@@ -143,123 +142,20 @@ export default function Taxonomy() {
     }
   }
 
-  /* -------------------------------------------------------------- areas */
-  const [locations, setLocations] = useState(null);
-  const [locError, setLocError] = useState(null);
-  const [province, setProvince] = useState("on");
-  const [area, setArea] = useState("");
-  const [deletingArea, setDeletingArea] = useState(null);
-  const [areaDeleteError, setAreaDeleteError] = useState(null);
-  const [addingProvince, setAddingProvince] = useState(false);
-  const [newProvince, setNewProvince] = useState("");
-  const [savingProvince, setSavingProvince] = useState(false);
-  const [deletingProvince, setDeletingProvince] = useState(null);
-  const [provinceDeleteError, setProvinceDeleteError] = useState(null);
-
-  const loadLocations = useCallback(async () => {
-    setLocError(null);
-    setLocations(null);
-    try {
-      setLocations(await catalogApi.listLocations());
-    } catch (err) {
-      setLocError(err);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (tab === "areas") loadLocations();
-  }, [tab, loadLocations]);
-
-  const provinces = useMemo(
-    () => (locations ?? []).filter((l) => l.type === "PROVINCE").sort((a, b) => a.displayOrder - b.displayOrder),
-    [locations],
-  );
-  const areasOf = (provinceId) =>
-    (locations ?? [])
-      .filter((l) => l.type === "AREA" && l.parentId === provinceId)
-      .sort((a, b) => a.displayOrder - b.displayOrder);
-
-  async function addArea() {
-    if (!area.trim()) return;
-    try {
-      const created = await catalogApi.createArea({
-        label: area.trim(),
-        provinceId: province,
-        displayOrder: areasOf(province).length + 1,
-        popular: false,
-      });
-      setLocations((rows) => [...(rows ?? []), created]);
-      setArea("");
-      toast("Area added");
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Couldn't add the area");
-    }
-  }
-
-  async function confirmDeleteArea() {
-    try {
-      await catalogApi.deleteArea(deletingArea.id);
-      setLocations((rows) => rows.filter((l) => l.id !== deletingArea.id));
-      toast("Area removed");
-      setDeletingArea(null);
-    } catch (err) {
-      setAreaDeleteError(err instanceof ApiError ? err.message : "Couldn't remove this area.");
-    }
-  }
-
-  async function saveProvince() {
-    if (!newProvince.trim()) return;
-    setSavingProvince(true);
-    try {
-      const created = await catalogApi.createProvince({
-        label: newProvince.trim(),
-        displayOrder: provinces.length,
-      });
-      setLocations((rows) => [...(rows ?? []), created]);
-      setProvince(created.id);
-      setNewProvince("");
-      setAddingProvince(false);
-      toast("Province added");
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : "Couldn't add the province");
-    } finally {
-      setSavingProvince(false);
-    }
-  }
-
-  async function confirmDeleteProvince() {
-    try {
-      await catalogApi.deleteArea(deletingProvince.id);
-      setLocations((rows) => rows.filter((l) => l.id !== deletingProvince.id));
-      // The select was pointing at what we just deleted; fall back to whatever's left.
-      setProvince((current) =>
-        current === deletingProvince.id ? (provinces.find((p) => p.id !== current)?.id ?? "") : current,
-      );
-      toast("Province removed");
-      setDeletingProvince(null);
-    } catch (err) {
-      setProvinceDeleteError(err instanceof ApiError ? err.message : "Couldn't remove this province.");
-    }
-  }
-
   const orderedCategories = [...(categories ?? [])].sort((a, b) =>
     a.site.localeCompare(b.site) || a.displayOrder - b.displayOrder || a.label.localeCompare(b.label));
   return (
     <>
       <AdminHeader
         title="Taxonomy"
-        subtitle="Categories and area coverage"
+        subtitle="Categories, Personals ethnicities and area coverage"
         actions={
           canEdit &&
           (tab === "categories" ? (
             <Button size="sm" onClick={openAdd}>
               Add category
             </Button>
-          ) : (
-            <Button size="sm" onClick={() => setAddingProvince(true)}>
-              Add province
-            </Button>
-          ))
+          ) : null)
         }
       />
 
@@ -270,12 +166,14 @@ export default function Taxonomy() {
       )}
 
       <SegmentedControl
-        options={TABS}
+        options={tabs}
         value={tab}
         onChange={setTab}
         label="Taxonomy section"
         className="mb-4 lg:max-w-xl"
       />
+
+      {tab === "ethnicities" && <EthnicityTaxonomy />}
 
       {tab === "categories" && (
         <>
@@ -395,110 +293,7 @@ export default function Taxonomy() {
         </>
       )}
 
-      {tab === "areas" && (
-        <>
-          {locError ? (
-            <EmptyState
-              icon="ShieldAlert"
-              title="Couldn't load areas"
-              body={locError instanceof ApiError ? locError.message : "Something went wrong."}
-              action={<Button onClick={loadLocations}>Try again</Button>}
-            />
-          ) : locations === null ? (
-            <div className="h-64 animate-pulse rounded-card bg-canvas shadow-card" />
-          ) : (
-            <section className={CARD}>
-              <h2 className="mb-1 text-[17px] font-extrabold text-ink">Coverage</h2>
-              <p className="mb-3 text-[13px] text-muted">
-                The areas each province is sold by.
-              </p>
-
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <div className="flex gap-2 sm:max-w-xs sm:flex-1">
-                  <select
-                    value={province}
-                    onChange={(e) => setProvince(e.target.value)}
-                    aria-label="Province"
-                    className={`${FIELD} ${border(false)} flex-1`}
-                  >
-                    {provinces.length === 0 && <option value="">No provinces yet</option>}
-                    {provinces.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
-                  {canEdit && province && (
-                    <IconButton
-                      label={`Delete ${provinces.find((p) => p.id === province)?.label ?? "province"}`}
-                      danger
-                      onClick={() => {
-                        setProvinceDeleteError(null);
-                        setDeletingProvince(provinces.find((p) => p.id === province));
-                      }}
-                    >
-                      <Trash2 className="size-4" strokeWidth={2.4} />
-                    </IconButton>
-                  )}
-                </div>
-
-                {canEdit && province && (
-                  <form
-                    className="flex flex-1 gap-2"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      addArea();
-                    }}
-                  >
-                    <input
-                      value={area}
-                      onChange={(e) => setArea(e.target.value)}
-                      placeholder="Add an area..."
-                      aria-label="New area"
-                      className={`${FIELD} ${border(false)} flex-1`}
-                    />
-                    <Button type="submit" disabled={!area.trim()}>
-                      Add
-                    </Button>
-                  </form>
-                )}
-              </div>
-
-              <ul className="mt-4 flex flex-wrap gap-2">
-                {areasOf(province).map((a) => (
-                  <li
-                    key={a.id}
-                    className={`flex items-center gap-1.5 rounded-xl bg-canvas py-1.5 pl-3 text-[13px] font-semibold text-ink ${
-                      canEdit ? "pr-1.5" : "pr-3"
-                    }`}
-                  >
-                    {a.label}
-                    {canEdit && (
-                      <button
-                        type="button"
-                        aria-label={`Remove ${a.label}`}
-                        onClick={() => {
-                          setAreaDeleteError(null);
-                          setDeletingArea(a);
-                        }}
-                        className="grid size-6 place-items-center rounded-lg text-muted hover:bg-line hover:text-ink"
-                      >
-                        <Trash2 className="size-3.5" strokeWidth={2.6} />
-                      </button>
-                    )}
-                  </li>
-                ))}
-                {province && areasOf(province).length === 0 && (
-                  <li className="text-[14px] text-muted">No areas yet — this province is sold as one.</li>
-                )}
-                {!province && (
-                  <li className="text-[14px] text-muted">Add a province to start covering areas under it.</li>
-                )}
-              </ul>
-            </section>
-          )}
-        </>
-      )}
+      {tab === "areas" && <LocationTaxonomy />}
 
       <Modal
         open={Boolean(editing)}
@@ -565,65 +360,6 @@ export default function Taxonomy() {
         )}
       </Modal>
 
-      <Modal
-        open={addingProvince}
-        title="Add a province"
-        size="max-w-md"
-        onClose={() => {
-          setAddingProvince(false);
-          setNewProvince("");
-        }}
-        footer={
-          <div className="flex gap-3">
-            <Button
-              variant="outline"
-              size="lg"
-              className="flex-1"
-              onClick={() => {
-                setAddingProvince(false);
-                setNewProvince("");
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="lg"
-              className="flex-1"
-              disabled={!newProvince.trim() || savingProvince}
-              onClick={saveProvince}
-            >
-              {savingProvince ? "Saving…" : "Save"}
-            </Button>
-          </div>
-        }
-      >
-        <Field label="Label">
-          <input
-            value={newProvince}
-            onChange={(e) => setNewProvince(e.target.value)}
-            autoFocus
-            placeholder="British Columbia"
-            className={`${FIELD} ${border(false)}`}
-          />
-        </Field>
-      </Modal>
-
-      <ConfirmDialog
-        open={Boolean(deletingProvince)}
-        title={`Delete ${deletingProvince?.label}?`}
-        body={
-          provinceDeleteError ??
-          "This is refused if the province still has areas under it, or any active listing still references it."
-        }
-        confirmLabel="Delete"
-        destructive
-        onClose={() => {
-          setDeletingProvince(null);
-          setProvinceDeleteError(null);
-        }}
-        onConfirm={confirmDeleteProvince}
-      />
-
       <ConfirmDialog
         open={Boolean(deleting)}
         title={`Delete ${deleting?.label}?`}
@@ -640,21 +376,6 @@ export default function Taxonomy() {
         onConfirm={confirmDeleteCategory}
       />
 
-      <ConfirmDialog
-        open={Boolean(deletingArea)}
-        title={`Remove ${deletingArea?.label}?`}
-        body={
-          areaDeleteError ??
-          "This is refused if any active listing still references it."
-        }
-        confirmLabel="Remove"
-        destructive
-        onClose={() => {
-          setDeletingArea(null);
-          setAreaDeleteError(null);
-        }}
-        onConfirm={confirmDeleteArea}
-      />
     </>
   );
 }

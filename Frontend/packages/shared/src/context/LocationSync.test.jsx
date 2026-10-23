@@ -32,3 +32,11 @@ test("ignores an old automatically chosen province", async () => {
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(state.setFilters).not.toHaveBeenCalled();
 });
+
+
+test("restores admin-created province and neighbourhood IDs without static catalog rejection", async () => {
+ document.cookie = `vezlist_location=${encodeURIComponent(JSON.stringify({province:"custom-province",cities:["new-neighbourhood"],source:"manual"}))}; path=/`;
+ render(<LocationSync />);
+ await waitFor(() => expect(state.setFilters).toHaveBeenCalledOnce());
+ expect(state.setFilters.mock.calls[0][0](state.filters)).toMatchObject({province:"custom-province",cities:["new-neighbourhood"]});
+});

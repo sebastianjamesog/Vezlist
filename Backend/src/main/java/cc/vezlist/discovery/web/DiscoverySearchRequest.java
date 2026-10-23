@@ -29,5 +29,6 @@ public record DiscoverySearchRequest(
         @DecimalMin(value = "0.0", inclusive = false) @DecimalMax("100.0") Double radiusKm,
         @Size(max = 2048) String cursor,
         @Min(1) @Max(50) Integer limit,
-        Boolean availableOnly) {
+        Boolean availableOnly,
+        @Size(max = 12000) String ethnicities) {
 }

@@ -7,6 +7,8 @@ import DataTable from "../components/admin/DataTable";
 import Button from "../components/ui/Button";
 import { useQueryParam, useSiteScope } from "../lib/adminScope";
 import { useAdminSettings } from "../hooks/useAdminSettings.js";
+import { useAdminAuth } from "../context/AdminAuthContext";
+import { useTicketEvents } from "../hooks/useTicketEvents.js";
 import { listAdminTickets } from "../lib/api/tickets.js";
 
 const SITES = ["MARKETPLACE", "PERSONALS"];
@@ -14,13 +16,23 @@ const SITES = ["MARKETPLACE", "PERSONALS"];
 export default function Tickets() {
   const router = useRouter();
   const { ticketSlaHours } = useAdminSettings();
+  const { admin } = useAdminAuth();
+  const accountId = admin?.id ?? null;
   const generation = useRef(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [site] = useSiteScope();
   const [status, setStatus] = useQueryParam("status", "open");
-  const [rows, setRows] = useState(null);
-  const [offsets, setOffsets] = useState({});
+  const [data, setData] = useState({ key: null, rows: null, offsets: {} });
   const [error, setError] = useState(null);
+  const queryKey = `${accountId}:${site}:${status}`;
+  const activeKey = useRef(queryKey);
+  activeKey.current = queryKey;
+  const pagination = useRef({ key: queryKey, pages: {}, loadingMore: false });
+  if (pagination.current.key !== queryKey) {
+    pagination.current = { key: queryKey, pages: {}, loadingMore: false };
+  }
+  const rows = data.key === queryKey ? data.rows : null;
+  const offsets = data.key === queryKey ? data.offsets : {};
   const sites =
     site === "all"
       ? SITES
@@ -28,84 +40,112 @@ export default function Tickets() {
 
   const load = useCallback(async () => {
     const version = ++generation.current;
-    setLoadingMore(false);
-    setRows(null);
+    if (!accountId) return;
     setError(null);
     try {
       const pages = await Promise.all(
-        sites.map((scope) =>
-          listAdminTickets({
-            site: scope,
-            status: status === "all" ? undefined : status,
-            limit: 50,
-          }),
+        sites.map(async (scope) => {
+          const items = new Map();
+          const count = pagination.current.pages[scope] ?? 1;
+          let offset = 0;
+          let nextOffset = null;
+          for (let index = 0; index < count; index++) {
+            const page = await listAdminTickets({
+              site: scope,
+              status: status === "all" ? undefined : status,
+              limit: 50,
+              offset,
+            });
+            if (
+              version !== generation.current ||
+              activeKey.current !== queryKey
+            )
+              return null;
+            page.items.forEach((row) => items.set(row.id, row));
+            nextOffset = page.nextOffset;
+            if (nextOffset == null) break;
+            offset = nextOffset;
+          }
+          return { scope, items: [...items.values()], nextOffset };
+        }),
+      );
+      if (version !== generation.current || activeKey.current !== queryKey)
+        return;
+      setData({
+        key: queryKey,
+        rows: [
+          ...new Map(
+            pages.flatMap((page) => page.items).map((row) => [row.id, row]),
+          ).values(),
+        ].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
+        offsets: Object.fromEntries(
+          pages.map((page) => [page.scope, page.nextOffset]),
         ),
-      );
-      if (version !== generation.current) return;
-      setRows(
-        pages
-          .flatMap((page) => page.items)
-          .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
-      );
-      setOffsets(
-        Object.fromEntries(
-          sites.map((scope, index) => [scope, pages[index].nextOffset]),
-        ),
-      );
+      });
     } catch (caught) {
-      if (version === generation.current) setError(caught);
+      if (version === generation.current && activeKey.current === queryKey)
+        setError(caught);
+    } finally {
+      if (version === generation.current && activeKey.current === queryKey) {
+        pagination.current.loadingMore = false;
+        setLoadingMore(false);
+      }
     }
-  }, [site, status]);
+  }, [queryKey, accountId, site, status]);
 
   useEffect(() => {
+    setLoadingMore(false);
+    setError(null);
     load();
     return () => {
       generation.current++;
     };
   }, [load]);
 
+  useTicketEvents({
+    staff: true,
+    site: "MARKETPLACE",
+    accountId: sites.includes("MARKETPLACE") ? accountId : null,
+    onChange: load,
+  });
+  useTicketEvents({
+    staff: true,
+    site: "PERSONALS",
+    accountId: sites.includes("PERSONALS") ? accountId : null,
+    onChange: load,
+  });
+
   async function loadMore() {
-    if (loadingMore) return;
-    const version = generation.current;
+    if (!accountId || pagination.current.loadingMore) return;
+    const pending = sites.filter((scope) => offsets[scope] != null);
+    if (!pending.length) return;
+    pagination.current.loadingMore = true;
+    pending.forEach((scope) => {
+      pagination.current.pages[scope] =
+        (pagination.current.pages[scope] ?? 1) + 1;
+    });
     setLoadingMore(true);
-    try {
-      const pending = sites.filter((scope) => offsets[scope] != null);
-      const pages = await Promise.all(
-        pending.map((scope) =>
-          listAdminTickets({
-            site: scope,
-            status: status === "all" ? undefined : status,
-            limit: 50,
-            offset: offsets[scope],
-          }),
-        ),
-      );
-      if (version !== generation.current) return;
-      setRows((current) =>
-        [
-          ...new Map(
-            [...current, ...pages.flatMap((page) => page.items)].map((row) => [
-              row.id,
-              row,
-            ]),
-          ).values(),
-        ].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
-      );
-      setOffsets((current) => ({
-        ...current,
-        ...Object.fromEntries(
-          pending.map((scope, index) => [scope, pages[index].nextOffset]),
-        ),
-      }));
-    } catch (caught) {
-      if (version === generation.current) setError(caught);
-    } finally {
-      if (version === generation.current) setLoadingMore(false);
-    }
+    await load();
   }
 
   const columns = [
-    { key: "subject", label: "Subject" },
+    {
+      key: "subject",
+      label: "Subject",
+      render: (row) => (
+        <span className="flex items-center gap-2">
+          {row.subject}
+          {row.unreadCount > 0 && (
+            <span
+              aria-label={`${row.unreadCount} unread messages`}
+              className="shrink-0 rounded-full bg-brand px-2 py-0.5 text-xs font-bold text-on-brand"
+            >
+              {row.unreadCount > 99 ? "99+" : row.unreadCount}
+            </span>
+          )}
+        </span>
+      ),
+    },
     { key: "ownerName", label: "Requester" },
     { key: "site", label: "Site" },
     {

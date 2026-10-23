@@ -15,7 +15,7 @@ import Button from "@vezlist/shared/components/ui/Button.jsx";
 import EmptyState from "@vezlist/shared/components/ui/EmptyState.jsx";
 import LocationBar from "@vezlist/shared/components/LocationBar.jsx";
 import FilterSheet from "@vezlist/shared/components/FilterSheet.jsx";
-import { provinceById } from "@vezlist/shared/data/locations.js";
+import { provinceLabel, resolveLocationIds } from "@vezlist/shared/lib/locationCatalog.js";
 import FilterChips from "@vezlist/shared/components/FilterChips.jsx";
 import FilterButton from "@vezlist/shared/components/FilterButton.jsx";
 import PersonalsPicker from "@vezlist/shared/components/PersonalsPicker.jsx";
@@ -46,15 +46,6 @@ const SORT_TO_API = {
 };
 const PAGE_SIZE = 20;
 
-function areaIdForLabel(locations, label) {
-  if (!locations) return null;
-  for (const province of locations.provinces ?? []) {
-    const hit = (province.areas ?? []).find((a) => a.label === label);
-    if (hit) return hit.id;
-  }
-  return null;
-}
-
 function buildDiscoveryParams(filters, query, locations, cursor) {
   const params = {
     site: SITE_SCOPE,
@@ -64,6 +55,7 @@ function buildDiscoveryParams(filters, query, locations, cursor) {
     maxPrice: filters.maxPrice || undefined,
     verifiedOnly: filters.verifiedOnly || undefined,
     availableOnly: filters.availableOnly || undefined,
+    ethnicities: filters.ethnicities.length ? filters.ethnicities : undefined,
     postedWithin: POSTED_WITHIN_TO_API[filters.postedWithin],
     province: filters.province !== "all" ? filters.province : undefined,
     limit: PAGE_SIZE,
@@ -72,12 +64,7 @@ function buildDiscoveryParams(filters, query, locations, cursor) {
   if (filters.categories.length) {
     params.category = filters.categories.map((label) => categoryByLabel(label)?.id).filter(Boolean);
   }
-  if (filters.cities.length) {
-    const ids = filters.cities
-      .map((label) => areaIdForLabel(locations, label))
-      .filter(Boolean);
-    if (ids.length) params.area = ids;
-  }
+  if (filters.cities.length) params.area = resolveLocationIds(locations, filters);
   return params;
 }
 
@@ -93,6 +80,9 @@ function toCardListing(row) {
     views: row.viewCount,
     site: row.site,
     verified: row.verified,
+    publishedAt: row.publishedAt,
+    availableNow: row.availableNow,
+    availableUntil: row.availableUntil,
     postedMsAgo: row.publishedAt
       ? Date.now() - new Date(row.publishedAt).getTime()
       : null,
@@ -192,7 +182,7 @@ export default function Personals() {
   return (
     <>
       <PageBody scrollMemory={scroll} className="px-4 pb-8 lg:px-8">
-        <div className="pb-3 pt-3 lg:pt-4">
+        <div className="pt-3 lg:pt-4">
           <div className="flex gap-2.5">
             <SearchBar
               className="min-w-0 flex-1"
@@ -218,7 +208,7 @@ export default function Personals() {
         </div>
 
         {shownStatuses.length > 0 && (
-          <section className="pt-1">
+          <section className="pt-3">
             <h2 className="pb-1 text-[12px] font-bold uppercase tracking-[0.1em] text-muted">
               Stories
               {recent.length ? ` · ${recent.length} new` : ""}
@@ -228,13 +218,9 @@ export default function Personals() {
           </section>
         )}
 
-        <div className="pt-3">
+        <div className={shownStatuses.length > 0 ? "pt-3" : "pt-2"}>
           <div className="mb-3">
-            <h3 className="text-[17px] font-bold leading-tight text-ink">
-              Browse
-            </h3>
-
-            <div className="no-scrollbar -mx-4 mt-1.5 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0">
+            <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 lg:mx-0 lg:px-0">
               <PickerButton
                 Icon={LayoutGrid}
                 label={filters.categories.length ? "Category" : "All categories"}
@@ -257,7 +243,7 @@ export default function Personals() {
 
           <p className="mb-3 text-[13px] text-muted">
             {filters.categories.length || filters.personalsCategories.length ? "Selected categories" : "All categories"}
-            {" \u00b7 "}{provinceById(filters.province).label}
+            {" \u00b7 "}{provinceLabel(filters.province, locations)}
           </p>
           <FilterChips filters={filters} onPatch={patch} onClearAll={resetAll}
             query={query} onClearQuery={() => setQuery("")} />

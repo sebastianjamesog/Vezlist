@@ -27,6 +27,8 @@ import cc.vezlist.shared.domain.SiteScope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -195,7 +197,10 @@ class ModerationIntegrationTest {
         post(admin, path(review, "assignment"), Map.of("assigneeId", second.id())).andExpect(status().isOk());
         post(first, path(review, "notes"), Map.of("message", "Cannot write this note")).andExpect(status().isConflict());
         jdbc.update("DELETE FROM user_roles WHERE user_id = ?", second.id());
-        post(second, path(review, "decisions"), Map.of("decision", "REJECT", "reason", "UNSAFE_CONTENT")).andExpect(status().isForbidden());
+        // Role changes invalidate the cached principal before endpoint authorization.
+        post(second, path(review, "decisions"), Map.of("decision", "REJECT", "reason", "UNSAFE_CONTENT")).andExpect(status().isUnauthorized());
+        assertThat(jdbc.queryForObject("SELECT status FROM listings WHERE id = ?", String.class, listing))
+                .isEqualTo("PENDING_REVIEW");
     }
 
     @Test void auditHistoryRejectsMutationAndFailedDecisionLeavesNoSideEffects() throws Exception {
@@ -349,6 +354,187 @@ class ModerationIntegrationTest {
         UUID appealCase = review(listing);
         assertThat(appealCase).isNotEqualTo(reportCase);
         assertThat(jdbc.queryForObject("SELECT kind FROM moderation_cases WHERE id = ?", String.class, appealCase)).isEqualTo("APPEAL");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"MARKETPLACE", "PERSONALS"})
+    void adminRemovalClosesPendingReviewAndPreventsAStaleReviewerFromPublishing(String site) throws Exception {
+        var owner = account(Role.USER);
+        var moderator = account(Role.MODERATOR);
+        var admin = account(Role.ADMIN);
+        UUID listing = listing(owner, site, "PENDING_REVIEW");
+        UUID media = media(listing);
+        UUID review = review(listing);
+        claim(moderator, review);
+        checkMedia(moderator, review, media);
+        post(admin, "/api/v1/admin/listings/" + listing + "/remove", Map.of("reason", "Policy violation"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.listing.status").value("REMOVED"));
+        assertThat(jdbc.queryForObject("SELECT status FROM moderation_cases WHERE id=?", String.class, review)).isEqualTo("CLOSED");
+        assertThat(jdbc.queryForObject("SELECT closed_at IS NOT NULL FROM moderation_cases WHERE id=?", Boolean.class, review)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM moderation_cases WHERE listing_id=? AND status='OPEN'", Long.class, listing)).isZero();
+        post(moderator, path(review, "decisions"), Map.of("decision", "APPROVE", "eligibilityChecked", true))
+                .andExpect(status().isConflict());
+        assertThat(statusOf(listing)).isEqualTo("REMOVED");
+        assertThat(jdbc.queryForObject("SELECT published_at IS NULL AND expires_at IS NULL FROM listings WHERE id=?", Boolean.class, listing)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_events WHERE listing_id=? AND event_type='LISTING_APPROVED'", Long.class, listing)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_events WHERE listing_id=? AND event_type='LISTING_REMOVED'", Long.class, listing)).isEqualTo(1L);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"MARKETPLACE", "PERSONALS"})
+    void upheldAppealIsDurableAcrossVersionChangesAndNotifiesOnlyOnce(String site) throws Exception {
+        var owner = account(Role.USER); var reviewer = account(Role.MODERATOR);
+        UUID listing = listing(owner, site, "REJECTED");
+        jdbc.update("UPDATE listings SET moderation_reason='MISLEADING_CONTENT' WHERE id=?", listing);
+        String base = "/api/v1/me/listings/" + listing + "/moderation";
+        var body = Map.of("site", site, "message", "Please reconsider this ad.");
+        UUID appeal = UUID.fromString(id(post(owner, base + "/appeals", body).andExpect(status().isOk())));
+        mvc.perform(get(base + "?site=" + site).with(user(owner)))
+                .andExpect(jsonPath("$.appealStatus").value("PENDING"))
+                .andExpect(jsonPath("$.appealId").value(appeal.toString()))
+                .andExpect(jsonPath("$.appealSubmittedAt").isNotEmpty());
+        mvc.perform(get("/api/v1/moderation/cases/" + appeal).with(user(reviewer)))
+                .andExpect(jsonPath("$.listing.owner_id").value(owner.id().toString()))
+                .andExpect(jsonPath("$.listing.publicReason").value("Please correct misleading or inaccurate information."));
+        claim(reviewer, appeal);
+        post(reviewer, path(appeal, "decisions"), Map.of("decision", "REJECT", "reason", "MISLEADING_CONTENT", "note", "Private reviewer evidence"))
+                .andExpect(status().isOk());
+        jdbc.update("UPDATE listings SET save_count=save_count+1,version=version+1 WHERE id=?", listing);
+        var result = mvc.perform(get(base + "?site=" + site).with(user(owner)))
+                .andExpect(jsonPath("$.appealStatus").value("REJECTED"))
+                .andExpect(jsonPath("$.appealAllowed").value(false))
+                .andExpect(jsonPath("$.appealDecidedAt").isNotEmpty());
+        assertThat(result.andReturn().getResponse().getContentAsString()).doesNotContain("Private reviewer evidence");
+        assertThat(id(post(owner, base + "/appeals", body).andExpect(status().isOk()))).isEqualTo(appeal.toString());
+        post(reviewer, path(appeal, "decisions"), Map.of("decision", "REJECT", "reason", "MISLEADING_CONTENT"))
+                .andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM moderation_cases WHERE listing_id=? AND kind='APPEAL'", Long.class, listing)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM moderation_actions WHERE case_id=? AND action='APPEAL'", Long.class, appeal)).isEqualTo(1);
+        assertThat(jdbc.queryForList("SELECT event_type FROM notification_events WHERE subject_id=? ORDER BY event_type", String.class, listing))
+                .containsExactly("APPEAL_REJECTED", "APPEAL_SUBMITTED");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"MARKETPLACE", "PERSONALS"})
+    void approvedAppealRestoresAdAndALaterRemovalCanBeAppealed(String site) throws Exception {
+        var owner = account(Role.USER); var first = account(Role.MODERATOR); var second = account(Role.MODERATOR); var admin = account(Role.ADMIN);
+        UUID listing = listing(owner, site, "REMOVED"); UUID image = media(listing);
+        String base = "/api/v1/me/listings/" + listing + "/moderation";
+        var body = Map.of("site", site, "message", "Please review the removal.");
+        UUID appeal = UUID.fromString(id(post(owner, base + "/appeals", body).andExpect(status().isOk())));
+        claim(first, appeal); checkMedia(first, appeal, image);
+        var approval = Map.of("decision", "APPROVE", "eligibilityChecked", true);
+        post(first, path(appeal, "decisions"), approval).andExpect(status().isOk());
+        if (site.equals("PERSONALS")) {
+            assertThat(statusOf(listing)).isEqualTo("REMOVED");
+            mvc.perform(get(base + "?site=" + site).with(user(owner))).andExpect(jsonPath("$.appealStatus").value("PENDING"));
+            post(first, path(appeal, "decisions"), approval).andExpect(status().isOk());
+            claim(second, appeal);
+            post(second, path(appeal, "decisions"), approval).andExpect(status().isConflict());
+            checkMedia(second, appeal, image);
+            post(second, path(appeal, "decisions"), approval).andExpect(status().isOk());
+        }
+        assertThat(statusOf(listing)).isEqualTo("ACTIVE");
+        assertThat(jdbc.queryForObject("SELECT published_at IS NOT NULL AND expires_at>now() FROM listings WHERE id=?", Boolean.class, listing)).isTrue();
+        mvc.perform(get(base + "?site=" + site).with(user(owner)))
+                .andExpect(jsonPath("$.appealStatus").value("APPROVED")).andExpect(jsonPath("$.appealAllowed").value(false));
+        assertThat(jdbc.queryForList("SELECT event_type FROM notification_events WHERE subject_id=? ORDER BY event_type", String.class, listing))
+                .containsExactly("APPEAL_APPROVED", "APPEAL_SUBMITTED");
+        post(admin, "/api/v1/admin/listings/" + listing + "/remove", Map.of("reason", "Private new removal evidence"))
+                .andExpect(status().isOk());
+        var result = mvc.perform(get(base + "?site=" + site).with(user(owner)))
+                .andExpect(jsonPath("$.appealStatus").value("NONE")).andExpect(jsonPath("$.appealAllowed").value(true));
+        assertThat(result.andReturn().getResponse().getContentAsString()).doesNotContain("Private new removal evidence");
+        assertThat(id(post(owner, base + "/appeals", body).andExpect(status().isOk()))).isNotEqualTo(appeal.toString());
+        post(first, path(appeal, "decisions"), approval).andExpect(status().isOk());
+        assertThat(statusOf(listing)).isEqualTo("REMOVED");
+    }
+
+    @Test void imageMutationCannotChangePendingAppealEvidenceAndContentEditClosesIt() throws Exception {
+        var owner = account(Role.USER); var moderator = account(Role.MODERATOR);
+        UUID listing = listing(owner, "MARKETPLACE", "REJECTED"); UUID image = media(listing);
+        String base = "/api/v1/me/listings/" + listing + "/moderation";
+        var body = Map.of("site", "MARKETPLACE", "message", "Review original evidence.");
+        UUID appeal = UUID.fromString(id(post(owner, base + "/appeals", body).andExpect(status().isOk())));
+        claim(moderator, appeal); checkMedia(moderator, appeal, image);
+        mvc.perform(delete("/api/v1/listings/" + listing + "/media/" + image).with(user(owner)).with(csrf()))
+                .andExpect(status().isConflict());
+        mvc.perform(patch("/api/v1/listings/" + listing + "/media/order").with(user(owner)).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsBytes(Map.of("mediaIds", List.of(image), "coverMediaId", image))))
+                .andExpect(status().isConflict());
+        post(owner, "/api/v1/listings/" + listing + "/media/" + image + "/complete", Map.of()).andExpect(status().isConflict());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_media WHERE id=?", Long.class, image)).isEqualTo(1);
+        jdbc.update("UPDATE listings SET title='Updated appeal content',version=version+1 WHERE id=?", listing);
+        mvc.perform(get(base + "?site=MARKETPLACE").with(user(owner)))
+                .andExpect(jsonPath("$.appealStatus").value("STALE")).andExpect(jsonPath("$.appealAllowed").value(false));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM moderation_cases WHERE listing_id=? AND status='OPEN'", Long.class, listing)).isZero();
+        post(moderator, path(appeal, "decisions"), Map.of("decision", "APPROVE")).andExpect(status().isConflict());
+        assertThat(id(post(owner, base + "/appeals", body).andExpect(status().isOk()))).isEqualTo(appeal.toString());
+        assertThat(statusOf(listing)).isEqualTo("REJECTED");
+    }
+
+    @Test void attributesOnlyOwnerEditInvalidatesAppealAndRetainsItsReceipt() throws Exception {
+        var owner = account(Role.USER); var moderator = account(Role.MODERATOR);
+        UUID listing = listing(owner, "PERSONALS", "REJECTED");
+        jdbc.update("UPDATE listings SET description='An adequate description for this listing.' WHERE id=?", listing);
+        String base = "/api/v1/me/listings/" + listing + "/moderation";
+        var body = Map.of("site", "PERSONALS", "message", "Please review this ad.");
+        UUID appeal = UUID.fromString(id(post(owner, base + "/appeals", body).andExpect(status().isOk())));
+        claim(moderator, appeal);
+        var update = new cc.vezlist.listings.web.ListingWriteRequest(SiteScope.PERSONALS, "Review this listing", "Business",
+                "An adequate description for this listing.", null, "personals", "bc", "bc-1", "seller@example.test", "+12505550100",
+                null, null, Map.of("age", "35"));
+        mvc.perform(patch("/api/v1/listings/" + listing).with(user(owner)).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsBytes(update))).andExpect(status().isOk());
+        mvc.perform(get(base + "?site=PERSONALS").with(user(owner)))
+                .andExpect(jsonPath("$.appealStatus").value("STALE")).andExpect(jsonPath("$.appealAllowed").value(false));
+        post(moderator, path(appeal, "decisions"), Map.of("decision", "REJECT", "reason", "MISLEADING_CONTENT"))
+                .andExpect(status().isConflict());
+        assertThat(id(post(owner, base + "/appeals", body).andExpect(status().isOk()))).isEqualTo(appeal.toString());
+    }
+
+    @Test void concurrentAppealsHaveOneCaseAndOneReceiptNotification() throws Exception {
+        var owner = account(Role.USER); UUID listing = listing(owner, "MARKETPLACE", "REJECTED");
+        var request = new cc.vezlist.moderation.web.ModerationRequests.Appeal(SiteScope.MARKETPLACE, "Review my ad.");
+        try (var pool = Executors.newFixedThreadPool(4)) {
+            CountDownLatch start = new CountDownLatch(1);
+            var futures = java.util.stream.IntStream.range(0, 4).mapToObj(i -> pool.submit(() -> {
+                start.await(); return service.appeal(owner.id(), listing, request).id();
+            })).toList();
+            start.countDown();
+            Set<UUID> ids = new java.util.HashSet<>();
+            for (var f : futures) ids.add(f.get(20, TimeUnit.SECONDS));
+            assertThat(ids).hasSize(1);
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM moderation_cases WHERE listing_id=?", Long.class, listing)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification_events WHERE subject_id=? AND event_type='APPEAL_SUBMITTED'", Long.class, listing)).isEqualTo(1);
+    }
+
+    @Test void migrationPreservesLegacyUpheldAppealWithoutBlockingALaterRemoval() {
+        jdbc.execute("CREATE DATABASE appeal_upgrade");
+        String url = "jdbc:postgresql://" + POSTGRES.getHost() + ":" + POSTGRES.getMappedPort(5432) + "/appeal_upgrade";
+        org.flywaydb.core.Flyway.configure().dataSource(url, POSTGRES.getUsername(), POSTGRES.getPassword()).target("33").load().migrate();
+        var old = new JdbcTemplate(new org.springframework.jdbc.datasource.DriverManagerDataSource(url, POSTGRES.getUsername(), POSTGRES.getPassword()));
+        UUID owner = UUID.randomUUID();
+        old.update("INSERT INTO app_users(id,display_name,email,password_hash) VALUES(?,'Legacy owner','appeal-upgrade@example.test','hash')", owner);
+        var ids = List.of(UUID.randomUUID(), UUID.randomUUID());
+        var cases = List.of(UUID.randomUUID(), UUID.randomUUID());
+        for (int index = 0; index < ids.size(); index++) {
+            old.update("""
+                    INSERT INTO listings(id,owner_id,site_scope,status,title,business_name,description,category_id,province_id,location_id,
+                        contact_email,contact_phone,version) VALUES(?,?,'MARKETPLACE','REMOVED','Legacy ad','Business','Legacy description',
+                        'services','bc','bc-1','appeal-upgrade@example.test','+12505550100',2)
+                    """, ids.get(index), owner);
+            old.update("INSERT INTO moderation_cases(id,listing_id,kind,status,review_version,created_at,closed_at) VALUES(?,?,'APPEAL','CLOSED',1,'2026-01-01T00:00:00Z','2026-01-02T00:00:00Z')", cases.get(index), ids.get(index));
+            old.update("INSERT INTO moderation_actions(id,case_id,listing_id,actor_id,action) VALUES(?,?,?,?,'REJECT')", UUID.randomUUID(), cases.get(index), ids.get(index), owner);
+            old.update("INSERT INTO listing_events(id,listing_id,event_type,occurred_at) VALUES(?,?,'LISTING_REMOVED',?::timestamptz)",
+                    UUID.randomUUID(), ids.get(index), index == 0 ? "2026-01-02T00:00:00Z" : "2026-01-03T00:00:00Z");
+        }
+        org.flywaydb.core.Flyway.configure().dataSource(url, POSTGRES.getUsername(), POSTGRES.getPassword()).load().migrate();
+        assertThat(old.queryForObject("SELECT c.appeal_episode=l.moderation_episode FROM moderation_cases c JOIN listings l ON l.id=c.listing_id WHERE c.id=?", Boolean.class, cases.getFirst())).isTrue();
+        assertThat(old.queryForObject("SELECT resolution FROM moderation_cases WHERE id=?", String.class, cases.getFirst())).isEqualTo("REJECTED");
+        assertThat(old.queryForObject("SELECT appeal_episode IS NULL FROM moderation_cases WHERE id=?", Boolean.class, cases.getLast())).isTrue();
+        assertThat(old.queryForObject("SELECT count(*) FROM moderation_actions", Long.class)).isEqualTo(2);
     }
 
     @Test void migrationUpgradesExistingPendingListingsWithoutLosingData() throws Exception {

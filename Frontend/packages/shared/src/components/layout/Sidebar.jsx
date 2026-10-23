@@ -132,11 +132,15 @@ export default function Sidebar({ onCreate, onPostAd, navPreset }) {
         body="You'll need to sign in again to manage your ads."
         confirmLabel="Log out"
         destructive
-        onConfirm={() => {
-          setConfirmLogout(false);
-          signOut();
-          toast("Logged out");
-          navigate("/login", { replace: true });
+        onConfirm={async () => {
+          try {
+            await signOut();
+            setConfirmLogout(false);
+            toast("Logged out");
+            navigate("/login", { replace: true });
+          } catch {
+            toast("Couldn't log out. Please try again.");
+          }
         }}
         onClose={() => setConfirmLogout(false)}
       />

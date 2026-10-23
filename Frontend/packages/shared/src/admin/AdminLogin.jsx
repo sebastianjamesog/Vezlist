@@ -10,6 +10,7 @@ import { useNavigate } from "../lib/nav";
 import { safeNext } from "../lib/redirect";
 import { validateAuth } from "../lib/auth";
 import { ApiError } from "../lib/api/client";
+import AdminThemeToggle from "../components/admin/AdminThemeToggle.jsx";
 
 /**
  * The console's front door.
@@ -20,7 +21,7 @@ import { ApiError } from "../lib/api/client";
  * screen: that one offers sign-up, and there is no such thing as signing
  * yourself up to a moderation console.
  *
- * The password is checked for real, against `POST /api/v1/auth/login` — see
+ * The password is checked for real, against `POST /api/v1/admin/auth/login` — see
  * `AdminAuthContext`. A 401 reads as a wrong email/password; a
  * `ConsoleAccessError` means the credentials were fine but the account has
  * no console role, and gets its own wording rather than being folded into
@@ -75,6 +76,7 @@ export default function AdminLogin() {
   return (
     <main className="flex min-h-full items-center justify-center bg-canvas px-4 py-10">
       <div className="w-full max-w-md">
+        <div className="mb-4 flex justify-end"><AdminThemeToggle /></div>
         <div className="mb-6 flex items-center gap-3">
           <span className="brand-gradient grid size-12 shrink-0 place-items-center rounded-2xl text-on-brand">
             <Icon name="Gauge" className="size-6" strokeWidth={2.6} />

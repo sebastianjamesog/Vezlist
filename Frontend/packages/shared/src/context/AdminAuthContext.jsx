@@ -13,24 +13,10 @@ import { can } from "../lib/adminRoles";
 import * as authApi from "../lib/api/auth";
 
 /**
- * The console's session, backed by the real cc.vezlist API.
- *
- * Same server the public sites use — `POST /api/v1/auth/login`,
- * `GET /api/v1/auth/me`, `POST /api/v1/auth/logout` — because there is only
- * one identity system, not one per app. What's console-specific here is the
- * mapping on top: the backend's security roles (`CurrentUserResponse.roles`,
- * a `Set<String>` of USER/MODERATOR/ADMIN) are not this console's own role
- * vocabulary (`ROLES` in `adminRoles.js` — owner/moderator/support), so a
- * successful login is translated into one of *those* before it's handed to
- * any screen. A plain USER — even with a correct password — maps to no
- * console role at all, and is refused entry exactly where the backend's own
- * `@PreAuthorize("hasAnyRole('MODERATOR','ADMIN')")` would refuse the same
- * account on every admin endpoint: this is client-side convenience, not a
- * separate security boundary.
- *
- * Nothing is persisted here beyond what the server's session cookie already
- * carries — like `AuthContext`, this hydrates from `/auth/me` on mount rather
- * than trusting anything written to storage.
+ * The console uses /api/v1/admin/auth and its own server session cookie.
+ * Public Marketplace/Personals logins and logouts cannot replace this session.
+ * Backend roles still authorize every staff request; the mapping here controls
+ * UI visibility only. No session token or credentials are stored in JS storage.
  */
 const AdminAuthContext = createContext(null);
 
@@ -86,7 +72,17 @@ export function AdminAuthProvider({ children }) {
     request.current++;
     // Throws ApiError({status:401,...}) on a wrong email/password — that
     // propagates to the caller unchanged, same as the public `AuthContext`.
-    const response = await authApi.login({ email, password });
+    let response;
+    try {
+      response = await authApi.login({ email, password });
+    } catch (error) {
+      if (error?.status === 403 && error?.code === "CONSOLE_ACCESS_DENIED") {
+        throw new ConsoleAccessError(
+          "This account doesn't have console access. Ask an owner to grant it the Moderator or Admin role.",
+        );
+      }
+      throw error;
+    }
     const role = mapConsoleRole(response.roles);
     if (!role) {
       // A real account, correctly authenticated, just not one this console
@@ -99,7 +95,12 @@ export function AdminAuthProvider({ children }) {
         "This account doesn't have console access. Ask an owner to grant it the Moderator or Admin role.",
       );
     }
-    const next = { id: response.id, name: response.name, email: response.email, role };
+    const next = {
+      id: response.id,
+      name: response.name,
+      email: response.email,
+      role,
+    };
     setAdmin(next);
     return next;
   }, []);

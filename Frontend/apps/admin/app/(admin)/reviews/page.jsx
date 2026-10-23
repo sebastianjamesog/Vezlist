@@ -1,8 +1,9 @@
-import { Suspense } from "react";
-import Appeals from "@vezlist/shared/admin/Appeals.jsx";
-import Loading from "../loading.jsx";
+import { redirect } from "next/navigation";
 
-export const metadata = { title: "Review queue", description: "Review pending listing submissions." };
-export default function Page() {
-  return <Suspense fallback={<Loading />}><Appeals kind="SUBMISSION" /></Suspense>;
+export const metadata = { title: "In-review listings" };
+export default async function Page({ searchParams }) {
+  const { site } = await searchParams;
+  const query = new URLSearchParams({ status: "PENDING_REVIEW" });
+  if (["marketplace", "personals"].includes(site)) query.set("site", site);
+  redirect(`/listings?${query}`);
 }

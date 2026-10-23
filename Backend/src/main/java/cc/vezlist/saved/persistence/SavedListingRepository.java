@@ -150,6 +150,8 @@ public class SavedListingRepository {
                        area.label AS location_label,
                        listing.verified AS verified,
                        listing.view_count,
+                       COALESCE(prefs.available_now AND prefs.available_until > now(), FALSE) AS available_now,
+                       prefs.available_until,
                        COALESCE(listing.published_at, listing.created_at) AS published_at,
                        saved.saved_at,
                        (SELECT media.object_key
@@ -163,6 +165,7 @@ public class SavedListingRepository {
                 FROM saved_listings saved
                 JOIN listings listing ON listing.id = saved.listing_id
                 JOIN app_users seller ON seller.id = listing.owner_id AND seller.enabled = TRUE
+                LEFT JOIN user_preferences prefs ON prefs.user_id = listing.owner_id
                 JOIN categories category ON category.id = listing.category_id
                 JOIN locations area ON area.id = listing.location_id
                 JOIN locations province ON province.id = listing.province_id
@@ -232,7 +235,9 @@ public class SavedListingRepository {
             int photoCount,
             Instant publishedAt,
             Instant savedAt,
-            long viewCount) {
+            long viewCount,
+            boolean availableNow,
+            Instant availableUntil) {
 
         public CursorAnchor cursorAnchor() {
             return new CursorAnchor(savedAt, id);
@@ -259,7 +264,9 @@ public class SavedListingRepository {
                     rs.getInt("photo_count"),
                     rs.getTimestamp("published_at").toInstant(),
                     rs.getTimestamp("saved_at").toInstant(),
-                    rs.getLong("view_count"));
+                    rs.getLong("view_count"),
+                    rs.getBoolean("available_now"),
+                    rs.getTimestamp("available_until") == null ? null : rs.getTimestamp("available_until").toInstant());
         }
     }
 }

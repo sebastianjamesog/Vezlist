@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { act } from "@testing-library/react";
 import {
   renderApp,
   screen,
@@ -12,6 +13,12 @@ import * as listingsApi from "../lib/api/listings.js";
 import * as moderationApi from "../lib/api/moderation.js";
 import * as verificationApi from "../lib/api/verification.js";
 import { ApiError } from "../lib/api/client.js";
+
+const board = vi.hoisted(() => ({ site: "MARKETPLACE" }));
+vi.mock("../lib/api/client.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  get SITE_SCOPE() { return board.site; },
+}));
 
 vi.mock("../lib/api/verification.js", () => ({
   currentVerification: vi.fn(),
@@ -114,7 +121,9 @@ const verificationRequest = (overrides = {}) => ({
 
 describe("MyAds", () => {
   beforeEach(() => {
+    board.site = "MARKETPLACE";
     vi.clearAllMocks();
+    moderationApi.ownerStatus.mockResolvedValue({appealAllowed:false, appealStatus:"NONE"});
     signIn({ role: "creator" });
   });
 
@@ -171,14 +180,74 @@ describe("MyAds", () => {
     expect(await screen.findByText("Expired one")).toBeTruthy();
   });
 
-  test("only a draft or rejected ad offers Edit — the backend refuses the rest", async () => {
+  test("an active ad offers Edit — the backend refuses the rest", async () => {
     listingsApi.ownedListings.mockResolvedValue([
       listing({ id: "active", title: "Live ad", status: "ACTIVE" }),
     ]);
     renderApp(<MyAds />);
 
     await screen.findByText("Live ad");
-    expect(screen.queryByRole("button", { name: /^Edit /i })).toBe(null);
+    expect(screen.getByRole("button", { name: "Edit Live ad" })).toBeTruthy();
+  });
+
+  test("returning to My Ads refreshes posting rank separately from views", async () => {
+    listingsApi.ownedListings.mockResolvedValue([listing({ currentPosition: 1, viewCount: 1000 })]);
+    renderApp(<MyAds />);
+    expect(await screen.findByText("#1")).toBeTruthy();
+    expect(screen.getByText(/Newer ads rank first; views do not affect it/)).toBeTruthy();
+
+    // A different advertiser's newer post moves this ad down even as its views rise.
+    listingsApi.ownedListings.mockResolvedValue([listing({ currentPosition: 2, viewCount: 2000 })]);
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(await screen.findByText("#2")).toBeTruthy();
+    expect(screen.queryByText("#1")).toBeNull();
+  });
+
+  test("Personals describes one rank across every location and subcategory", async () => {
+    board.site = "PERSONALS";
+    listingsApi.ownedListings.mockResolvedValue([
+      listing({ site: "PERSONALS", currentPosition: 2 }),
+    ]);
+    renderApp(<MyAds />);
+    expect(await screen.findByText("#2")).toBeTruthy();
+    expect(listingsApi.ownedListings).toHaveBeenCalledWith("PERSONALS");
+    expect(screen.getByText(/across all Personals ads, in every location and subcategory/)).toBeTruthy();
+    expect(screen.getByText(/across Personals/)).toBeTruthy();
+    expect(screen.queryByText(/in Property \/ Metro Vancouver/)).toBeNull();
+  });
+
+  test("a slower refresh cannot replace a newer posting rank", async () => {
+    listingsApi.ownedListings.mockResolvedValue([listing({ currentPosition: 1 })]);
+    renderApp(<MyAds />);
+    await screen.findByText("#1");
+    let finishOlderRequest;
+    listingsApi.ownedListings
+      .mockImplementationOnce(() => new Promise((resolve) => { finishOlderRequest = resolve; }))
+      .mockResolvedValueOnce([listing({ currentPosition: 2 })]);
+    act(() => window.dispatchEvent(new Event("focus")));
+    act(() => window.dispatchEvent(new Event("focus")));
+    await screen.findByText("#2");
+    await act(async () => finishOlderRequest([listing({ currentPosition: 1 })]));
+    expect(screen.getByText("#2")).toBeTruthy();
+    expect(screen.queryByText("#1")).toBeNull();
+  });
+
+  test("editing a live ad saves details without resubmitting or changing photos", async () => {
+    const live = listing({ currentPosition: 4 });
+    listingsApi.ownedListings.mockResolvedValue([live]);
+    listingsApi.updateListing.mockResolvedValue({ ...live, title: "Updated apartment title" });
+    renderApp(<MyAds />);
+    expect(await screen.findByText("#4")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Edit 2 Bedroom Apartment" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit this ad" });
+    expect(within(dialog).queryByText("Add photos")).toBe(null);
+    const title = within(dialog).getByDisplayValue(live.title);
+    await userEvent.clear(title);
+    await userEvent.type(title, "Updated apartment title");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(listingsApi.updateListing).toHaveBeenCalled());
+    expect(listingsApi.submitListing).not.toHaveBeenCalled();
+    expect(await screen.findByText("Updated apartment title")).toBeTruthy();
   });
 
   test("delete asks first, and Cancel keeps the ad", async () => {
@@ -374,6 +443,7 @@ describe("MyAds", () => {
     );
 
     moderationApi.appeal.mockResolvedValue({ id: "case-1" });
+    moderationApi.ownerStatus.mockResolvedValue({listingId:"r1",status:"REJECTED",appealAllowed:false,appealStatus:"PENDING"});
     await userEvent.click(
       within(sheet).getByRole("button", { name: "Submit appeal" }),
     );
@@ -483,7 +553,7 @@ describe("MyAds", () => {
     verificationApi.requestVerification.mockResolvedValue(
       verificationRequest({ id: "verification-2", code: "654321" }),
     );
-    moderationApi.ownerStatus.mockResolvedValue({ appealAllowed: true });
+    moderationApi.ownerStatus.mockResolvedValue({ appealAllowed: false });
     renderApp(<MyAds />);
     await userEvent.click(
       await screen.findByRole("button", { name: /^Needs attention/ }),

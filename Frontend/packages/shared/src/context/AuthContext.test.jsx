@@ -40,3 +40,25 @@ test("role changes only after backend confirmation; errors preserve the current 
   expect(api.changeAccountType).toHaveBeenLastCalledWith("BROWSING");
   expect(result.current.role).toBe("user");
 });
+
+
+test("a late session lookup cannot replace a newly signed-in account", async () => {
+  let resolve;
+  api.me.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+  api.login.mockResolvedValue(creator);
+  const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+  await act(async () => result.current.signIn({ email: "creator@test.invalid", password: "password" }));
+  await act(async () => resolve(null));
+  expect(result.current.user.id).toBe(creator.id);
+});
+
+test("failed logout preserves the session so it can be retried", async () => {
+  const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  api.logout.mockRejectedValueOnce(new Error("Offline"));
+  await act(async () => { await expect(result.current.signOut()).rejects.toThrow("Offline"); });
+  expect(result.current.signedIn).toBe(true);
+  api.logout.mockResolvedValueOnce();
+  await act(async () => result.current.signOut());
+  expect(result.current.signedIn).toBe(false);
+});

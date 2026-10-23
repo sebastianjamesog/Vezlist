@@ -35,6 +35,7 @@ export default function CreatorDashboard() {
     refresh();
   }, [refresh]);
 
+  const totalViews = rows.reduce((total, row) => total + (row.viewCount ?? 0), 0);
   const totalSaves = rows.reduce((total, row) => total + row.saveCount, 0);
   const activeAds = rows.filter((row) => row.status === "ACTIVE").length;
   const recentAds = [...rows]
@@ -54,7 +55,8 @@ export default function CreatorDashboard() {
           </div>
         ) : rows.length ? (
           <>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <StatCard label="Total views" value={totalViews.toLocaleString()} icon="Eye" tone="blue" to="/profile/ads" />
               <StatCard label="Total saves" value={totalSaves.toLocaleString()} icon="Heart" tone="rose" to="/profile/ads" />
               <StatCard label="Active ads" value={activeAds} icon="Megaphone" tone="green" to="/profile/ads" />
               <StatCard label="All ads" value={rows.length} icon="List" tone="blue" to="/profile/ads" />

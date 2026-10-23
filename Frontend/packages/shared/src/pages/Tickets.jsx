@@ -32,7 +32,16 @@ function validateTicket({ subject, body }) {
 export default function Tickets() {
   const toast = useToast();
   const navigate = useNavigate();
-  const { tickets, ready, error, refresh, nextOffset, loadMore, open } = useTickets();
+  const {
+    tickets,
+    ready,
+    error,
+    refresh,
+    nextOffset,
+    loadingMore,
+    loadMore,
+    open,
+  } = useTickets();
   const [tab, setTab] = useState("all");
   const [composing, setComposing] = useState(false);
   const [form, setForm] = useState(EMPTY_TICKET);
@@ -71,7 +80,9 @@ export default function Tickets() {
       toast("Ticket opened");
       navigate(`/support/tickets/${id}`);
     } catch (caught) {
-      setErrors({ body: caught.message || "Could not open the ticket. Try again." });
+      setErrors({
+        body: caught.message || "Could not open the ticket. Try again.",
+      });
     } finally {
       setPending(false);
     }
@@ -112,12 +123,24 @@ export default function Tickets() {
           ))}
         </div>
 
+        {error && rows.length > 0 && (
+          <p role="alert" className="mb-3 text-sm text-danger">
+            Could not update tickets.{" "}
+            <button type="button" onClick={refresh} className="underline">
+              Try again
+            </button>
+          </p>
+        )}
         {!ready ? (
-          <p role="status" className="text-muted">Loading tickets…</p>
-        ) : error ? (
+          <p role="status" className="text-muted">
+            Loading tickets…
+          </p>
+        ) : error && !rows.length ? (
           <div role="alert" className="rounded-card bg-surface p-5 shadow-card">
             <p>Could not load tickets.</p>
-            <Button onClick={refresh} variant="soft">Try again</Button>
+            <Button onClick={refresh} variant="soft">
+              Try again
+            </Button>
           </div>
         ) : rows.length ? (
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -138,6 +161,14 @@ export default function Tickets() {
                     {t.meta}
                   </span>
                 </span>
+                {t.unreadCount > 0 && (
+                  <span
+                    aria-label={`${t.unreadCount} unread messages`}
+                    className="shrink-0 rounded-full bg-brand px-2 py-0.5 text-xs font-bold text-on-brand"
+                  >
+                    {t.unreadCount > 99 ? "99+" : t.unreadCount}
+                  </span>
+                )}
                 <span
                   className={`shrink-0 rounded-full px-3 py-1.5 text-[13px] font-semibold ${
                     t.status === "Resolved"
@@ -164,7 +195,14 @@ export default function Tickets() {
           />
         )}
         {nextOffset != null && (
-          <Button variant="soft" onClick={loadMore} className="mt-4">Load more</Button>
+          <Button
+            variant="soft"
+            onClick={loadMore}
+            disabled={loadingMore}
+            className="mt-4"
+          >
+            {loadingMore ? "Loading..." : "Load more"}
+          </Button>
         )}
       </PageBody>
 
@@ -175,7 +213,13 @@ export default function Tickets() {
         onClose={() => setComposing(false)}
         size="max-w-md"
         footer={
-          <Button type="submit" form="new-ticket" size="lg" className="w-full" disabled={pending}>
+          <Button
+            type="submit"
+            form="new-ticket"
+            size="lg"
+            className="w-full"
+            disabled={pending}
+          >
             {pending ? "Opening…" : "Open ticket"}
           </Button>
         }

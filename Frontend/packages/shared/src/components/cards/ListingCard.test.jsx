@@ -55,3 +55,10 @@ test("popup behavior is opt-in and modified clicks retain the normal ad link", (
   fireEvent.click(link, { button: 0 });
   expect(open).toHaveBeenCalledWith("ad-123");
 });
+
+test("verified ad badge includes readable text and never appears for unverified ads", () => {
+  const { rerender } = render(<ListingCard listing={listing} />);
+  expect(screen.getByText("VERIFIED")).toBeTruthy();
+  rerender(<ListingCard listing={{ ...listing, verified: false }} />);
+  expect(screen.queryByText("VERIFIED")).toBeNull();
+});

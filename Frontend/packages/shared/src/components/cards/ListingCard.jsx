@@ -4,6 +4,7 @@ import { openAdClick } from "../../lib/openAdClick.js";
 import Link from "next/link";
 import { BadgeCheck, ChevronRight, Eye, ImageOff, MapPin } from "lucide-react";
 import { compactCount, timeAgo } from "../../lib/format";
+import ListingStatusBadges from "./ListingStatusBadges.jsx";
 import MediaImage from "../media/MediaImage.jsx";
 import PhotoMark from "../media/PhotoMark.jsx";
 import useLiveViewCount from "../../lib/useLiveViewCount.js";
@@ -51,6 +52,7 @@ export default function ListingCard({ listing, chevron = false, onOpen }) {
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5 self-stretch">
+          <ListingStatusBadges listing={listing} className="-mb-0.5" />
           <h3 className="listing-card__title line-clamp-2 break-words text-[17px] font-bold leading-5 text-ink transition-colors group-hover:text-brand">
             {listing.title}
           </h3>
@@ -61,9 +63,9 @@ export default function ListingCard({ listing, chevron = false, onOpen }) {
               <span className="shrink-0 font-semibold tabular-nums">{listing.age}</span>
             )}
             {listing.verified && (
-              <span className="inline-flex shrink-0 text-emerald-700" title="Verified advertiser">
+              <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold leading-3 text-emerald-800" title="Verified ad">
                 <BadgeCheck aria-hidden="true" className="size-3.5" strokeWidth={2.5} />
-                <span className="sr-only">Verified advertiser</span>
+                <span>VERIFIED</span>
               </span>
             )}
             {listing.postedMsAgo != null && (
@@ -76,7 +78,7 @@ export default function ListingCard({ listing, chevron = false, onOpen }) {
 
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             {price > 0 && (
-              <span className="max-w-full break-words rounded-lg bg-brand-soft px-1.5 text-[16px] font-bold leading-5 tabular-nums text-brand">
+              <span className="max-w-full break-words text-[13px] font-medium leading-5 tabular-nums text-muted">
                 ${price.toLocaleString()}
               </span>
             )}

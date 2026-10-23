@@ -2,6 +2,8 @@ package cc.vezlist.verification.web;
 
 import java.time.Instant;
 import java.util.UUID;
+import java.util.List;
+import cc.vezlist.media.web.ListingMediaResponse;
 
 import cc.vezlist.shared.domain.SiteScope;
 import cc.vezlist.verification.domain.VerificationRequestStatus;
@@ -19,5 +21,6 @@ public record VerificationDetailResponse(
         String rejectionReason,
         Instant submittedAt,
         Instant decidedAt,
-        Instant createdAt) {
+        Instant createdAt,
+        List<ListingMediaResponse> media) {
 }

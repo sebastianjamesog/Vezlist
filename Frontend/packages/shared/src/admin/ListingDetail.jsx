@@ -24,9 +24,9 @@ import { MARKETPLACE_URL, PERSONALS_URL } from "../lib/sites";
  * verify, boost, expire, per-photo delete, a local decision-history log) —
  * none of that has a backend counterpart on this screen. Approve/reject
  * belongs to a moderation *case*, not a listing id, and lives in
- * `Reports`/`Appeals` (the staff review queue); verify/boost/expire have no
- * admin endpoint at all. What is real here is the listing itself and the one
- * write `AdminListingController` actually offers: remove, only from `ACTIVE`.
+ * `Reports`/`Appeals`; photo verification lives in `Verifications`.
+ * What is real here is the listing itself and the one
+ * write `AdminListingController` offers: remove active or in-review ads.
  */
 export default function ListingDetail() {
   const { id } = useParams();
@@ -151,10 +151,10 @@ export default function ListingDetail() {
             >
               View on site ↗
             </a>
-            {can("listing.moderate") && row.status === "PENDING_REVIEW" && (
-              <Button size="sm" to={`${row.verificationRequested ? "/verifications" : "/reviews"}?site=${row.site.toLowerCase()}`}>Review submission</Button>
+            {can("listing.moderate") && row.status === "PENDING_REVIEW" && row.verificationRequested && (
+              <Button size="sm" to={`/verifications?site=${row.site.toLowerCase()}`}>Review verification</Button>
             )}
-            {can("listing.delete") && row.status === "ACTIVE" && (
+            {can("listing.delete") && ["ACTIVE", "PENDING_REVIEW"].includes(row.status) && (
               <Button size="sm" variant="danger" onClick={openRemove}>
                 Remove
               </Button>
@@ -249,10 +249,9 @@ export default function ListingDetail() {
               <Row label="Published" value={dateLabel(row.publishedAt)} />
               <Row label="Expires" value={dateLabel(row.expiresAt)} />
             </dl>
-            {row.status !== "ACTIVE" && can("listing.delete") && (
+            {!["ACTIVE", "PENDING_REVIEW"].includes(row.status) && can("listing.delete") && (
               <p className="mt-3 text-[13px] leading-relaxed text-muted">
-                Only active ads can be removed from here. Pending, reported and
-                appealed ads are handled from the moderation queues.
+                Only active and in-review ads can be removed from here.
               </p>
             )}
             {!can("listing.delete") && (
@@ -267,7 +266,7 @@ export default function ListingDetail() {
       <Modal
         open={removing}
         title="Remove this ad"
-        subtitle="Legal only while the ad is active. The reason is recorded on the audit log."
+        subtitle="Active and in-review ads can be removed. The reason is recorded in the audit log."
         size="max-w-md"
         onClose={() => !submitting && setRemoving(false)}
         footer={

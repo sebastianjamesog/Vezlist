@@ -25,7 +25,8 @@ public record DiscoveryCriteria(
         Double radiusKm,
         int limit,
         Instant asOf,
-        DiscoveryCursorCodec.CursorAnchor cursor) {
+        DiscoveryCursorCodec.CursorAnchor cursor,
+        List<String> ethnicities) {
 
     public boolean hasCoordinates() {
         return latitude != null;

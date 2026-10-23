@@ -1,6 +1,14 @@
 package cc.vezlist.shared.security;
 
 import java.util.List;
+import cc.vezlist.identity.application.IdentityService;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.web.ServerProperties;
+import org.springframework.security.web.context.SecurityContextHolderFilter;
+import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
+import org.springframework.session.web.http.CookieHttpSessionIdResolver;
+import org.springframework.session.web.http.DefaultCookieSerializer;
+import org.springframework.session.web.http.HttpSessionIdResolver;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -15,7 +23,6 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpMethod;
 import org.springframework.web.cors.CorsConfiguration;
@@ -28,18 +35,21 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, ApiAccessDeniedHandler accessDeniedHandler) throws Exception {
-        CookieCsrfTokenRepository csrf = CookieCsrfTokenRepository.withHttpOnlyFalse();
-        csrf.setCookiePath("/");
-
+    SecurityFilterChain securityFilterChain(HttpSecurity http, ApiAccessDeniedHandler accessDeniedHandler,
+            AudienceCsrfTokenRepository csrf, IdentityService identity) throws Exception {
         return http
                 .cors(cors -> { })
                 .csrf(csrfConfigurer -> csrfConfigurer.csrfTokenRepository(csrf))
+                .requestCache(cache -> cache.disable())
+                .addFilterAfter(new CurrentAccountFilter(identity), SecurityContextHolderFilter.class)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
                         .accessDeniedHandler(accessDeniedHandler))
                 .authorizeHttpRequests(authorize -> authorize
+                        .requestMatchers("/api/v1/admin/auth/csrf", "/api/v1/admin/auth/login").permitAll()
+                        .requestMatchers("/api/v1/support/articles/admin", "/api/v1/support/articles/admin/**")
+                            .hasAnyRole("MODERATOR", "ADMIN")
                         .requestMatchers("/api/v1/admin/live-plans", "/api/v1/admin/live-plans/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/v1/live/plans", "/api/v1/live/sessions/*",
                                 "/api/v1/live/chat", "/api/v1/live/broadcast").permitAll()
@@ -63,6 +73,7 @@ public class SecurityConfig {
                                 "/api/v1/auth/register",
                                 "/api/v1/auth/login",
                                 "/api/v1/categories",
+                                "/api/v1/ethnicities",
                                 "/api/v1/locations",
                                 "/actuator/health/**",
                                 "/v3/api-docs/**",
@@ -71,6 +82,33 @@ public class SecurityConfig {
                         .permitAll()
                         .anyRequest().authenticated())
                 .build();
+    }
+
+    @Bean
+    AudienceCsrfTokenRepository csrfTokenRepository() {
+        return new AudienceCsrfTokenRepository();
+    }
+
+    @Bean
+    HttpSessionIdResolver httpSessionIdResolver(ServerProperties properties,
+            ObjectProvider<JdbcIndexedSessionRepository> repository) {
+        var cookie = properties.getServlet().getSession().getCookie();
+        int maxAge = cookie.getMaxAge() == null ? -1 : Math.toIntExact(cookie.getMaxAge().getSeconds());
+        return new AudienceSessionIdResolver(sessionCookie("SESSION", maxAge, cookie.getSecure()),
+                sessionCookie("ADMIN_SESSION", -1, cookie.getSecure()), repository);
+    }
+
+    private CookieHttpSessionIdResolver sessionCookie(String name, int maxAge, Boolean secure) {
+        DefaultCookieSerializer cookie = new DefaultCookieSerializer();
+        cookie.setCookieName(name);
+        cookie.setCookiePath("/");
+        cookie.setUseHttpOnlyCookie(true);
+        cookie.setSameSite("Lax");
+        cookie.setCookieMaxAge(maxAge);
+        if (secure != null) cookie.setUseSecureCookie(secure);
+        CookieHttpSessionIdResolver resolver = new CookieHttpSessionIdResolver();
+        resolver.setCookieSerializer(cookie);
+        return resolver;
     }
 
     @Bean
@@ -86,6 +124,7 @@ public class SecurityConfig {
     @Bean
     CorsConfigurationSource corsConfigurationSource(
             @Value("${vezlist.cors.allowed-origins}") List<String> allowedOrigins,
+            @Value("${vezlist.cors.admin-origins}") List<String> adminOrigins,
             @Value("${vezlist.cors.allow-local-patterns:false}") boolean allowLocalPatterns) {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(allowedOrigins);
@@ -112,7 +151,26 @@ public class SecurityConfig {
         configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        CorsConfiguration adminConfiguration = new CorsConfiguration(configuration);
+        adminConfiguration.setAllowedOrigins(adminOrigins);
+        adminConfiguration.setAllowedOriginPatterns(List.of());
+        source.registerCorsConfiguration("/api/v1/admin/**", adminConfiguration);
+        source.registerCorsConfiguration("/api/v1/moderation/**", adminConfiguration);
+        source.registerCorsConfiguration("/api/v1/support/articles/admin", adminConfiguration);
+        source.registerCorsConfiguration("/api/v1/support/articles/admin/**", adminConfiguration);
         source.registerCorsConfiguration("/api/**", configuration);
-        return source;
+        return request -> {
+            String path = request.getServletPath();
+            if (path == null || path.isEmpty()) {
+                path = org.springframework.web.util.UriUtils.decode(request.getRequestURI(),
+                        java.nio.charset.StandardCharsets.UTF_8);
+            }
+            // An old console tab must not keep using the public login/logout
+            // endpoints after rollout and overwrite the Marketplace session.
+            if (path.startsWith("/api/v1/auth/") && adminOrigins.contains(request.getHeader("Origin"))) {
+                return new CorsConfiguration();
+            }
+            return source.getCorsConfiguration(request);
+        };
     }
 }

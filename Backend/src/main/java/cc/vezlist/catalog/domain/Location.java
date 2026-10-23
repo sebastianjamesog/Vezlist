@@ -41,8 +41,11 @@ public class Location {
     }
 
     public Location(String id, String label, LocationType type, Location parent, int displayOrder, boolean popular) {
-        if (type == LocationType.AREA && parent == null) {
+        if (type == LocationType.AREA && (parent == null || parent.getType() != LocationType.PROVINCE)) {
             throw new IllegalArgumentException("An area must have a parent province.");
+        }
+        if (type == LocationType.NEIGHBOURHOOD && (parent == null || parent.getType() != LocationType.AREA)) {
+            throw new IllegalArgumentException("A neighbourhood must have a parent area.");
         }
         if (type == LocationType.PROVINCE && parent != null) {
             throw new IllegalArgumentException("A province cannot have a parent.");
@@ -64,6 +67,16 @@ public class Location {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public Location getArea() {
+        return type == LocationType.AREA ? this : type == LocationType.NEIGHBOURHOOD ? parent : null;
+    }
+    public Location getProvince() {
+        return type == LocationType.PROVINCE ? this : getArea().getParent();
+    }
+    public boolean isHierarchyEnabled() {
+        return enabled && (parent == null || parent.isHierarchyEnabled());
     }
 
     public String getId() { return id; }

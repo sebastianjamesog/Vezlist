@@ -31,6 +31,9 @@ function toCardListing(row) {
     views: row.viewCount,
     site: row.site,
     verified: row.verified,
+    publishedAt: row.publishedAt,
+    availableNow: row.availableNow,
+    availableUntil: row.availableUntil,
     postedMsAgo: row.publishedAt
       ? Date.now() - new Date(row.publishedAt).getTime()
       : null,

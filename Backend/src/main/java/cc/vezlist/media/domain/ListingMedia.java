@@ -58,6 +58,17 @@ public class ListingMedia {
     @Column(name = "rejection_reason", length = 120)
     private String rejectionReason;
 
+    @Column(name = "verified_checksum_sha256", length = 64)
+    private String verifiedChecksumSha256;
+
+    public void setPhotoVerified(boolean verified) {
+        verifiedChecksumSha256 = verified && status == ListingMediaStatus.READY ? checksumSha256 : null;
+    }
+
+    public boolean isPhotoVerified() {
+        return status == ListingMediaStatus.READY && checksumSha256.equals(verifiedChecksumSha256);
+    }
+
     protected ListingMedia() {
     }
 

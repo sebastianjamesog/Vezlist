@@ -37,7 +37,11 @@ public class CatalogService {
     }
 
     public LocationsResponse locations() {
-        List<Location> locations = locationRepository.findByEnabledTrueOrderByDisplayOrderAscLabelAsc();
+        List<Location> locations = locationRepository.findByEnabledTrueOrderByDisplayOrderAscLabelAsc().stream()
+                .filter(Location::isHierarchyEnabled).toList();
+        Map<String, List<Location>> neighbourhoodsByArea = locations.stream()
+                .filter(location -> location.getType() == LocationType.NEIGHBOURHOOD)
+                .collect(Collectors.groupingBy(location -> location.getParent().getId()));
         Map<String, List<Location>> areasByProvince = locations.stream()
                 .filter(location -> location.getType() == LocationType.AREA)
                 .collect(Collectors.groupingBy(location -> location.getParent().getId()));
@@ -48,12 +52,13 @@ public class CatalogService {
                         province.getId(),
                         province.getLabel(),
                         areasByProvince.getOrDefault(province.getId(), List.of()).stream()
-                                .map(LocationResponse::from)
+                                .map(area -> LocationResponse.from(area, neighbourhoodsByArea.getOrDefault(area.getId(), List.of())
+                                        .stream().map(LocationResponse::from).toList()))
                                 .toList()))
                 .toList();
 
         List<LocationResponse> popularAreas = locations.stream()
-                .filter(location -> location.getType() == LocationType.AREA && location.isPopular())
+                .filter(location -> location.getType() != LocationType.PROVINCE && location.isPopular())
                 .map(LocationResponse::from)
                 .toList();
         return new LocationsResponse(provinces, popularAreas);
@@ -72,9 +77,13 @@ public class CatalogService {
         }
     }
 
+    @Transactional
     public void requireEnabledLocation(String provinceId, String areaId) {
+        // Hold ancestry stable through the caller's listing write transaction.
+        // This also prevents a concurrent delete from turning validation into an FK error.
+        locationRepository.lockSelectedAncestry(provinceId, areaId);
         if (!locationRepository.existsEnabledAreaInProvince(provinceId, areaId)) {
-            throw new CatalogReferenceInvalidException("Area does not belong to the selected province.");
+            throw new CatalogReferenceInvalidException("Location does not belong to the selected province or its hierarchy is disabled.");
         }
     }
 }

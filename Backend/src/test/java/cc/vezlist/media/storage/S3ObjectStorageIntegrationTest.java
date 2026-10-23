@@ -31,10 +31,12 @@ class S3ObjectStorageIntegrationTest {
 
     @Container
     static final GenericContainer<?> MINIO = new GenericContainer<>(
-            DockerImageName.parse("quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z"))
+            DockerImageName.parse(System.getProperty("vezlist.test.minio-image",
+                    System.getenv().getOrDefault("VEZLIST_TEST_MINIO_IMAGE",
+                            "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z"))))
             .withEnv("MINIO_ROOT_USER", ACCESS_KEY)
             .withEnv("MINIO_ROOT_PASSWORD", SECRET_KEY)
-            .withCommand("server", "/data")
+            .withCommand("server", "/tmp/vezlist-test-data")
             .withExposedPorts(9000)
             .waitingFor(Wait.forHttp("/minio/health/ready").forPort(9000));
 

@@ -14,19 +14,28 @@ import cc.vezlist.moderation.persistence.ModerationRepository.Listing;
 import cc.vezlist.moderation.web.ModerationRequests.*;
 import cc.vezlist.media.storage.ObjectStorage;
 import cc.vezlist.shared.domain.SiteScope;
+import cc.vezlist.catalog.application.CatalogService;
+import cc.vezlist.catalog.application.CatalogReferenceInvalidException;
+import cc.vezlist.notifications.application.NotificationPublisher;
+import cc.vezlist.notifications.domain.NotificationType;
 import static org.springframework.http.HttpStatus.*;
 
 @Service
 public class ModerationService {
     private final ModerationRepository repository;
     private final ObjectStorage storage;
-    public ModerationService(ModerationRepository repository, ObjectStorage storage) {
+    private final CatalogService catalog;
+    private final NotificationPublisher notifications;
+    public ModerationService(ModerationRepository repository, ObjectStorage storage, CatalogService catalog, NotificationPublisher notifications) {
         this.repository = repository;
         this.storage = storage;
+        this.catalog = catalog;
+        this.notifications = notifications;
     }
 
     public record Receipt(UUID id) { }
-    public record OwnerStatus(UUID listingId, String status, String publicReason, boolean appealAllowed) { }
+    public record OwnerStatus(UUID listingId, String status, String publicReason, boolean appealAllowed,
+                              UUID appealId, String appealStatus, Instant appealSubmittedAt, Instant appealDecidedAt) { }
     public record DecisionResult(UUID id, String listingStatus, String caseStatus, long approvals) { }
 
     @Transactional
@@ -54,12 +63,18 @@ public class ModerationService {
     public OwnerStatus ownerStatus(UUID actor, UUID id, SiteScope site) {
         requireEnabledActor(actor, false);
         Listing listing = owned(actor, id, site, false);
+        var previous = appealForEpisode(listing);
         boolean appeal = List.of("REJECTED", "REMOVED").contains(listing.status())
-                && !(listing.verificationRequested() && !listing.verified())
-                && repository.count("SELECT count(*) FROM moderation_cases WHERE listing_id = ? AND kind = 'APPEAL' AND review_version = ?",
-                    id, listing.version()) == 0;
-        String reason = publicReason(listing);
-        return new OwnerStatus(id, listing.status(), reason, appeal);
+                && !(listing.verificationRequested() && !listing.verified()) && previous.isEmpty();
+        if (previous.isEmpty()) return new OwnerStatus(id, listing.status(), publicReason(listing), appeal, null, "NONE", null, null);
+        var row = previous.getFirst();
+        String state = "OPEN".equals(row.get("status"))
+                ? (listing.version() == ((Number) row.get("review_version")).longValue()
+                   && List.of("REJECTED", "REMOVED").contains(listing.status()) ? "PENDING" : "STALE")
+                : row.get("resolution") == null ? "STALE" : row.get("resolution").toString();
+        return new OwnerStatus(id, listing.status(), publicReason(listing), false, (UUID) row.get("id"), state,
+                ((java.sql.Timestamp) row.get("created_at")).toInstant(),
+                row.get("closed_at") == null ? null : ((java.sql.Timestamp) row.get("closed_at")).toInstant());
     }
 
     @Transactional
@@ -70,15 +85,15 @@ public class ModerationService {
             throw new ModerationException(CONFLICT, "Only rejected or removed listings can be appealed.");
         if (listing.verificationRequested() && !listing.verified())
             throw new ModerationException(CONFLICT, "Edit and resubmit this listing for verification instead of appealing.");
-        var previous = repository.query("SELECT id FROM moderation_cases WHERE listing_id = ? AND kind = 'APPEAL' AND review_version = ?",
-                id, listing.version());
+        var previous = appealForEpisode(listing);
         if (!previous.isEmpty()) return new Receipt((UUID) previous.getFirst().get("id"));
         if (repository.count("""
                 SELECT count(*) FROM moderation_cases c JOIN listings l ON l.id = c.listing_id
                 WHERE l.owner_id = ? AND c.kind = 'APPEAL' AND c.created_at > now() - interval '1 day'
                 """, actor) >= 5) throw new ModerationException(TOO_MANY_REQUESTS, "Too many appeals. Please try again tomorrow.");
         UUID caseId = repository.openCase(listing, "APPEAL");
-        repository.action(repository.caseById(caseId), actor, "APPEAL", null, request.message(), false);
+        repository.action(repository.caseById(caseId), actor, "APPEAL", null, request.message().strip(), false);
+        notifications.publish(caseId, listing.owner(), listing.site(), NotificationType.APPEAL_SUBMITTED, listing.id());
         return new Receipt(caseId);
     }
 
@@ -93,7 +108,8 @@ public class ModerationService {
         staff(actor);
         Case review = repository.caseById(caseId);
         Listing listing = repository.listing(review.listingId(), false);
-        var content = repository.query("SELECT id, title, description, business_name, site_scope, category_id, status FROM listings WHERE id = ?", listing.id()).getFirst();
+        var content = repository.query("SELECT id, owner_id, title, description, business_name, site_scope, category_id, status FROM listings WHERE id = ?", listing.id()).getFirst();
+        content.put("publicReason", publicReason(listing));
         var media = repository.query("SELECT id, status, checksum_sha256, object_key FROM listing_media WHERE listing_id = ? ORDER BY position, id LIMIT 6", listing.id());
         for (Map<String, Object> image : media) {
             Object objectKey = image.remove("object_key");
@@ -169,6 +185,10 @@ public class ModerationService {
             throw new ModerationException(CONFLICT, "Listing is no longer available for review.");
         if (!review.kind().equals("REPORT") && listing.version() != review.reviewVersion())
             throw new ModerationException(CONFLICT, "Listing changed during review. A new submission is required.");
+        if (review.kind().equals("APPEAL") && (!List.of("REJECTED", "REMOVED").contains(listing.status())
+                || !List.of(Decision.APPROVE, Decision.REJECT).contains(request.decision()))) {
+            throw new ModerationException(CONFLICT, "Only rejected or removed listings can receive an appeal decision.");
+        }
         switch (request.decision()) {
             case APPROVE -> approve(actor, review, listing, request);
             case REJECT -> {
@@ -215,6 +235,10 @@ public class ModerationService {
             throw new ModerationException(CONFLICT, "Personals approval requires an eligibility and consent check.");
         if (repository.count("SELECT count(*) FROM categories WHERE id = ? AND site_scope = ? AND enabled = true", listing.category(), listing.site().name()) == 0)
             throw new ModerationException(CONFLICT, "The listing category is no longer enabled.");
+        try { catalog.requireEnabledLocation(listing.provinceId(), listing.locationId()); }
+        catch (CatalogReferenceInvalidException exception) {
+            throw new ModerationException(CONFLICT, "The listing location is no longer enabled.");
+        }
         long images = repository.count("SELECT count(*) FROM listing_media WHERE listing_id = ? AND status = 'READY'", listing.id());
         if (images == 0 || repository.count("SELECT count(*) FROM listing_media WHERE listing_id = ? AND status <> 'READY'", listing.id()) > 0)
             throw new ModerationException(CONFLICT, "Every attached image must finish processing successfully before approval.");
@@ -239,7 +263,7 @@ public class ModerationService {
                     """, review.id(), images);
             if (staleApprovals > 0) throw new ModerationException(CONFLICT, "Media changed after an earlier approval. Submit the listing for a new review.");
             changeStatus(review, "ACTIVE", null);
-            close(review);
+            close(review, "APPROVED");
         } else {
             // Release the claim so a different reviewer can provide the second approval.
             repository.update("UPDATE moderation_cases SET assigned_to = NULL WHERE id = ?", review.id());
@@ -249,7 +273,7 @@ public class ModerationService {
     private void finish(Case review, UUID actor, DecisionRequest request, String status) {
         repository.action(review, actor, request.decision().name(), request.reason().name(), request.note(), false);
         changeStatus(review, status, request.reason().name());
-        close(review);
+        close(review, "REJECTED");
     }
     private void changeStatus(Case review, String status, String reason) {
         repository.update("""
@@ -260,9 +284,18 @@ public class ModerationService {
                 """, status, reason, status, status, review.listingId());
         String event = switch (status) { case "ACTIVE" -> "LISTING_APPROVED"; case "REMOVED" -> "LISTING_REMOVED"; default -> "LISTING_REJECTED"; };
         // Durable outbox row is visible to future notification workers only after commit.
-        repository.update("INSERT INTO listing_events(id, listing_id, event_type) VALUES (?, ?, ?)", UUID.randomUUID(), review.listingId(), event);
+        repository.update("INSERT INTO listing_events(id, listing_id, event_type, payload) VALUES (?, ?, ?, jsonb_build_object('appeal', ?::boolean))",
+                UUID.randomUUID(), review.listingId(), event, review.kind().equals("APPEAL"));
     }
-    private void close(Case review) { repository.update("UPDATE moderation_cases SET status = 'CLOSED', closed_at = now() WHERE id = ?", review.id()); }
+    private void close(Case review) { close(review, null); }
+    private void close(Case review, String resolution) {
+        repository.update("UPDATE moderation_cases SET status='CLOSED',closed_at=now(),resolution=? WHERE id=?",
+                review.kind().equals("APPEAL") ? resolution : null, review.id());
+    }
+    private List<Map<String, Object>> appealForEpisode(Listing listing) {
+        return repository.query("SELECT id,status,review_version,resolution,created_at,closed_at FROM moderation_cases "
+                + "WHERE listing_id=? AND kind='APPEAL' AND appeal_episode=?", listing.id(), listing.moderationEpisode());
+    }
     private long approvals(UUID caseId) { return repository.count("SELECT count(*) FROM moderation_actions WHERE case_id = ? AND action = 'APPROVE'", caseId); }
     private DecisionResult result(Case review, String status) { return new DecisionResult(review.id(), status, review.status(), approvals(review.id())); }
     private Case lockedCase(UUID id) {

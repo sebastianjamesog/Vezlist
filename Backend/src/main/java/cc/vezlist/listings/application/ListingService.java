@@ -11,6 +11,7 @@ import java.util.UUID;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import cc.vezlist.catalog.application.CatalogService;
+import cc.vezlist.catalog.application.EthnicityCatalogService;
 import cc.vezlist.catalog.domain.Category;
 import cc.vezlist.catalog.domain.Location;
 import cc.vezlist.catalog.persistence.CategoryRepository;
@@ -40,8 +41,10 @@ public class ListingService {
     private final CategoryRepository categories;
     private final LocationRepository locations;
     private final CatalogService catalog;
+    private final EthnicityCatalogService ethnicities;
     private final ObjectMapper objectMapper;
     private final ListingMediaService media;
+    private final cc.vezlist.users.application.AdLocationService adLocation;
 
     public ListingService(
             ListingRepository listings,
@@ -51,15 +54,18 @@ public class ListingService {
             LocationRepository locations,
             CatalogService catalog,
             ObjectMapper objectMapper,
-            ListingMediaService media) {
+            ListingMediaService media, cc.vezlist.users.application.AdLocationService adLocation,
+            EthnicityCatalogService ethnicities) {
         this.listings = listings;
         this.idempotencyKeys = idempotencyKeys;
         this.events = events;
         this.categories = categories;
         this.locations = locations;
         this.catalog = catalog;
+        this.ethnicities = ethnicities;
         this.objectMapper = objectMapper;
         this.media = media;
+        this.adLocation = adLocation;
     }
 
     @Transactional
@@ -74,11 +80,12 @@ public class ListingService {
         }
 
         References references = validateReferences(request);
+        var coordinates = adLocation.coordinatesFor(ownerId, request.latitude(), request.longitude());
         Listing listing = listings.save(new Listing(
                 ownerId, request.site(), request.title(), request.businessName(), request.description(),
                 request.price(), references.category(), request.provinceId(), references.location(),
-                request.contactEmail(), request.contactPhone(), request.latitude(), request.longitude(),
-                request.safeAttributes()));
+                request.contactEmail(), request.contactPhone(), coordinates.latitude(), coordinates.longitude(),
+                ethnicities.listingAttributes(request.site(), request.safeAttributes(), null)));
         events.save(new ListingEvent(listing.getId(), "LISTING_CREATED"));
         idempotencyKeys.save(new ListingIdempotencyKey(
                 ownerId, CREATE, idempotencyKey, fingerprint, listing.getId()));
@@ -87,14 +94,20 @@ public class ListingService {
 
     @Transactional
     public ListingResponse update(UUID ownerId, UUID listingId, ListingWriteRequest request) {
-        Listing listing = requireOwned(ownerId, listingId);
+        Listing listing = listings.findDetailedByIdForUpdate(listingId, ListingStatus.DELETED)
+                .orElseThrow(ListingNotFoundException::new);
+        if (!listing.getOwnerId().equals(ownerId)) throw new ListingNotFoundException();
         if (listing.getSiteScope() != request.site()) throw new ListingNotFoundException();
         References references = validateReferences(request);
+        var coordinates = !listing.getLocation().getId().equals(request.locationId()) && request.latitude() == null && request.longitude() == null
+                ? new cc.vezlist.users.application.AdLocationService.Coordinates(null, null)
+                : adLocation.coordinatesFor(ownerId, request.latitude(), request.longitude(), false);
         try {
             listing.update(
                     request.title(), request.businessName(), request.description(), request.price(),
                     references.category(), request.provinceId(), references.location(), request.contactEmail(),
-                    request.contactPhone(), request.latitude(), request.longitude(), request.safeAttributes());
+                    request.contactPhone(), coordinates.latitude(), coordinates.longitude(),
+                    ethnicities.listingAttributes(request.site(), request.safeAttributes(), listing.getAttributes().get("ethnicity")));
         } catch (IllegalStateException exception) {
             throw new ListingStateException(exception.getMessage());
         }
@@ -156,8 +169,18 @@ public class ListingService {
 
     @Transactional(readOnly = true)
     public List<ListingResponse> owned(UUID ownerId, SiteScope site) {
+        var positions = listings.ownedPositions(ownerId, site.name(), Instant.now()).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        ListingRepository.OwnedPosition::getId, ListingRepository.OwnedPosition::getPosition));
         return listings.findOwned(ownerId, site, ListingStatus.DELETED).stream()
-                .map(listing -> response(listing, true))
+                // Editing details must not move an older ad above a newer post.
+                .sorted(java.util.Comparator.comparing(
+                        (Listing listing) -> listing.getPublishedAt() == null
+                                ? listing.getCreatedAt() : listing.getPublishedAt(),
+                        java.util.Comparator.reverseOrder())
+                        .thenComparing(listing -> listing.getId().toString(), java.util.Comparator.reverseOrder()))
+                .map(listing -> ListingResponse.from(listing, media.responses(listing.getId(), true),
+                        positions.get(listing.getId())))
                 .toList();
     }
 

@@ -296,7 +296,7 @@ export default function AdDetail({ listingId, onClose, headerActions, loadDetail
   const photos = (listing.media ?? [])
     .filter((m) => m.url)
     .sort((a, b) => a.position - b.position)
-    .map((m) => m.url);
+    .map((m) => ({ url: m.url, verified: m.verified === true }));
 
   const mailHref = `mailto:${listing.contactEmail}?subject=${encodeURIComponent(listing.title)}`;
   const telHref = `tel:${(listing.contactPhone ?? "").replace(/\s+/g, "")}`;
@@ -383,7 +383,7 @@ export default function AdDetail({ listingId, onClose, headerActions, loadDetail
 
           {/* 2 — title, price, overview */}
           <section
-            className={`mt-4 lg:col-start-2 lg:row-start-1 lg:mt-0 ${CARD}`}
+            className={`mt-2 lg:col-start-2 lg:row-start-1 lg:mt-0 ${CARD}`}
           >
             {path && (
               <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-brand">
@@ -395,7 +395,7 @@ export default function AdDetail({ listingId, onClose, headerActions, loadDetail
                 <h1 className="break-words text-[20px] font-extrabold leading-tight text-ink lg:text-[22px]">
                   {listing.title}
                 </h1>
-                <p className="text-[24px] font-extrabold leading-tight tabular-nums text-brand lg:text-[26px]">
+                <p className="text-[14px] font-medium leading-5 tabular-nums text-muted lg:text-[15px]">
                   ${Number(listing.price ?? 0).toLocaleString()}
                 </p>
               </div>

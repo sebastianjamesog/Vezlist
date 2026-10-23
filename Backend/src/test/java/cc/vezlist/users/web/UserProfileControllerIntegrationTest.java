@@ -2,7 +2,6 @@ package cc.vezlist.users.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -131,13 +130,29 @@ class UserProfileControllerIntegrationTest {
                 "acceptedTerms", true), headers(header, token, csrfCookies));
         ResponseEntity<Map> registration = rest.postForEntity(url("/api/v1/auth/register"), request, Map.class);
         assertThat(registration.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        return new Session(header, token, mergeCookies(csrfCookies, cookies(registration.getHeaders())));
+        Session session = new Session(header, token, mergeCookies(csrfCookies, cookies(registration.getHeaders())));
+        refreshCsrf(session);
+        return session;
     }
 
     private <T> ResponseEntity<T> exchange(
             String path, HttpMethod method, Object body, Session session, Class<T> responseType) {
+        if (method != HttpMethod.GET) refreshCsrf(session);
         HttpHeaders headers = headers(session.csrfHeader(), session.csrfToken(), session.cookies());
-        return rest.exchange(url(path), method, new HttpEntity<>(body, headers), responseType);
+        ResponseEntity<T> response = rest.exchange(url(path), method, new HttpEntity<>(body, headers), responseType);
+        session.cookies = mergeCookies(session.cookies, cookies(response.getHeaders()));
+        return response;
+    }
+
+    private void refreshCsrf(Session session) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.COOKIE, session.cookies);
+        ResponseEntity<Map> response = rest.exchange(url("/api/v1/auth/csrf"), HttpMethod.GET,
+                new HttpEntity<>(headers), Map.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        session.csrfHeader = (String) response.getBody().get("headerName");
+        session.csrfToken = (String) response.getBody().get("token");
+        session.cookies = mergeCookies(session.cookies, cookies(response.getHeaders()));
     }
 
     private String url(String path) {
@@ -158,11 +173,34 @@ class UserProfileControllerIntegrationTest {
     }
 
     private String mergeCookies(String... cookieHeaders) {
-        return List.of(cookieHeaders).stream()
-                .filter(value -> value != null && !value.isBlank())
+        Map<String, String> jar = new java.util.LinkedHashMap<>();
+        for (String header : cookieHeaders) {
+            if (header == null || header.isBlank()) continue;
+            for (String pair : header.split("; ")) {
+                int equals = pair.indexOf('=');
+                String name = pair.substring(0, equals);
+                String value = pair.substring(equals + 1);
+                if (value.isBlank()) jar.remove(name);
+                else jar.put(name, value);
+            }
+        }
+        return jar.entrySet().stream().map(entry -> entry.getKey() + "=" + entry.getValue())
                 .collect(Collectors.joining("; "));
     }
 
-    private record Session(String csrfHeader, String csrfToken, String cookies) {
+    private static final class Session {
+        private String csrfHeader;
+        private String csrfToken;
+        private String cookies;
+
+        private Session(String csrfHeader, String csrfToken, String cookies) {
+            this.csrfHeader = csrfHeader;
+            this.csrfToken = csrfToken;
+            this.cookies = cookies;
+        }
+
+        private String csrfHeader() { return csrfHeader; }
+        private String csrfToken() { return csrfToken; }
+        private String cookies() { return cookies; }
     }
 }

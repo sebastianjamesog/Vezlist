@@ -86,6 +86,12 @@ describe("Backend location picker", () => {
       location: "Squamish",
       locationId: "squamish",
       provinceId: "bc",
+      provinceLabel: "British Columbia",
+      areaId: "squamish",
+      areaLabel: "Squamish",
+      locationType: "AREA",
+      latitude: null,
+      longitude: null,
       email: "seller@example.com",
       phone: "1234567890",
     });
@@ -159,6 +165,8 @@ describe("Backend location picker", () => {
           location: "Squamish",
           locationId: "squamish",
           provinceId: "bc",
+          latitude: 49.7,
+          longitude: -123.1,
         }}
         onPatch={onPatch}
       />,
@@ -169,6 +177,12 @@ describe("Backend location picker", () => {
       location: "Squamish North",
       locationId: "",
       provinceId: "",
+      provinceLabel: "",
+      areaId: "",
+      areaLabel: "",
+      locationType: "",
+      latitude: null,
+      longitude: null,
     });
     expect(draft()).toMatchObject({ locationId: "", provinceId: "" });
     expect(input().maxLength).toBe(120);

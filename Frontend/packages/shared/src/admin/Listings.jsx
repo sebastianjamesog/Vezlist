@@ -26,8 +26,8 @@ import { downloadCsv } from "../lib/csv";
  * `verified`/`boosted`/view counts the old mock invented — there is no such
  * concept on the server, so those columns and filters are gone rather than
  * faked. The one write this screen (and `AdminListingController`) actually
- * offers is `remove`, and only from `ACTIVE` — the backend answers 409
- * otherwise, shown inline rather than crashing.
+ * offers is `remove`, from `ACTIVE` or `PENDING_REVIEW`. Conflicts are shown
+ * inline rather than crashing.
  */
 
 const STATUSES = [
@@ -157,7 +157,7 @@ export default function Listings() {
   const visibleIds = new Set(visible.map((r) => r.id));
   const batchIds = selected.filter((id) => visibleIds.has(id));
   const batchRows = visible.filter((r) => batchIds.includes(r.id));
-  const removableBatch = batchRows.filter((r) => r.status === "ACTIVE");
+  const removableBatch = batchRows.filter((r) => ["ACTIVE", "PENDING_REVIEW"].includes(r.status));
 
   function openRemove(target) {
     setReason("");
@@ -260,7 +260,7 @@ export default function Listings() {
       width: 100,
       sortable: false,
       render: (row) =>
-        can("listing.delete") && row.status === "ACTIVE" ? (
+        can("listing.delete") && ["ACTIVE", "PENDING_REVIEW"].includes(row.status) ? (
           <Button
             size="sm"
             variant="danger"
@@ -300,7 +300,6 @@ export default function Listings() {
         }
         actions={
           <div className="flex flex-wrap gap-2">
-          <Button to={site === "all" ? "/reviews" : `/reviews?site=${site}`} size="sm" variant="outline">Review queue</Button>
           <Button
             size="sm"
             variant="outline"
@@ -351,7 +350,7 @@ export default function Listings() {
               disabled={!removableBatch.length}
               onClick={() => openRemove({ batch: true })}
             >
-              Remove {removableBatch.length ? `(${removableBatch.length} active)` : ""}
+              Remove {removableBatch.length ? `(${removableBatch.length})` : ""}
             </Button>
           )}
           <Button size="sm" variant="ghost" onClick={() => setSelected([])}>
@@ -394,7 +393,7 @@ export default function Listings() {
       <Modal
         open={Boolean(removing)}
         title={removing?.batch ? `Remove ${removableBatch.length} ads` : "Remove this ad"}
-        subtitle="Only active ads can be removed. The reason is recorded on the audit log."
+        subtitle="Active and in-review ads can be removed. The reason is recorded in the audit log."
         size="max-w-md"
         onClose={() => !submitting && setRemoving(null)}
         footer={

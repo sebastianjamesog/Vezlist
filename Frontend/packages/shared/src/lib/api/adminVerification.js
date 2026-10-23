@@ -24,13 +24,15 @@ export function verificationDetail(id) {
 
 /**
  * POST /api/v1/moderation/verification-requests/{id}/decisions -> VerificationRequestResponse.
- * `{decision: "APPROVE"|"REJECT", reason}` — `reason` required for REJECT
+ * `{decision: "APPROVE"|"REJECT", reason, verifiedMediaIds?: UUID[]}` — `reason` required for REJECT
  * (400 otherwise). Sets `listings.verified = true` on APPROVE. A staff
- * member reviewing their own listing gets a 403.
+ * member reviewing their own listing gets a 403. Only explicitly selected ready
+ * listing photos receive photo verification; omission verifies no pictures.
  */
-export function decideVerification(id, { decision, reason }) {
+export function decideVerification(id, { decision, reason, verifiedMediaIds }) {
   return api.post(`/api/v1/moderation/verification-requests/${id}/decisions`, {
     decision,
     reason,
+    verifiedMediaIds,
   });
 }

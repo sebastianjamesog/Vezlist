@@ -5,9 +5,9 @@ import { beforeEach, expect, test, vi } from "vitest";
 vi.hoisted(() => {
   process.env.NEXT_PUBLIC_SITE = "personals";
 });
-vi.mock("../../lib/api/catalog.js", () => ({ getCategories: vi.fn() }));
+vi.mock("../../lib/api/catalog.js", () => ({ getCategories: vi.fn(), getEthnicities: vi.fn() }));
 
-const { getCategories } = await import("../../lib/api/catalog.js");
+const { getCategories, getEthnicities } = await import("../../lib/api/catalog.js");
 const { EMPTY_DRAFT, validateStep, toListingWriteRequest } =
   await import("../../lib/adDraft.js");
 const { default: StepDetails } = await import("./StepDetails.jsx");
@@ -34,6 +34,7 @@ function Harness() {
 }
 
 beforeEach(() => {
+  getEthnicities.mockReset().mockResolvedValue([]);
   getCategories.mockReset().mockResolvedValue([
     {
       id: "personal-new",

@@ -11,6 +11,8 @@ import java.time.Instant;
 import java.util.*;
 import cc.vezlist.admin.application.AdminAuditService;
 import cc.vezlist.live.realtime.LiveEncoder;
+import cc.vezlist.live.realtime.LiveChatStore;
+import org.springframework.dao.DataAccessException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,7 +34,7 @@ public class LiveSessionService {
     public record PaymentDetails(List<PaymentDetail> items) {}
     public record SessionDTO(UUID id,UUID ownerId,UUID listingId,String creatorName,String title,String location,String imageUrl,
             String avatarUrl,String status,int durationMinutes,BigDecimal price,String currency,boolean demoPurchase,
-            Instant createdAt,Instant startedAt,Instant endsAt,Instant endedAt,String playbackUrl,List<PaymentDetail> paymentDetails) {}
+            Instant createdAt,Instant startedAt,Instant endsAt,Instant endedAt,String playbackUrl,List<PaymentDetail> paymentDetails,Long viewerCount,Instant serverTime) {}
     public record Mine(SessionDTO session) {}
     public record Directory(List<SessionDTO> items,long total) {}
     public record BroadcastTicket(String ticket,Instant expiresAt,String webSocketUrl) {}
@@ -50,6 +52,7 @@ public class LiveSessionService {
     private final ObjectMapper json;
     private final GcoreLiveProvider provider;
     private final LiveEncoder encoder;
+    private final LiveChatStore chats;
     private final TransactionTemplate tx;
     private final AdminAuditService audit;
     private final ApplicationEventPublisher events;
@@ -57,11 +60,11 @@ public class LiveSessionService {
     private final String wsUrl;
     private final SecureRandom random=new SecureRandom();
     public LiveSessionService(JdbcTemplate jdbc,ObjectMapper json,GcoreLiveProvider provider,LiveEncoder encoder,PlatformTransactionManager transactions,
-            AdminAuditService audit,ApplicationEventPublisher events,
+            AdminAuditService audit,ApplicationEventPublisher events,LiveChatStore chats,
             @Value("${vezlist.live.demo-purchases-enabled:false}") boolean demoEnabled,
             @Value("${vezlist.live.broadcast-ws-url:ws://localhost:8080/api/v1/live/broadcast}") String wsUrl) {
         this.jdbc=jdbc;this.json=json;this.provider=provider;this.encoder=encoder;this.tx=new TransactionTemplate(transactions);
-        this.audit=audit;this.events=events;this.demoEnabled=demoEnabled;this.wsUrl=wsUrl;
+        this.audit=audit;this.events=events;this.chats=chats;this.demoEnabled=demoEnabled;this.wsUrl=wsUrl;
     }
     public Plans plans(boolean admin,UUID actor) {
         if(admin) requireStaff(actor,true);
@@ -139,25 +142,29 @@ public class LiveSessionService {
     public Mine mine(UUID owner) {
         requireCreator(owner,false);
         List<SessionDTO> sessions=jdbc.query(SELECT+" WHERE s.provider_name='GCORE' AND s.owner_id=? AND s.status IN ('PREPARING','LIVE','RECONNECTING') ORDER BY s.created_at DESC LIMIT 1",(rs,n)->dto(rs,true),owner);
-        return new Mine(sessions.isEmpty()?null:sessions.getFirst());
+        return new Mine(sessions.isEmpty()?null:presence(sessions).getFirst());
     }
     public Directory directory(int limit,boolean admin,UUID actor) {
         if(limit<1 || limit>100) fail(HttpStatus.BAD_REQUEST,"LIVE_LIMIT_INVALID","Limit must be between 1 and 100.");
         if(admin) requireStaff(actor,false);
         String where=admin?"s.provider_name='GCORE' AND s.status IN ('PREPARING','LIVE','RECONNECTING')":"s.status IN ('LIVE','RECONNECTING') AND s.ends_at>now() AND "+VALID;
         long total=jdbc.queryForObject("SELECT count(*) FROM live_sessions s JOIN app_users u ON u.id=s.owner_id WHERE "+where,Long.class);
-        return new Directory(jdbc.query(SELECT+" WHERE "+where+" ORDER BY s.created_at DESC,s.id LIMIT ?",(rs,n)->dto(rs,!admin),limit),total);
+        return new Directory(presence(jdbc.query(SELECT+" WHERE "+where+" ORDER BY s.created_at DESC,s.id LIMIT ?",(rs,n)->dto(rs,!admin),limit)),total);
     }
     public SessionDTO publicSession(UUID id) {
         List<SessionDTO> result=jdbc.query(SELECT+" WHERE s.id=?",(rs,n)->dto(rs,true),id);
-        if(result.isEmpty()) notFound();return result.getFirst();
+        if(result.isEmpty()) notFound();return presence(result).getFirst();
     }
     private SessionDTO ownerSession(UUID id,UUID owner) { SessionRow row=row(id,false);if(!row.ownerId().equals(owner)) notFound();return publicSession(id); }
     public SessionDTO end(UUID actor,UUID id,boolean adminRoute) {
         SessionRow session=row(id,false);
-        if(adminRoute || !session.ownerId().equals(actor)) requireStaff(actor,false);else requireCreator(actor,false);
+        if(adminRoute) requireStaff(actor,false);
+        else {
+            if(!session.ownerId().equals(actor)) notFound();
+            requireCreator(actor,false);
+        }
         terminal(id,"ENDED");
-        if(adminRoute || !session.ownerId().equals(actor)) audit.record(actor,"LIVE_SESSION_ENDED","LIVE_SESSION",id.toString(),"Live session ended by moderation.");
+        if(adminRoute) audit.record(actor,"LIVE_SESSION_ENDED","LIVE_SESSION",id.toString(),"Live session ended by moderation.");
         return publicSession(id);
     }
     public BroadcastTicket ticket(UUID owner,UUID id) {
@@ -279,7 +286,17 @@ public class LiveSessionService {
         String avatar=rs.getString("avatar_url");
         return new SessionDTO(id,rs.getObject("owner_id",UUID.class),rs.getObject("listing_id",UUID.class),rs.getString("display_name"),rs.getString("title"),null,avatar,avatar,status,
                 rs.getInt("duration_minutes"),rs.getBigDecimal("price"),rs.getString("currency"),rs.getBoolean("demo_purchase"),instant(rs,"created_at"),instant(rs,"started_at"),ends,instant(rs,"ended_at"),playback,
-                details&&open?readSnapshot(rs.getString("payment_details")):List.of());
+                details&&open?readSnapshot(rs.getString("payment_details")):List.of(),null,Instant.now());
+    }
+    private List<SessionDTO> presence(List<SessionDTO> sessions) {
+        List<UUID> rooms=sessions.stream().filter(s->Set.of("LIVE","RECONNECTING").contains(s.status())).map(SessionDTO::id).toList();
+        Map<UUID,Long> counts;
+        try { counts=rooms.isEmpty()?Map.of():chats.counts(rooms); }
+        catch(DataAccessException unavailable) { counts=Map.of(); }
+        Map<UUID,Long> snapshot=counts;
+        Instant serverTime=Instant.now();
+        return sessions.stream().map(s->new SessionDTO(s.id(),s.ownerId(),s.listingId(),s.creatorName(),s.title(),s.location(),s.imageUrl(),s.avatarUrl(),s.status(),
+                s.durationMinutes(),s.price(),s.currency(),s.demoPurchase(),s.createdAt(),s.startedAt(),s.endsAt(),s.endedAt(),s.playbackUrl(),s.paymentDetails(),snapshot.get(s.id()),serverTime)).toList();
     }
     private Plan plan(ResultSet rs,int n)throws SQLException{return new Plan(rs.getObject("id",UUID.class),rs.getString("name"),rs.getInt("duration_minutes"),rs.getBigDecimal("price"),rs.getString("currency"),rs.getString("badge"),rs.getBoolean("enabled"),rs.getInt("sort_order"),rs.getLong("version"));}
     private void requireCreator(UUID owner,boolean lock) {List<String> types=jdbc.query("SELECT account_type FROM app_users WHERE id=? AND enabled=true"+(lock?" FOR UPDATE":""),(rs,n)->rs.getString(1),owner);if(types.isEmpty()||!"CREATOR".equals(types.getFirst()))fail(HttpStatus.FORBIDDEN,"LIVE_CREATOR_REQUIRED","Only ad creators can start live sessions.");}

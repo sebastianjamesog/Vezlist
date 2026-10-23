@@ -19,6 +19,7 @@ import cc.vezlist.catalog.persistence.LocationRepository;
 import cc.vezlist.catalog.web.AdminCategoryResponse;
 import cc.vezlist.catalog.web.AdminLocationResponse;
 import cc.vezlist.catalog.web.CreateAreaRequest;
+import cc.vezlist.catalog.web.CreateNeighbourhoodRequest;
 import cc.vezlist.catalog.web.CreateCategoryRequest;
 import cc.vezlist.catalog.web.CreateProvinceRequest;
 import cc.vezlist.catalog.web.UpdateCategoryRequest;
@@ -119,8 +120,7 @@ public class AdminCatalogService {
         List<Location> found = locations.findAll();
         return found.stream()
                 .filter(location -> provinceId == null
-                        || location.getId().equals(provinceId)
-                        || (location.getParent() != null && location.getParent().getId().equals(provinceId)))
+                        || location.getProvince().getId().equals(provinceId))
                 .sorted(java.util.Comparator.comparing(Location::getDisplayOrder).thenComparing(Location::getLabel))
                 .map(AdminLocationResponse::from)
                 .toList();
@@ -141,6 +141,7 @@ public class AdminCatalogService {
 
     @Transactional
     public AdminLocationResponse createArea(UUID actorId, CreateAreaRequest request) {
+        referenceChecks.lockLocation(request.provinceId());
         Location province = locations.findById(request.provinceId())
                 .orElseThrow(() -> new CatalogNotFoundException("Province '" + request.provinceId() + "' was not found."));
         if (province.getType() != LocationType.PROVINCE) {
@@ -158,6 +159,23 @@ public class AdminCatalogService {
     }
 
     @Transactional
+    public AdminLocationResponse createNeighbourhood(UUID actorId, CreateNeighbourhoodRequest request) {
+        referenceChecks.lockLocation(request.areaId());
+        Location area = locations.findById(request.areaId())
+                .orElseThrow(() -> new CatalogNotFoundException("Parent area was not found."));
+        if (area.getType() != LocationType.AREA) {
+            throw new CatalogReferenceInvalidException("A neighbourhood must belong to an area.");
+        }
+        String id = boundedId(request.areaId() + "-" + slug(request.label()));
+        if (locations.existsById(id)) throw new CatalogAlreadyExistsException("A neighbourhood with a similar name already exists.");
+        Location neighbourhood = new Location(id, request.label().trim(), LocationType.NEIGHBOURHOOD, area,
+                request.displayOrder(), request.popular());
+        locations.save(neighbourhood);
+        audit.record(actorId, "NEIGHBOURHOOD_CREATED", "LOCATION", id, request.label());
+        return AdminLocationResponse.from(neighbourhood);
+    }
+
+    @Transactional
     public AdminLocationResponse updateLocation(UUID actorId, String id, UpdateLocationRequest request) {
         Location location = locations.findById(id)
                 .orElseThrow(() -> new CatalogNotFoundException("Location '" + id + "' was not found."));
@@ -169,15 +187,11 @@ public class AdminCatalogService {
 
     @Transactional
     public void deleteArea(UUID actorId, String id) {
+        referenceChecks.lockLocation(id);
         Location location = locations.findById(id)
                 .orElseThrow(() -> new CatalogNotFoundException("Location '" + id + "' was not found."));
-        if (location.getType() == LocationType.PROVINCE) {
-            boolean hasAreas = locations.findAll().stream()
-                    .anyMatch(area -> area.getParent() != null && area.getParent().getId().equals(id));
-            if (hasAreas) {
-                throw new CatalogInUseException(
-                        "Cannot delete province '" + id + "': it still has areas under it.");
-            }
+        if (referenceChecks.hasLocationChildren(id)) {
+            throw new CatalogInUseException("Cannot delete this location while it has child locations.");
         }
         long referencing = referenceChecks.activeListingsReferencingLocation(id);
         if (referencing > 0) {

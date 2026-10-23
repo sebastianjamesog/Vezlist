@@ -6,8 +6,8 @@ import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "../lib/nav";
 
 /**
- * Gate for the account screens. The session lives in localStorage, which does
- * not exist until after hydration, so this renders nothing on the first pass
+ * Gate for the account screens. The backend restores identity using its HttpOnly session cookie.
+ * Wait for that request before routing a returning visitor to sign-in
  * rather than flashing a signed-out screen and then correcting itself.
  *
  * Where you were going is carried to the form as `?next=`, so signing in puts

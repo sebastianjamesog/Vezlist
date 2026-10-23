@@ -230,9 +230,10 @@ class NotificationIntegrationTest {
         drain();
         assertThat(count("SELECT count(*) FROM notifications")).isZero();
         assertThat(count("SELECT count(*) FROM notification_events WHERE error_code = 'ACCOUNT_DISABLED'")).isEqualTo(1);
-        mvc.perform(get("/api/v1/me/notifications?site=MARKETPLACE").with(user(owner))).andExpect(status().isForbidden());
-        mvc.perform(get("/api/v1/me/notifications/unread-count?site=MARKETPLACE").with(user(owner))).andExpect(status().isForbidden());
-        mvc.perform(post("/api/v1/me/notifications/read-all?site=MARKETPLACE").with(user(owner)).with(csrf())).andExpect(status().isForbidden());
+        // Suspension invalidates the cached principal before inbox authorization.
+        mvc.perform(get("/api/v1/me/notifications?site=MARKETPLACE").with(user(owner))).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/me/notifications/unread-count?site=MARKETPLACE").with(user(owner))).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/me/notifications/read-all?site=MARKETPLACE").with(user(owner)).with(csrf())).andExpect(status().isUnauthorized());
     }
 
     @Test void saveEventsAreAggregatedWithoutUnsaveOrSaverIdentityNoise() {

@@ -49,6 +49,6 @@ public class SellerService {
         return new DiscoveryListingResponse(row.id(), row.site(), row.title(), row.businessName(), row.price(),
                 row.categoryId(), row.categoryLabel(), row.provinceId(), row.provinceLabel(), row.locationId(),
                 row.locationLabel(), null, null, null, row.verified(), imageUrl, row.photoCount(),
-                row.publishedAt(), row.viewCount());
+                row.publishedAt(), row.viewCount(), row.availableNow(), row.availableUntil());
     }
 }

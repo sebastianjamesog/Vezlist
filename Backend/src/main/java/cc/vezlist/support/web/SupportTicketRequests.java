@@ -14,5 +14,7 @@ public final class SupportTicketRequests {
 
     public record Reply(@NotBlank @Size(max = 4000) String body) {}
 
+    public record Read(@NotNull java.util.UUID messageId) {}
+
     public record Status(@NotNull String status) {}
 }

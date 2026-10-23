@@ -10,14 +10,13 @@ import {
   MapPin,
   Search,
 } from "lucide-react";
-import ChoiceRow from "./ui/ChoiceRow";
 import Modal from "./ui/Modal";
-import {
-  ALL_CANADA,
-  areasFor,
-  provinceById,
-  provinces,
-} from "../data/locations";
+import { ALL_CANADA } from "../data/locations";
+import useLocationCatalog from "../hooks/useLocationCatalog.js";
+import { provinceLabel } from "../lib/locationCatalog.js";
+import LocationHierarchy, {
+  LocationCatalogStatus,
+} from "./LocationHierarchy.jsx";
 
 /** "3 areas", in whatever language is on. Two keys, split at one, no plural engine. */
 function countLabel(n) {
@@ -26,7 +25,8 @@ function countLabel(n) {
 
 /** "Ontario · 3 areas" — the whole choice in the width of one button. */
 function summarise(filters) {
-  const { label, id } = provinceById(filters.province);
+  const id = filters.province;
+  const label = provinceLabel(id);
   if (id === ALL_CANADA) return "All Canada";
   const n = filters.cities.length;
   // Province names stay as the data spells them. They are proper nouns, and
@@ -65,9 +65,7 @@ function ProvinceRow({ province, current, onPick }) {
 }
 
 /**
- * Province and its areas are two halves of one choice, asked one at a time:
- * pick a province, then tick the areas inside it. A single scrolling list of
- * both reads as one long undifferentiated pile, so this steps instead.
+ * Province, region and neighbourhood are chosen in three visible steps.
  *
  * Edits are held in a draft until Done — a location change re-runs the feed, so
  * committing on every tick would thrash the results behind the modal.
@@ -81,16 +79,21 @@ export default function LocationBar({
   variant = "row",
 }) {
   const [open, setOpen] = useState(false);
+  const { locations, status, retry } = useLocationCatalog();
+  const provinces = [
+    { id: ALL_CANADA, label: "All Canada", areas: [] },
+    ...(locations?.provinces ?? []),
+  ];
   const [step, setStep] = useState("province");
   const [draft, setDraft] = useState(filters);
   const [areaQuery, setAreaQuery] = useState("");
 
-  const province = provinceById(draft.province);
-  const areas = areasFor(province.id);
-  const needle = areaQuery.trim().toLowerCase();
-  const shown = needle
-    ? areas.filter((a) => a.toLowerCase().includes(needle))
-    : areas;
+  const province = provinces.find((row) => row.id === draft.province) ?? {
+    id: draft.province,
+    label: provinceLabel(draft.province),
+    areas: [],
+  };
+  const areas = province.areas ?? [];
 
   function openModal() {
     // Reopening always starts from what is currently applied, at step one.
@@ -98,6 +101,7 @@ export default function LocationBar({
     setStep("province");
     setAreaQuery("");
     setOpen(true);
+    retry();
   }
 
   function apply(next) {
@@ -112,17 +116,9 @@ export default function LocationBar({
     setAreaQuery("");
 
     // Nothing to narrow means there is no second step to show.
-    if (!areasFor(id).length) apply({ province: id, cities: [] });
+    if (!(provinces.find((row) => row.id === id)?.areas ?? []).length)
+      apply({ province: id, cities: [] });
     else setStep("areas");
-  }
-
-  function toggleArea(area) {
-    setDraft((d) => ({
-      ...d,
-      cities: d.cities.includes(area)
-        ? d.cities.filter((a) => a !== area)
-        : [...d.cities, area],
-    }));
   }
 
   const onAreas = step === "areas";
@@ -195,8 +191,8 @@ export default function LocationBar({
         title={onAreas ? province.label : "Location"}
         subtitle={
           onAreas
-            ? "Tick the areas you want, or leave them all clear for the whole province."
-            : "Step 1 of 2 — pick a province."
+            ? "Province → Region / city → Neighbourhood"
+            : "Step 1 of 3 — pick a province."
         }
         onClose={() => setOpen(false)}
         bodyClassName="min-h-0 overflow-y-auto p-2"
@@ -209,7 +205,7 @@ export default function LocationBar({
                 className="flex flex-1 items-center justify-center gap-1 rounded-2xl border border-line py-3 text-[15px] font-semibold text-ink transition-colors hover:bg-canvas"
               >
                 <ChevronLeft className="size-4" strokeWidth={2.6} />
-                Back
+                Change province
               </button>
               <button
                 type="button"
@@ -242,21 +238,15 @@ export default function LocationBar({
               />
             </label>
 
-            {shown.map((a) => (
-              <ChoiceRow
-                key={a}
-                type="checkbox"
-                checked={draft.cities.includes(a)}
-                onChange={() => toggleArea(a)}
-              >
-                {a}
-              </ChoiceRow>
-            ))}
-
-            {shown.length === 0 && (
-              <p className="px-3 py-4 text-[14px] text-muted">
-                {`No area in ${province.label} matches “${areaQuery}”.`}
-              </p>
+            <LocationCatalogStatus status={status} retry={retry} />
+            {status === "success" && (
+              <LocationHierarchy
+                key={draft.province}
+                catalog={locations}
+                filters={draft}
+                onChange={setDraft}
+                query={areaQuery}
+              />
             )}
           </>
         ) : (
@@ -269,14 +259,17 @@ export default function LocationBar({
               Areas cover Canada today. Other countries are coming.
             </p>
 
-            {provinces.map((p) => (
-              <ProvinceRow
-                key={p.id}
-                province={p}
-                current={p.id === draft.province}
-                onPick={() => pickProvince(p.id)}
-              />
-            ))}
+            <LocationCatalogStatus status={status} retry={retry} />
+            {(status === "success" ? provinces : provinces.slice(0, 1)).map(
+              (p) => (
+                <ProvinceRow
+                  key={p.id}
+                  province={p}
+                  current={p.id === draft.province}
+                  onPick={() => pickProvince(p.id)}
+                />
+              ),
+            )}
           </>
         )}
       </Modal>

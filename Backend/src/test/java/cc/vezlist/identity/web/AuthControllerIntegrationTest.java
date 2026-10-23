@@ -2,7 +2,6 @@ package cc.vezlist.identity.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -73,7 +72,15 @@ class AuthControllerIntegrationTest {
         assertThat(registerResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(registerResponse.getBody()).containsEntry("email", email);
         assertThat(registerResponse.getBody()).doesNotContainKey("password");
+        assertThat(registerResponse.getHeaders().get(HttpHeaders.SET_COOKIE))
+                .anySatisfy(cookie -> assertThat(cookie).contains("SESSION=", "Max-Age=2592000", "HttpOnly", "SameSite=Lax"));
         String authenticatedCookies = mergeCookies(csrfCookie, cookies(registerResponse.getHeaders()));
+        ResponseEntity<Map> authenticatedCsrf = rest.exchange(url("/api/v1/auth/csrf"), HttpMethod.GET,
+                new HttpEntity<>(cookieHeaders(authenticatedCookies)), Map.class);
+        assertThat(authenticatedCsrf.getStatusCode()).isEqualTo(HttpStatus.OK);
+        csrfToken = (String) authenticatedCsrf.getBody().get("token");
+        csrfHeader = (String) authenticatedCsrf.getBody().get("headerName");
+        authenticatedCookies = mergeCookies(authenticatedCookies, cookies(authenticatedCsrf.getHeaders()));
 
         ResponseEntity<Map> meResponse = rest.exchange(
                 url("/api/v1/auth/me"), HttpMethod.GET, new HttpEntity<>(cookieHeaders(authenticatedCookies)), Map.class);
@@ -144,8 +151,18 @@ class AuthControllerIntegrationTest {
     }
 
     private String mergeCookies(String... cookieHeaders) {
-        return List.of(cookieHeaders).stream()
-                .filter(value -> value != null && !value.isBlank())
+        Map<String, String> jar = new java.util.LinkedHashMap<>();
+        for (String header : cookieHeaders) {
+            if (header == null || header.isBlank()) continue;
+            for (String pair : header.split("; ")) {
+                int equals = pair.indexOf('=');
+                String name = pair.substring(0, equals);
+                String value = pair.substring(equals + 1);
+                if (value.isBlank()) jar.remove(name);
+                else jar.put(name, value);
+            }
+        }
+        return jar.entrySet().stream().map(entry -> entry.getKey() + "=" + entry.getValue())
                 .collect(Collectors.joining("; "));
     }
 }

@@ -27,9 +27,15 @@ spring:
     store-type: jdbc
     jdbc:
       initialize-schema: never
-    timeout: 12h
+    timeout: ${VEZLIST_SESSION_TIMEOUT:30d}
 
 server:
+  servlet:
+    session:
+      cookie:
+        max-age: ${VEZLIST_SESSION_TIMEOUT:30d}
+        http-only: true
+        same-site: lax
   shutdown: graceful
   forward-headers-strategy: framework
 
@@ -62,6 +68,7 @@ vezlist:
   stories:
     demo-purchases-enabled: ${VEZLIST_STORY_DEMO_PURCHASES_ENABLED:false}
   cors:
+    admin-origins: ${VEZLIST_ADMIN_ALLOWED_ORIGINS:http://localhost:3002,http://localhost:3102,http://127.0.0.1:3002,http://127.0.0.1:3102,https://admin.vezlist.cc}
     allowed-origins: ${VEZLIST_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3100,http://localhost:3101,http://localhost:3102}
     allow-local-patterns: ${VEZLIST_CORS_ALLOW_LOCAL_PATTERNS:false}
   storage:

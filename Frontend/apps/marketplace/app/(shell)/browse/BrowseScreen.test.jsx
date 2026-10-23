@@ -8,7 +8,7 @@ import BrowseScreen from "./BrowseScreen.jsx";
 
 vi.mock("@vezlist/shared/lib/api/catalog.js", () => ({
   getCategories: async () => [{ id: "vehicles", label: "Vehicles" }],
-  getLocations: async () => ({ provinces: [] }),
+  getLocations: async () => ({ provinces: [{id:"on",label:"Ontario",areas:[{id:"gta",label:"Greater Toronto",neighbourhoods:[{id:"scar",label:"Scarborough"}]}]}] }),
 }));
 vi.mock("@vezlist/shared/lib/api/discovery.js", () => ({
   searchListings: vi.fn(),
@@ -47,16 +47,17 @@ beforeEach(() => {
   }));
 });
 
-function Preferences() {
+function Preferences({city}) {
   const { setFilters, setQuery } = useFeed();
   useEffect(() => {
     setFilters((current) => ({
       ...current,
       categories: ["Vehicles"],
       province: "on",
+      cities: city ? [city] : [],
     }));
     setQuery("car");
-  }, [setFilters, setQuery]);
+  }, [setFilters, setQuery, city]);
   return null;
 }
 
@@ -142,4 +143,10 @@ test("starts broad and lets visitors remove a filter or clear the whole search",
   await user.type(screen.getByRole("combobox"), "car");
   await user.click(screen.getByRole("button", { name: "Clear all", exact: true }));
   await waitFor(() => expect(searchListings.mock.calls.at(-1)[0].q).toBeUndefined());
+});
+
+
+test.each(["scar", "Scarborough"])("neighbourhood filter %s sends a stable ID without losing category or pagination", async (city) => {
+ render(<FeedProvider><Preferences city={city}/><BrowseScreen/></FeedProvider>);
+ await waitFor(()=>expect(searchListings).toHaveBeenLastCalledWith(expect.objectContaining({province:"on",area:["scar"],category:["vehicles"],limit:20})));
 });

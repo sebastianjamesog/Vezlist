@@ -1,8 +1,8 @@
-import { ethnicities } from "../data/mock.js";
 import { IS_PERSONALS } from "./sites.js";
 import { arrayOf, isNonEmptyString, isObject, isString } from "./guards.js";
 
 export const MAX_IMAGES = 6;
+export const MAX_AD_PRICE = 9999;
 
 export const STEPS = [
   {
@@ -79,6 +79,10 @@ export const EMPTY_DRAFT = {
   location: "",
   locationId: "",
   provinceId: "",
+  provinceLabel: "",
+  areaId: "",
+  areaLabel: "",
+  locationType: "",
   email: "",
   phone: "",
 };
@@ -165,8 +169,11 @@ export function validateStep(stepId, draft) {
     if (!draft.business.trim())
       errors.business = "Add the business or seller name.";
     if (!hasSelectedCategory(draft)) errors.category = SELECT_CATEGORY_MESSAGE;
-    if (draft.price !== "" && !(Number(draft.price) >= 0))
-      errors.price = "Price must be a positive number.";
+    if (draft.price !== "") {
+      const price = Number(draft.price);
+      if (!/^\d+(?:\.\d{1,2})?$/.test(String(draft.price)) || !Number.isFinite(price) || price < 0 || price > MAX_AD_PRICE)
+        errors.price = "Enter a price from $0 to $9,999 with at most two decimal places.";
+    }
     if (draft.description.trim().length < 20)
       errors.description = "Describe your ad in at least 20 characters.";
 
@@ -175,8 +182,8 @@ export function validateStep(stepId, draft) {
 
       Nothing in here is ever "you must answer this". These are the three
       answers that can be given and still be wrong: an age under the board's own
-      18+ line, a weight with no number in it, and an ethnicity that is not one
-      of the eight offered, including a draft restored from an older build.
+      18+ line, a weight with no number in it, or an oversized ethnicity label.
+      The server validates the current catalog and unchanged historical values.
 
       Every read is truthiness rather than `!== ""`, so a draft restored from
       before this group existed — no `age` key at all — is the valid-and-absent
@@ -190,8 +197,8 @@ export function validateStep(stepId, draft) {
       }
       if (draft.weight && !WEIGHT.test(String(draft.weight).trim()))
         errors.weight = "Weight needs a number, e.g. 54 kg or 120 lbs.";
-      if (draft.ethnicity && !ethnicities.includes(draft.ethnicity))
-        errors.ethnicity = `"${draft.ethnicity}" isn't one of the options. Pick another, or leave it blank.`;
+      if (draft.ethnicity && (typeof draft.ethnicity !== "string" || draft.ethnicity.trim().length > 80))
+        errors.ethnicity = "Ethnicity must be at most 80 characters.";
     }
   }
 
@@ -250,8 +257,14 @@ export function draftFromListing(listing) {
     location: listing.locationLabel ?? "",
     locationId: listing.locationId ?? "",
     provinceId: listing.provinceId ?? "",
+    provinceLabel: listing.provinceLabel ?? "",
+    areaId: listing.areaId ?? listing.locationId ?? "",
+    areaLabel: listing.areaLabel ?? listing.locationLabel ?? "",
+    locationType: listing.locationType ?? "AREA",
     email: listing.contactEmail ?? "",
     phone: listing.contactPhone ?? "",
+    latitude: Number.isFinite(listing.latitude) ? listing.latitude : null,
+    longitude: Number.isFinite(listing.longitude) ? listing.longitude : null,
   };
   for (const key of PERSONAL_ATTRIBUTE_KEYS) draft[key] = attributes[key] ?? "";
   return draft;
@@ -290,8 +303,8 @@ export function toListingWriteRequest(draft, { site }) {
     locationId: draft.locationId,
     contactEmail: draft.email.trim(),
     contactPhone: draft.phone.trim(),
-    latitude: null,
-    longitude: null,
+    latitude: Number.isFinite(draft.latitude) && Number.isFinite(draft.longitude) ? draft.latitude : null,
+    longitude: Number.isFinite(draft.latitude) && Number.isFinite(draft.longitude) ? draft.longitude : null,
     attributes,
   };
 }
@@ -325,7 +338,7 @@ export function isDraftWorthSaving(draft) {
   return (
     draft.images.length > 0 ||
     Object.entries(draft).some(
-      ([k, v]) => k !== "images" && v !== "",
+      ([k, v]) => k !== "images" && k !== "latitude" && k !== "longitude" && v !== "",
     )
   );
 }
@@ -364,6 +377,11 @@ export function normaliseDraft(value) {
     }));
 
   const draft = { ...EMPTY_DRAFT, images };
+  if (Number.isFinite(value.latitude) && Math.abs(value.latitude) <= 90
+      && Number.isFinite(value.longitude) && Math.abs(value.longitude) <= 180) {
+    draft.latitude = value.latitude;
+    draft.longitude = value.longitude;
+  }
   for (const key of Object.keys(EMPTY_DRAFT)) {
     if (key === "images") continue;
     if (isString(value[key])) draft[key] = value[key];

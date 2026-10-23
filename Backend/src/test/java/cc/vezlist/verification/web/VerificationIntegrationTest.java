@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -382,7 +383,8 @@ class VerificationIntegrationTest {
         UUID requestId = readyRequest(owner, listing);
         post(owner, decisionPath(requestId), Map.of("decision", "APPROVE")).andExpect(status().isForbidden());
         jdbc.update("DELETE FROM user_roles WHERE user_id = ?", moderator.id());
-        post(moderator, decisionPath(requestId), Map.of("decision", "APPROVE")).andExpect(status().isForbidden());
+        // Revoked roles invalidate the session; self-approval remains forbidden above.
+        post(moderator, decisionPath(requestId), Map.of("decision", "APPROVE")).andExpect(status().isUnauthorized());
         assertThat(jdbc.queryForObject("SELECT status FROM listings WHERE id = ?", String.class, listing)).isEqualTo("PENDING_REVIEW");
     }
 
@@ -395,6 +397,76 @@ class VerificationIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT status FROM listings WHERE id = ?", String.class, listing)).isEqualTo("PENDING_REVIEW");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM moderation_cases WHERE listing_id = ? AND status = 'OPEN'", Long.class, listing)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_events WHERE listing_id = ?", Long.class, listing)).isZero();
+    }
+
+    @Test void onlyExplicitlySelectedPhotosAreVerifiedAndForeignOrChangedPhotosAreNot() throws Exception {
+        given(storage.authorizeDownload(anyString())).willAnswer(i -> URI.create("https://cdn.test/" + i.getArgument(0)));
+        var owner = account(Role.USER);
+        var moderator = account(Role.MODERATOR);
+        UUID listing = listing(owner, "ACTIVE");
+        UUID other = listing(owner, "ACTIVE");
+        readyMedia(listing, "READY", 0);
+        readyMedia(listing, "READY", 1);
+        readyMedia(other, "READY", 0);
+        var photoIds = jdbc.queryForList("SELECT id FROM listing_media WHERE listing_id = ? ORDER BY position", UUID.class, listing);
+        UUID foreignId = jdbc.queryForObject("SELECT id FROM listing_media WHERE listing_id = ?", UUID.class, other);
+        UUID requestId = readyRequest(owner, listing);
+
+        // A legacy listing badge is not evidence that any particular picture was checked.
+        jdbc.update("UPDATE listings SET verified = true WHERE id = ?", listing);
+        mvc.perform(get("/api/v1/listings/" + listing + "?site=MARKETPLACE"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.media[0].verified").value(false));
+        mvc.perform(get("/api/v1/moderation/verification-requests/" + requestId).with(user(moderator)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.media.length()").value(2));
+        post(moderator, decisionPath(requestId), Map.of("decision", "APPROVE", "verifiedMediaIds", java.util.List.of(foreignId)))
+                .andExpect(status().isBadRequest());
+        assertThat(jdbc.queryForObject("SELECT status FROM listing_verification_requests WHERE id = ?", String.class, requestId))
+                .isEqualTo("PENDING_REVIEW");
+        post(moderator, decisionPath(requestId), Map.of("decision", "APPROVE", "verifiedMediaIds", java.util.List.of(photoIds.getFirst())))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/listings/" + listing + "?site=MARKETPLACE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.media[0].verified").value(true))
+                .andExpect(jsonPath("$.media[1].verified").value(false));
+        jdbc.update("UPDATE listing_media SET checksum_sha256 = ? WHERE id = ?", "b".repeat(64), photoIds.getFirst());
+        mvc.perform(get("/api/v1/listings/" + listing + "?site=MARKETPLACE"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.media[0].verified").value(false));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"MARKETPLACE,PENDING_REVIEW", "PERSONALS,PENDING_REVIEW", "MARKETPLACE,ACTIVE", "PERSONALS,ACTIVE"})
+    void adminRemovalClearsActionableVerificationQueuesAndBlocksStaleDecisions(String site, String initialStatus) throws Exception {
+        given(storage.authorizeDownload(anyString())).willAnswer(i -> URI.create("https://cdn.test/" + i.getArgument(0)));
+        var owner = account(Role.USER);
+        var admin = account(Role.ADMIN);
+        var moderator = account(Role.MODERATOR);
+        UUID listing = listing(owner, initialStatus, site, true);
+        readyMedia(listing, "READY", 0);
+        UUID request = readyRequest(owner, listing);
+        var dates = jdbc.queryForMap("SELECT published_at, expires_at FROM listings WHERE id=?", listing);
+        String queue = "/api/v1/moderation/verification-requests?site=" + site;
+        String scopedCounts = "/api/v1/admin/analytics/queues?site=" + site;
+        String globalCounts = "/api/v1/admin/analytics/queues";
+        assertThat(getBody(moderator, queue)).contains(request.toString());
+        int scopedBefore = json.readTree(getBody(admin, scopedCounts)).get("openVerifications").asInt();
+        int globalBefore = json.readTree(getBody(admin, globalCounts)).get("openVerifications").asInt();
+        post(admin, "/api/v1/admin/listings/" + listing + "/remove", Map.of("reason", "Policy violation"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.listing.status").value("REMOVED"));
+        assertThat(getBody(moderator, queue)).doesNotContain(request.toString());
+        assertThat(json.readTree(getBody(admin, scopedCounts)).get("openVerifications").asInt()).isEqualTo(scopedBefore - 1);
+        assertThat(json.readTree(getBody(admin, globalCounts)).get("openVerifications").asInt()).isEqualTo(globalBefore - 1);
+        // Retain verification evidence/history; it is no longer an actionable queue item.
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_verification_requests WHERE id=?", Long.class, request)).isEqualTo(1L);
+        for (String decision : new String[]{"APPROVE", "REJECT"}) {
+            post(moderator, decisionPath(request), Map.of("decision", decision, "reason", "Stale review",
+                            "verifiedMediaIds", jdbc.queryForList("SELECT id FROM listing_media WHERE listing_id=?", UUID.class, listing)))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.message").value("This listing is no longer available for verification."));
+        }
+        assertThat(jdbc.queryForObject("SELECT status FROM listings WHERE id=?", String.class, listing)).isEqualTo("REMOVED");
+        assertThat(jdbc.queryForObject("SELECT verified FROM listings WHERE id=?", Boolean.class, listing)).isFalse();
+        assertThat(jdbc.queryForMap("SELECT published_at, expires_at FROM listings WHERE id=?", listing)).isEqualTo(dates);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_events WHERE listing_id=? AND event_type='LISTING_APPROVED'", Long.class, listing)).isZero();
     }
 
     private String decisionPath(UUID request) {

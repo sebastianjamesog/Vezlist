@@ -1,12 +1,13 @@
 "use client";
 
 import Field, { FIELD, border } from "./Field";
-import { availabilityOptions, ethnicities } from "../../data/mock";
+import { availabilityOptions } from "../../data/mock";
+import useEthnicities from "../../hooks/useEthnicities.js";
 import { isPersonalsCategory } from "../../lib/adDraft";
 import CategoryPicker from "./CategoryPicker";
 
 const PILL =
-  "rounded-full border px-4 py-2 text-[14px] font-semibold transition-colors";
+  "max-w-full break-words rounded-full border px-4 py-2 text-[14px] font-semibold transition-colors";
 const pill = (on) =>
   on
     ? "border-brand bg-brand text-on-brand"
@@ -37,6 +38,14 @@ const PERSONAL_FIELDS = [
 
 export default function StepDetails({ draft, errors, onPatch }) {
   const personals = isPersonalsCategory(draft.category);
+  const {
+    status: ethnicityStatus,
+    ethnicities,
+    retry: retryEthnicities,
+  } = useEthnicities({ enabled: personals });
+  const savedEthnicity =
+    draft.ethnicity &&
+    !ethnicities.some((option) => option.label === draft.ethnicity);
 
   return (
     <div className="space-y-4">
@@ -65,7 +74,7 @@ export default function StepDetails({ draft, errors, onPatch }) {
 
       <CategoryPicker draft={draft} error={errors.category} onPatch={onPatch} />
 
-      <Field label="Price" hint="Optional" error={errors.price}>
+      <Field label="Price" hint="Optional, up to $9,999" error={errors.price}>
         <div className="relative">
           <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[15px] text-muted">
             $
@@ -75,7 +84,9 @@ export default function StepDetails({ draft, errors, onPatch }) {
             onChange={(e) => onPatch({ price: e.target.value })}
             type="number"
             min="0"
-            inputMode="numeric"
+            max="9999"
+            step="0.01"
+            inputMode="decimal"
             placeholder="0"
             className={`${FIELD} ${border(errors.price)} pl-8`}
           />
@@ -181,7 +192,33 @@ export default function StepDetails({ draft, errors, onPatch }) {
             </div>
           </Field>
 
-          <Field label="Ethnicity" hint="Optional" error={errors.ethnicity}>
+          <fieldset className="min-w-0">
+            <legend className="mb-1.5 flex w-full items-baseline justify-between gap-2">
+              <span className="text-[14px] font-bold text-ink">Ethnicity</span>
+              <span className="text-[12px] text-muted">Optional</span>
+            </legend>
+            {ethnicityStatus === "loading" && (
+              <p role="status" className="mb-2 text-[13px] text-muted">
+                Loading ethnicities...
+              </p>
+            )}
+            {ethnicityStatus === "error" && (
+              <div role="alert" className="mb-2 text-[13px] text-danger">
+                Could not load ethnicities.{" "}
+                <button
+                  type="button"
+                  onClick={retryEthnicities}
+                  className="font-semibold underline"
+                >
+                  Retry ethnicities
+                </button>
+              </div>
+            )}
+            {ethnicityStatus === "success" && !ethnicities.length && (
+              <p className="mb-2 text-[13px] text-muted">
+                No ethnicity choices are available. You can leave this blank.
+              </p>
+            )}
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -191,19 +228,42 @@ export default function StepDetails({ draft, errors, onPatch }) {
               >
                 Prefer not to say
               </button>
-              {ethnicities.map((e) => (
+              {savedEthnicity && (
                 <button
-                  key={e}
                   type="button"
-                  aria-pressed={draft.ethnicity === e}
-                  onClick={() => onPatch({ ethnicity: e })}
-                  className={`${PILL} ${pill(draft.ethnicity === e)}`}
+                  aria-pressed="true"
+                  title="Saved ethnicity"
+                  className={`${PILL} ${pill(true)}`}
                 >
-                  {e}
+                  {draft.ethnicity}
+                </button>
+              )}
+              {ethnicities.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  aria-pressed={draft.ethnicity === option.label}
+                  onClick={() => onPatch({ ethnicity: option.label })}
+                  className={`${PILL} ${pill(draft.ethnicity === option.label)}`}
+                >
+                  {option.label}
                 </button>
               ))}
             </div>
-          </Field>
+            {savedEthnicity && ethnicityStatus === "success" && (
+              <p className="mt-2 text-[13px] text-muted">
+                Your saved ethnicity is kept unless you change it.
+              </p>
+            )}
+            {errors.ethnicity && (
+              <p
+                role="alert"
+                className="mt-1.5 text-[13px] font-medium text-red-600"
+              >
+                {errors.ethnicity}
+              </p>
+            )}
+          </fieldset>
         </div>
       )}
     </div>

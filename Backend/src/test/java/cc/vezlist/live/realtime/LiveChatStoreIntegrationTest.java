@@ -35,6 +35,19 @@ class LiveChatStoreIntegrationTest {
         redis.opsForZSet().add(LiveChatStore.prefix(room)+"presence","stale",System.currentTimeMillis()-1);
         assertThat(store.count(room)).isZero();
     }
+    @Test void directorySnapshotCountsRealViewersAcrossRoomsAndExcludesExpiredPresence() {
+        UUID emptyRoom=UUID.randomUUID(),otherRoom=UUID.randomUUID();
+        store.heartbeat(viewer,"first-tab");store.heartbeat(viewer,"second-tab");
+        store.heartbeat(new LiveChatStore.Viewer(room,UUID.randomUUID(),"host","Host",true),"host-tab");
+        store.heartbeat(new LiveChatStore.Viewer(otherRoom,UUID.randomUUID(),"other","Other",false),"tab");
+        store.heartbeat(new LiveChatStore.Viewer(otherRoom,null,"guest","Guest",false),"guest-tab");
+        redis.opsForZSet().add(LiveChatStore.prefix(room)+"presence","expired",System.currentTimeMillis()-1);
+        assertThat(store.counts(List.of(room,emptyRoom,otherRoom,room)))
+            .containsExactlyInAnyOrderEntriesOf(Map.of(room,1L,emptyRoom,0L,otherRoom,2L));
+        assertThat(store.counts(List.of())).isEmpty();
+        assertThatThrownBy(()->store.counts(java.util.stream.Stream.generate(UUID::randomUUID).limit(101).toList()))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
     @Test void retriesDeduplicateAndRateLimitCannotBeBypassedByNewClientIds() {
         String client=UUID.randomUUID().toString();String first=store.message(viewer,client,"Viewer","hello");
         String second=store.message(viewer,client,"Viewer","hello");

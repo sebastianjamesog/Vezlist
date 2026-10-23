@@ -1,59 +1,86 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Images, X } from "lucide-react";
+import { BadgeCheck, ChevronLeft, ChevronRight, Images, X } from "lucide-react";
 import MediaImage from "./MediaImage.jsx";
 
 const CONTROL =
   "grid size-11 shrink-0 place-items-center rounded-full border border-white/50 bg-black/55 text-white hover:bg-black/75 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white";
 
-function Thumbnails({ photos, active, onSelect, dark = false }) {
+function Thumbnails({ photos, active, onSelect, dark = false, verified = false, label = "Photo thumbnails" }) {
   const strip = useRef(null);
+  const [overflow, setOverflow] = useState(false);
   useEffect(() => {
-    const button = strip.current?.children[active];
+    const element = strip.current;
+    if (!element) return undefined;
+    const measure = () => setOverflow(element.scrollWidth > element.clientWidth + 1);
+    measure();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    observer?.observe(element);
+    return () => observer?.disconnect();
+  }, [photos.length]);
+  useEffect(() => {
+    const button = strip.current?.querySelector(`[data-photo-index="${active}"]`);
     if (!button) return;
-    // Scroll only the strip; scrollIntoView would also move the ad page.
     const left = button.offsetLeft;
     if (left < strip.current.scrollLeft) strip.current.scrollLeft = left;
-    else if (
-      left + button.offsetWidth >
-      strip.current.scrollLeft + strip.current.clientWidth
-    ) {
-      strip.current.scrollLeft =
-        left + button.offsetWidth - strip.current.clientWidth;
-    }
+    else if (left + button.offsetWidth > strip.current.scrollLeft + strip.current.clientWidth)
+      strip.current.scrollLeft = left + button.offsetWidth - strip.current.clientWidth;
   }, [active]);
 
   return (
-    <div
-      ref={strip}
-      aria-label="Photo thumbnails"
-      className="no-scrollbar relative flex gap-2 overflow-x-auto p-1"
-    >
-      {photos.map((src, index) => (
-        <button
-          key={`${src}-${index}`}
-          type="button"
-          onClick={() => onSelect(index)}
-          aria-label={`Show photo ${index + 1}`}
-          aria-current={index === active ? "true" : undefined}
-          className={`relative size-20 shrink-0 overflow-hidden rounded-xl border-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand lg:size-24 ${index === active ? "border-brand ring-2 ring-brand" : dark ? "border-white/20" : "border-line"}`}
-        >
-          <MediaImage
-            discreet
-            fill
-            src={src}
-            alt=""
-            sizes="96px"
-            className="object-cover object-top"
-          />
-        </button>
+    <div className="relative flex min-w-0 items-center gap-1">
+      <div ref={strip} aria-label={label} className="no-scrollbar relative flex min-w-0 flex-1 gap-2 overflow-x-auto p-1">
+        {photos.map((photo) => (
+          <button key={photo.index} data-photo-index={photo.index} type="button"
+            onClick={() => onSelect(photo.index)} aria-label={`Show photo ${photo.index + 1}`}
+            aria-current={photo.index === active ? "true" : undefined}
+            className={`relative size-14 shrink-0 overflow-hidden rounded-lg border-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand lg:size-16 ${
+              photo.index === active ? verified ? "border-emerald-600 ring-2 ring-emerald-500" : "border-brand ring-2 ring-brand"
+                : verified ? "border-emerald-500" : dark ? "border-white/20" : "border-line"}`}>
+            <MediaImage discreet fill src={photo.url} alt="" sizes="64px" className="object-cover object-top" />
+          </button>
+        ))}
+      </div>
+      {overflow && <button type="button" aria-label={`More ${label.toLowerCase()}`}
+        onClick={() => {
+          const element = strip.current;
+          if (!element) return;
+          const atEnd = element.scrollLeft + element.clientWidth >= element.scrollWidth - 2;
+          element.scrollLeft = atEnd ? 0 : element.scrollLeft + element.clientWidth * 0.8;
+        }}
+        className={`grid size-8 shrink-0 place-items-center rounded-lg shadow-card focus-visible:outline-2 focus-visible:outline-brand ${dark ? "bg-black/80 text-white" : "bg-surface text-ink"}`}>
+        <ChevronRight className="size-4" aria-hidden="true" />
+      </button>}
+    </div>
+  );
+}
+
+function PhotoGroups({ photos, active, onSelect, dark = false }) {
+  const verified = photos.filter((photo) => photo.verified);
+  const regular = photos.filter((photo) => !photo.verified);
+  return (
+    <div className={`grid min-w-0 gap-2 ${verified.length ? "grid-cols-2" : "grid-cols-1"}`}>
+      {[
+        ...(verified.length ? [{ title: "Verified pictures", photos: verified, verified: true }] : []),
+        { title: "Non-verified pictures", photos: regular, verified: false },
+      ].map((group) => (
+        <section key={group.title} className={`min-w-0 ${group.verified ? "border-r border-line pr-2" : ""}`}>
+          <h3 className={`mb-1 flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide lg:text-[10px] ${group.verified ? "text-emerald-600" : dark ? "text-white/70" : "text-muted"}`}>
+            {group.verified && <BadgeCheck className="size-3 shrink-0" aria-hidden="true" />}{group.title}
+          </h3>
+          {group.photos.length ? <Thumbnails {...group} label={group.title} active={active} onSelect={onSelect} dark={dark} />
+            : <p className={`px-1 py-4 text-xs ${dark ? "text-white/60" : "text-muted"}`}>None</p>}
+        </section>
       ))}
     </div>
   );
 }
 
-export default function AdPhotoGallery({ photos, title, onSwipeAd }) {
+export default function AdPhotoGallery({ photos: inputPhotos, title, onSwipeAd }) {
+  const photos = inputPhotos.map((photo, index) => ({
+    ...(typeof photo === "string" ? { url: photo, verified: false } : photo), index,
+  }));
   const [active, setActive] = useState(0);
   const [open, setOpen] = useState(false);
   const dialog = useRef(null);
@@ -146,9 +173,15 @@ export default function AdPhotoGallery({ photos, title, onSwipeAd }) {
     <>
       <div
         data-photo-gallery
-        className="relative h-96 overflow-hidden rounded-card bg-canvas shadow-card lg:h-[560px]"
+        className="relative flex h-96 flex-col overflow-hidden rounded-card bg-canvas shadow-card lg:h-[560px]"
         {...swipeHandlers}
       >
+        {photos[active].verified && (
+          <p className="flex shrink-0 items-center gap-1.5 bg-emerald-700 px-3 py-2 text-[10px] font-semibold leading-snug text-white lg:text-xs">
+            <BadgeCheck className="size-3.5 shrink-0" aria-hidden="true" />
+            Verified picture - this photo has been confirmed as real by Vezlist.
+          </p>
+        )}
         <button
           ref={trigger}
           type="button"
@@ -161,48 +194,30 @@ export default function AdPhotoGallery({ photos, title, onSwipeAd }) {
             }
             setOpen(true);
           }}
-          className="relative block size-full cursor-zoom-in focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-brand"
+          className="relative block min-h-0 w-full flex-1 cursor-zoom-in focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-brand"
         >
           <MediaImage
             discreet
             fill
             preload
-            src={photos[active]}
+            src={photos[active].url}
             alt={`${title} — photo ${active + 1}`}
             sizes="(min-width: 1024px) 620px, 100vw"
             className="object-contain"
           />
-          <span className="absolute bottom-3 right-3 flex items-center gap-2 rounded-xl bg-black/70 px-3 py-2 text-sm font-semibold text-white">
+          {photos[active].verified && <span className="absolute bottom-3 left-3 flex items-center gap-1 rounded-full bg-emerald-700/90 px-2 py-1 text-[10px] font-semibold text-white">
+            <BadgeCheck className="size-3" aria-hidden="true" /> Verified
+          </span>}
+          <span className="absolute bottom-3 right-3 flex items-center gap-1 rounded-lg bg-black/55 px-2 py-1 text-[11px] font-semibold text-white">
             <Images aria-hidden="true" className="size-4" /> {active + 1}/
             {photos.length}
           </span>
         </button>
         {arrows()}
       </div>
-      {multiple && (
-        <div className="mt-2">
-          <Thumbnails photos={photos} active={active} onSelect={setActive} />
-          <div
-            className="flex flex-wrap justify-center"
-            aria-label="Choose photo"
-          >
-            {photos.map((src, index) => (
-              <button
-                key={`${src}-${index}`}
-                type="button"
-                onClick={() => setActive(index)}
-                aria-label={`Go to photo ${index + 1}`}
-                aria-current={index === active ? "true" : undefined}
-                className="grid size-8 place-items-center rounded-full focus-visible:outline-2 focus-visible:outline-brand"
-              >
-                <span
-                  className={`size-2 rounded-full ${index === active ? "bg-brand" : "bg-line"}`}
-                />
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      <div className="mt-2">
+        <PhotoGroups photos={photos} active={active} onSelect={setActive} />
+      </div>
       {open && (
         <dialog
           ref={dialog}
@@ -258,7 +273,7 @@ export default function AdPhotoGallery({ photos, title, onSwipeAd }) {
                 discreet
                 fill
                 loading="eager"
-                src={photos[active]}
+                src={photos[active].url}
                 alt={`${title} — photo ${active + 1}`}
                 sizes="(min-width: 1152px) 1152px, 100vw"
                 className="object-contain"
@@ -266,16 +281,10 @@ export default function AdPhotoGallery({ photos, title, onSwipeAd }) {
               />
               {arrows()}
             </div>
-            {multiple && (
-              <div className="mt-3 shrink-0">
-                <Thumbnails
-                  photos={photos}
-                  active={active}
-                  onSelect={setActive}
-                  dark
-                />
-              </div>
-            )}
+            {photos[active].verified && <p className="mt-2 text-center text-xs font-semibold text-emerald-400">Verified picture</p>}
+            <div className="mt-2 shrink-0">
+              <PhotoGroups photos={photos} active={active} onSelect={setActive} dark />
+            </div>
           </div>
         </dialog>
       )}

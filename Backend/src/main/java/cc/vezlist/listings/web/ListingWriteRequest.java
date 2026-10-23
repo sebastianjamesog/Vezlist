@@ -18,7 +18,7 @@ public record ListingWriteRequest(
         @NotBlank @Size(min = 4, max = 70) String title,
         @NotBlank @Size(max = 120) String businessName,
         @NotBlank @Size(min = 20, max = 5000) String description,
-        @DecimalMin("0.00") @Digits(integer = 10, fraction = 2) BigDecimal price,
+        @DecimalMin("0.00") @DecimalMax("9999.00") @Digits(integer = 4, fraction = 2) BigDecimal price,
         @NotBlank @Size(max = 80) String categoryId,
         @NotBlank @Size(max = 40) String provinceId,
         @NotBlank @Size(max = 40) String locationId,

@@ -159,6 +159,21 @@ class SavedListingControllerIntegrationTest {
     }
 
     @Test
+    void savedCardsReportAvailabilityOnlyUntilItsDeadline() {
+        Session saver = register("saved-availability-" + UUID.randomUUID() + "@example.test");
+        UUID seller = user(true, false);
+        UUID listing = listing(seller, "MARKETPLACE", "ACTIVE", null, "Available saved ad");
+        mutate("/api/v1/listings/" + listing + "/saved?site=MARKETPLACE", HttpMethod.POST, saver);
+        jdbc.update("INSERT INTO user_preferences(user_id, available_now, available_until) VALUES (?, true, now() + interval '20 minutes')", seller);
+        var current = items(get("/api/v1/me/saved-listings?site=MARKETPLACE", saver)).getFirst();
+        assertThat(current).containsEntry("availableNow", true);
+        assertThat(current.get("availableUntil")).isNotNull();
+        jdbc.update("UPDATE user_preferences SET available_until = now() - interval '1 second' WHERE user_id = ?", seller);
+        assertThat(items(get("/api/v1/me/saved-listings?site=MARKETPLACE", saver)).getFirst())
+                .containsEntry("availableNow", false);
+    }
+
+    @Test
     void inaccessibleSelfAndCrossSiteListingsDoNotLeakAndHiddenSavesCanBeRemoved() {
         Session saver = register("saved-scope-" + UUID.randomUUID() + "@example.test");
         UUID seller = user(true, false);
@@ -360,11 +375,17 @@ class SavedListingControllerIntegrationTest {
         ResponseEntity<Map> registration = rest.postForEntity(
                 url("/api/v1/auth/register"), request, Map.class);
         assertThat(registration.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        return new Session(
-                UUID.fromString(registration.getBody().get("id").toString()),
-                header,
-                token,
-                mergeCookies(csrfCookies, cookies(registration.getHeaders())));
+        String authenticatedCookies = mergeCookies(csrfCookies, cookies(registration.getHeaders()));
+        HttpHeaders csrfHeaders = new HttpHeaders();
+        csrfHeaders.set(HttpHeaders.COOKIE, authenticatedCookies);
+        ResponseEntity<Map> authenticatedCsrf = rest.exchange(url("/api/v1/auth/csrf"), HttpMethod.GET,
+                new HttpEntity<>(csrfHeaders), Map.class);
+        assertThat(authenticatedCsrf.getStatusCode()).isEqualTo(HttpStatus.OK);
+        header = (String) authenticatedCsrf.getBody().get("headerName");
+        token = (String) authenticatedCsrf.getBody().get("token");
+        authenticatedCookies = mergeCookies(authenticatedCookies, cookies(authenticatedCsrf.getHeaders()));
+        return new Session(UUID.fromString(registration.getBody().get("id").toString()),
+                header, token, authenticatedCookies);
     }
 
     private UUID user(boolean enabled, boolean verified) {
@@ -465,8 +486,18 @@ class SavedListingControllerIntegrationTest {
     }
 
     private String mergeCookies(String... cookieHeaders) {
-        return List.of(cookieHeaders).stream()
-                .filter(value -> value != null && !value.isBlank())
+        Map<String, String> jar = new java.util.LinkedHashMap<>();
+        for (String header : cookieHeaders) {
+            if (header == null || header.isBlank()) continue;
+            for (String pair : header.split("; ")) {
+                int equals = pair.indexOf('=');
+                String name = pair.substring(0, equals);
+                String value = pair.substring(equals + 1);
+                if (value.isBlank()) jar.remove(name);
+                else jar.put(name, value);
+            }
+        }
+        return jar.entrySet().stream().map(entry -> entry.getKey() + "=" + entry.getValue())
                 .collect(Collectors.joining("; "));
     }
 

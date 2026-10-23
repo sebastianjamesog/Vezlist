@@ -198,7 +198,7 @@ public class VerificationService {
                 verification.getId(), row.listingId(), row.listingTitle(), row.site(),
                 row.ownerId(), row.ownerEmail(), verification.getCode(), verification.getStatus(), photoUrl,
                 verification.getRejectionReason(), verification.getSubmittedAt(), verification.getDecidedAt(),
-                verification.getCreatedAt());
+                verification.getCreatedAt(), media.responses(row.listingId(), false));
     }
 
     @Transactional
@@ -229,6 +229,7 @@ public class VerificationService {
                 && listing.isVerificationRequested();
         switch (request.decision()) {
             case APPROVE -> {
+                media.verifyPhotos(listing.getId(), request.verifiedMediaIds());
                 if (publishAfterVerification) {
                     catalog.requireEnabledCategory(listing.getSiteScope(), listing.getCategory().getId());
                     catalog.requireEnabledLocation(listing.getProvinceId(), listing.getLocation().getId());
@@ -248,6 +249,7 @@ public class VerificationService {
                 if (request.reason() == null || request.reason().isBlank()) {
                     throw new VerificationValidationException("A rejection reason is required.");
                 }
+                media.verifyPhotos(listing.getId(), List.of());
                 verification.reject(staff.id(), request.reason());
                 if (publishAfterVerification) {
                     listing.rejectVerification(PublicReason.ELIGIBILITY_NOT_CONFIRMED);

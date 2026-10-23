@@ -30,19 +30,18 @@ import { api } from "./client.js";
  * `DiscoverySearchRequest`'s Spring binding accepts a single
  * comma-separated parameter the same way it accepts one repeated key.
  *
- * There is no field here for the marketplace mock's personals-only facets
- * (sub-category, ethnicity, personals category, "available now") — the
- * backend's `DiscoverySearchRequest` has nothing for any of them, so a
- * caller that still offers those controls in its filter UI has to leave
- * them unsent rather than invent a query param the server will ignore.
+ * Personals ethnicity selections use labels from the current ethnicity
+ * catalog. The backend applies this filter before pagination; multiple labels
+ * are ORed. Availability is supported separately through availableOnly.
  */
-export function searchListings(params = {}) {
-  const { category, area, ...rest } = params;
+export function searchListings(params = {}, options) {
+  const { category, area, ethnicities, ...rest } = params;
   return api.get("/api/v1/listings", {
     ...rest,
+    ethnicities: ethnicities?.length ? JSON.stringify(Array.isArray(ethnicities) ? ethnicities : [ethnicities]) : undefined,
     category: joinList(category),
     area: joinList(area),
-  });
+  }, options);
 }
 
 /**

@@ -1,13 +1,13 @@
 "use client";
 
+import useNearbyPreview from "@vezlist/shared/hooks/useNearbyPreview.js";
+
 import { useCallback, useEffect, useState } from "react";
 import { listLiveCreators } from "@vezlist/shared/lib/api/live.js";
 import { featuredListings } from "@vezlist/shared/lib/api/featured.js";
 import { getTrendingSellers } from "@vezlist/shared/lib/api/sellers.js";
-import { mapPins } from "@vezlist/shared/lib/api/discovery.js";
 
 const TRENDING_LIMIT = 30;
-const NEARBY_LIMIT = 500;
 
 function photos(rows, cover = "imageUrl") {
   return [
@@ -16,33 +16,6 @@ function photos(rows, cover = "imageUrl") {
 }
 
 /** Match the map's initial 5 km radius, without prompting for location on home. */
-async function nearbyPreview(signal) {
-  if (!navigator.permissions || !navigator.geolocation) return null;
-  const permission = await navigator.permissions.query({ name: "geolocation" });
-  signal.throwIfAborted();
-  if (permission.state !== "granted") return null;
-  const position = await new Promise((resolve, reject) => {
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: false,
-      maximumAge: 300_000,
-      timeout: 8_000,
-    });
-  });
-  signal.throwIfAborted();
-  const pins = await mapPins(
-    {
-      site: "PERSONALS",
-      latitude: position.coords.latitude,
-      longitude: position.coords.longitude,
-      radiusKm: 5,
-      limit: NEARBY_LIMIT,
-    },
-    { signal },
-  );
-  const count = pins.length >= NEARBY_LIMIT ? `${NEARBY_LIMIT}+` : pins.length;
-  return { stat: "Within 5 km", count };
-}
-
 /** One request at a time; pause behind the age gate or in background tabs. */
 function usePreviewRefresh(load, intervalMs, onResult) {
   useEffect(() => {
@@ -127,6 +100,7 @@ async function loadFeeds(signal) {
         stat: `${page.total ?? page.items.length} available`,
         thumbs: photos(page.items),
         count: page.total ?? page.items.length,
+        availableUntil: page.items.map(item => item.availableUntil).filter(Boolean).sort()[0],
       }),
     ],
     [
@@ -153,7 +127,6 @@ async function loadFeeds(signal) {
           rows.length >= TRENDING_LIMIT ? `${TRENDING_LIMIT}+` : rows.length,
       }),
     ],
-    ["nearby", () => nearbyPreview(signal), (preview) => preview],
   ];
   const results = await Promise.allSettled(
     jobs.map(async ([, fetch, map]) => map(await fetch())),
@@ -186,5 +159,12 @@ export default function useShortcutPreviews() {
   );
   usePreviewRefresh(loadLive, 15_000, setLive);
   usePreviewRefresh(loadFeeds, 30_000, setFeeds);
-  return previews;
+  useEffect(() => {
+    const expiry = Date.parse(previews.available?.availableUntil);
+    if (!Number.isFinite(expiry)) return undefined;
+    const timer = setTimeout(() => setPreviews(current => ({ ...current, available: null })), Math.max(0, expiry - Date.now()) + 20);
+    return () => clearTimeout(timer);
+  }, [previews.available?.availableUntil]);
+  const nearby = useNearbyPreview({ site: "PERSONALS", waitForAgeGate: true });
+  return { ...previews, nearby };
 }

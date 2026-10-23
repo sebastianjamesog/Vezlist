@@ -94,6 +94,14 @@ public class AdminCatalogController {
         return service.createArea(actor.id(), request);
     }
 
+    @PostMapping("/locations/neighbourhoods")
+    @PreAuthorize("hasRole('ADMIN')")
+    @ResponseStatus(HttpStatus.CREATED)
+    public AdminLocationResponse createNeighbourhood(@AuthenticationPrincipal VezlistUserPrincipal actor,
+            @Valid @RequestBody CreateNeighbourhoodRequest request) {
+        return service.createNeighbourhood(actor.id(), request);
+    }
+
     @PatchMapping("/locations/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public AdminLocationResponse updateLocation(

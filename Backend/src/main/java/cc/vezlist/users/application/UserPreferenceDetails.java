@@ -5,5 +5,7 @@ public record UserPreferenceDetails(
         boolean emailUpdates,
         boolean showPhoneOnAds,
         boolean preciseLocation,
-        boolean availableNow) {
+        boolean availableNow,
+        java.time.Instant availableUntil,
+        boolean adLocationSet) {
 }

@@ -46,19 +46,87 @@ export async function getCategories(site) {
  * ({ provinces: ProvinceResponse[], popularAreas: LocationResponse[] }).
  * (cc.vezlist.catalog.web.CatalogController#locations)
  *
- * Public, cacheable (1h), takes no `site` — the location tree is shared by
+ * Public and revalidated, takes no `site` — the location tree is shared by
  * both boards. Each province is `{ id, label, areas: LocationResponse[] }`
- * and each area is `{ id, label, provinceId, provinceLabel, popular }` — a
+ * and each area adds `neighbourhoods: LocationResponse[]`. Rows carry
+ * `{ id, label, type, areaId, areaLabel, provinceId, provinceLabel, popular }` — a
  * real area has an id distinct from its label, which `data/locations.js`'s
  * mock table never needed. Callers that have to turn a chosen area's label
  * back into the id `DiscoverySearchRequest.area()` expects (see
  * `discovery.js`) look it up in the areas this returns.
  */
-export function getLocations() {
-  return api.get("/api/v1/locations");
+export async function getLocations() {
+  // Older releases cached this response for an hour. Reopening the picker must
+  // reach the server even if that old response is still fresh in browser cache.
+  const catalog = await api.get("/api/v1/locations", undefined, { cache: "no-store" });
+  const ids = new Set();
+  const validNode = (node) => {
+    if (
+      !isObject(node) ||
+      !isNonEmptyString(node.id) ||
+      !isNonEmptyString(node.label) ||
+      ids.has(node.id)
+    )
+      return false;
+    ids.add(node.id);
+    return true;
+  };
+  if (
+    !isObject(catalog) ||
+    !Array.isArray(catalog.provinces) ||
+    !catalog.provinces.every(
+      (province) =>
+        validNode(province) &&
+        Array.isArray(province.areas) &&
+        province.areas.every(
+          (area) =>
+            validNode(area) &&
+            (area.neighbourhoods == null ||
+              (Array.isArray(area.neighbourhoods) &&
+                area.neighbourhoods.every(validNode))),
+        ),
+    )
+  ) {
+    throw new ApiError({
+      status: 502,
+      code: "INVALID_LOCATION_CATALOG",
+      message: "Could not load locations. Please try again.",
+    });
+  }
+  return catalog;
 }
 
 /** Search enabled locations by area or province; an empty query returns suggestions. */
 export function searchLocations(query = "", limit = 20) {
-  return api.get("/api/v1/locations/search", { q: query.trim(), limit });
+  return api.get("/api/v1/locations/search", { q: query.trim(), limit }, { cache: "no-store" });
+}
+
+/** Current active ethnicity labels; the server prevents stale HTTP caching. */
+export async function getEthnicities() {
+  const ethnicities = await api.get("/api/v1/ethnicities");
+  const ids = new Set();
+  const labels = new Set();
+  const valid =
+    Array.isArray(ethnicities) &&
+    ethnicities.every((ethnicity) => {
+      if (
+        !isObject(ethnicity) ||
+        !isNonEmptyString(ethnicity.id) ||
+        !isNonEmptyString(ethnicity.label) ||
+        ethnicity.label.length > 80 ||
+        ids.has(ethnicity.id) ||
+        labels.has(ethnicity.label.toLowerCase())
+      )
+        return false;
+      ids.add(ethnicity.id);
+      labels.add(ethnicity.label.toLowerCase());
+      return true;
+    });
+  if (!valid)
+    throw new ApiError({
+      status: 502,
+      code: "INVALID_ETHNICITY_CATALOG",
+      message: "Could not load ethnicities. Please try again.",
+    });
+  return ethnicities;
 }

@@ -1,0 +1,140 @@
+﻿/* Console-only theme. Keep this import in the admin root layout: public boards
+   do not load these overrides. Root variables also reach modal body portals. */
+html[data-admin-theme="light"] {
+  color-scheme: light;
+}
+
+html[data-admin-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #0b1322;
+  --surface: #142033;
+  --ink: #eef4ff;
+  --muted: #abbad0;
+  --line: #5b6e87;
+  --brand: #81b4ff;
+  --brand-strong: #70a8ff;
+  --brand-2: #67d4ff;
+  --brand-soft: #1c3252;
+  --on-brand: #071426;
+  --danger: #fda4af;
+  --danger-soft: #421f2b;
+  --shadow-card:
+    0 1px 2px rgb(0 0 0 / 0.2), 0 12px 28px -16px rgb(0 0 0 / 0.65);
+  --shadow-lift:
+    0 2px 8px rgb(0 0 0 / 0.25), 0 24px 56px -20px rgb(0 0 0 / 0.75);
+  --shadow-sheet: 0 -12px 40px -18px rgb(0 0 0 / 0.7);
+  --shadow-pop: 0 8px 24px -12px rgb(77 142 255 / 0.42);
+  --admin-chart-series: #70a8ff;
+  --admin-chart-active: #34d399;
+  --admin-chart-pending: #fbbf24;
+  --admin-chart-rejected: #fb7185;
+  --admin-chart-expired: #a1afc2;
+  --admin-chart-label: #071426;
+  background-color: var(--canvas);
+}
+
+html[data-admin-theme="dark"] body {
+  background-color: var(--canvas);
+  color: var(--ink);
+}
+
+html[data-admin-theme="dark"] :is(input, select, textarea) {
+  accent-color: var(--brand);
+  caret-color: var(--ink);
+}
+
+html[data-admin-theme="dark"] :is(option, optgroup) {
+  background-color: var(--surface);
+  color: var(--ink);
+}
+
+html[data-admin-theme="dark"] input:-webkit-autofill {
+  -webkit-text-fill-color: var(--ink);
+  caret-color: var(--ink);
+  box-shadow: 0 0 0 1000px var(--surface) inset;
+}
+
+html[data-admin-theme="dark"] ::selection {
+  background-color: var(--brand);
+  color: var(--on-brand);
+}
+
+/* Legacy badge and alert utilities are scoped by exact class, not substring:
+   solid Pass/Block buttons retain their white labels on saturated dark fills. */
+html[data-admin-theme="dark"] :is(.bg-red-50, .bg-red-100) {
+  background-color: var(--danger-soft);
+}
+html[data-admin-theme="dark"]
+  :is(
+    .text-red-500,
+    .text-red-600,
+    .text-red-700,
+    .text-red-800,
+    .text-red-900
+  ) {
+  color: var(--danger);
+}
+html[data-admin-theme="dark"] .border-red-400 {
+  border-color: var(--danger);
+}
+html[data-admin-theme="dark"]
+  :is(.bg-green-50, .bg-green-100, .bg-emerald-50, .bg-emerald-100) {
+  background-color: #153d32;
+}
+html[data-admin-theme="dark"]
+  :is(
+    .text-green-600,
+    .text-green-700,
+    .text-green-800,
+    .text-green-900,
+    .text-emerald-600,
+    .text-emerald-700
+  ) {
+  color: #6ee7b7;
+}
+html[data-admin-theme="dark"] :is(.bg-amber-50, .bg-amber-100) {
+  background-color: #3f321b;
+}
+html[data-admin-theme="dark"]
+  :is(.text-amber-600, .text-amber-700, .text-amber-800, .text-amber-900) {
+  color: #fcd34d;
+}
+html[data-admin-theme="dark"] :is(.bg-blue-50, .bg-blue-100, .bg-sky-100) {
+  background-color: #193753;
+}
+html[data-admin-theme="dark"]
+  :is(.text-blue-600, .text-blue-700, .text-blue-800, .text-sky-700) {
+  color: #93c5fd;
+}
+html[data-admin-theme="dark"] .bg-indigo-100 {
+  background-color: #302c54;
+}
+html[data-admin-theme="dark"] .text-indigo-700 {
+  color: #c4b5fd;
+}
+html[data-admin-theme="dark"] .bg-violet-100 {
+  background-color: #38274f;
+}
+html[data-admin-theme="dark"] .text-violet-700 {
+  color: #d8b4fe;
+}
+html[data-admin-theme="dark"] .bg-slate-200 {
+  background-color: #2a384d;
+}
+html[data-admin-theme="dark"] .text-slate-600 {
+  color: #c2cfe0;
+}
+
+/* White labels need dark enough solid fills even in the dark theme. */
+html[data-admin-theme="dark"] .bg-emerald-600 {
+  background-color: #087c59;
+}
+html[data-admin-theme="dark"]
+  :is(.bg-brand, .bg-brand-strong, .brand-gradient).text-white {
+  color: var(--on-brand);
+}
+
+/* The checked radio dot uses a legacy white fill inside the bright brand ring. */
+html[data-admin-theme="dark"] .bg-brand > .bg-white {
+  background-color: var(--on-brand);
+}

@@ -9,8 +9,12 @@ import FilterSheet from "./FilterSheet";
 import { DEFAULT_FILTERS } from "../lib/filters";
 import { listings, personalsListings } from "../data/mock";
 import { categories } from "../data/mock";
+import { provinces as legacyProvinces } from "../data/locations.js";
 import { setCategories } from "../lib/taxonomy.js";
 
+vi.mock("../hooks/useLocationCatalog.js", () => ({default: () => ({
+  status:"success",retry:vi.fn(),locations:{provinces:legacyProvinces.filter(p=>p.id!=="all").map(p=>({...p,areas:p.areas.map((label,index)=>({id:`${p.id}-${index}`,label,neighbourhoods:[]}))}))},
+})}));
 setCategories(categories);
 
 /**
@@ -262,7 +266,8 @@ describe("FilterSheet", () => {
 
     // Switching province must not carry an area the new province has never
     // heard of into the applied filters.
-    await user.click(within(provinces).getByRole("radio", { name: "Ontario" }));
+    await user.click(screen.getByRole("button", { name: "Change province" }));
+    await user.click(screen.getByRole("radio", { name: "Ontario" }));
     await user.click(applyButton());
     expect(onApply.mock.calls[0][0].cities).toEqual([]);
   });

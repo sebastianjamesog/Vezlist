@@ -20,6 +20,8 @@ import cc.vezlist.identity.application.VezlistUserPrincipal;
 import cc.vezlist.identity.domain.Role;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -112,7 +114,7 @@ class AdminIntegrationTest {
         assertThat(activeListing).isNotNull();
     }
 
-    @Test void adminCanForceRemoveOnlyAnActiveListing() throws Exception {
+    @Test void adminCanRemoveActiveListingsWithoutHardDeletingOrRepeatingTheAction() throws Exception {
         var admin = account(Role.ADMIN);
         var owner = account(Role.USER);
         UUID draft = listing(owner, "MARKETPLACE", "DRAFT");
@@ -128,13 +130,64 @@ class AdminIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_events WHERE listing_id = ? AND event_type = 'LISTING_REMOVED'",
                 Long.class, active)).isEqualTo(1L);
 
-        // Cannot remove twice - no longer ACTIVE.
+        // A terminal listing cannot be removed twice.
         postAs(admin, "/api/v1/admin/listings/" + active + "/remove", Map.of("reason", "Prohibited item"))
                 .andExpect(status().isConflict());
 
-        mvc.perform(get("/api/v1/admin/listings?site=MARKETPLACE&status=REMOVED").with(user(admin)))
+        mvc.perform(get("/api/v1/admin/listings?site=MARKETPLACE&status=REMOVED").param("query", owner.getUsername()).with(user(admin)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].id").value(active.toString()));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ACTIVE", "PENDING_REVIEW"})
+    void removingListingsStillRequiresAnAdminAndAValidReason(String initialStatus) throws Exception {
+        var admin = account(Role.ADMIN);
+        var moderator = account(Role.MODERATOR);
+        var owner = account(Role.USER);
+        UUID listing = listing(owner, "MARKETPLACE", initialStatus);
+        String path = "/api/v1/admin/listings/" + listing + "/remove";
+        postAs(owner, path, Map.of("reason", "Remove my ad")).andExpect(status().isForbidden());
+        postAs(moderator, path, Map.of("reason", "Policy violation")).andExpect(status().isForbidden());
+        postAs(admin, path, Map.of()).andExpect(status().isBadRequest());
+        postAs(admin, path, Map.of("reason", "  ")).andExpect(status().isBadRequest());
+        postAs(admin, path, Map.of("reason", "x".repeat(81))).andExpect(status().isBadRequest());
+        assertThat(jdbc.queryForObject("SELECT status FROM listings WHERE id=?", String.class, listing)).isEqualTo(initialStatus);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_events WHERE listing_id=?", Long.class, listing)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM admin_audit_log WHERE target_id=?", Long.class, listing.toString())).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"MARKETPLACE", "PERSONALS"})
+    void pendingRemovalPreservesTheUnpublishedListingAndRecordsItsReasonAndActor(String site) throws Exception {
+        var admin = account(Role.ADMIN);
+        var owner = account(Role.USER);
+        UUID listing = listing(owner, site, "PENDING_REVIEW");
+        String reason = "Submission violates listing policy";
+        postAs(admin, "/api/v1/admin/listings/" + listing + "/remove", Map.of("reason", reason))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.listing.status").value("REMOVED"));
+        var row = jdbc.queryForMap("SELECT status, moderation_reason, published_at, expires_at FROM listings WHERE id=?", listing);
+        assertThat(row.get("status")).isEqualTo("REMOVED");
+        assertThat(row.get("moderation_reason")).isEqualTo(reason);
+        assertThat(row.get("published_at")).isNull();
+        assertThat(row.get("expires_at")).isNull();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_events WHERE listing_id=? AND event_type='LISTING_REMOVED'", Long.class, listing)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM admin_audit_log WHERE target_id=? AND actor_id=? AND action='LISTING_REMOVED' AND details=?",
+                Long.class, listing.toString(), admin.id(), reason)).isEqualTo(1L);
+        postAs(admin, "/api/v1/admin/listings/" + listing + "/remove", Map.of("reason", reason)).andExpect(status().isConflict());
+        mvc.perform(get("/api/v1/listings/" + listing).param("site", site)).andExpect(status().isNotFound());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"DRAFT", "REJECTED", "EXPIRED", "REMOVED", "DELETED"})
+    void removalRejectsOtherLifecycleStatesWithoutEventsOrAudit(String initialStatus) throws Exception {
+        var admin = account(Role.ADMIN);
+        UUID listing = listing(account(Role.USER), "MARKETPLACE", initialStatus);
+        postAs(admin, "/api/v1/admin/listings/" + listing + "/remove", Map.of("reason", "Policy violation"))
+                .andExpect(initialStatus.equals("DELETED") ? status().isNotFound() : status().isConflict());
+        assertThat(jdbc.queryForObject("SELECT status FROM listings WHERE id=?", String.class, listing)).isEqualTo(initialStatus);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM listing_events WHERE listing_id=?", Long.class, listing)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM admin_audit_log WHERE target_id=?", Long.class, listing.toString())).isZero();
     }
 
     @Test void categoryCrudEnforcesInUseDeleteGuard() throws Exception {

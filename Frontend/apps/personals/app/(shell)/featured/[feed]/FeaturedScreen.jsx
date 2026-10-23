@@ -16,6 +16,7 @@ export default function FeaturedScreen({ title, feed }) {
   const viewer = useAdPopup();
   const [page, setPage] = useState(null);
   const [error, setError] = useState(null);
+  const [now, setNow] = useState(Date.now());
   const trending = feed === "TRENDING";
   const newToday = feed === "NEW_TODAY";
   const available = feed === "AVAILABLE_NOW";
@@ -40,11 +41,21 @@ export default function FeaturedScreen({ title, feed }) {
     };
   }, [refresh, available, viewer.isOpen]);
 
-  const items = page?.items ?? [];
+  useEffect(() => {
+    if (!available) return undefined;
+    const deadline = Math.min(...(page?.items ?? []).map(item => Date.parse(item.availableUntil)).filter(value => value > Date.now()));
+    if (!Number.isFinite(deadline)) return undefined;
+    const timer = setTimeout(() => setNow(Date.now()), Math.max(0, deadline - Date.now()) + 20);
+    return () => clearTimeout(timer);
+  }, [available, page, now]);
+  const loadedItems = page?.items ?? [];
+  const items = available ? loadedItems.filter(item => item.availableNow && Date.parse(item.availableUntil) > now) : loadedItems;
+  const availableTotal = Math.max(items.length, (page?.total ?? 0) - (loadedItems.length - items.length));
   const openAd = (id) =>
     viewer.open(
       id,
       items.map((item) => item.id),
+      { mode: trending ? "vertical" : "detail" },
     );
   const subtitle = available
     ? "Advertisers available now"
@@ -66,9 +77,9 @@ export default function FeaturedScreen({ title, feed }) {
     <>
       <SubPageBar title={title} subtitle={subtitle} fallback="/" />
       <PageBody className="px-4 pb-8 lg:px-8">
-        {available && page?.total > items.length && (
+        {available && availableTotal > items.length && (
           <p className="mb-3 text-sm text-muted">
-            Showing {items.length} of {page.total} available ads.
+            Showing {items.length} of {availableTotal} available ads.
           </p>
         )}
         {error && (

@@ -42,11 +42,18 @@ public record ListingResponse(
         Instant publishedAt,
         Instant expiresAt,
         boolean verified,
-        boolean verificationRequested) {
+        boolean verificationRequested,
+        Long currentPosition,
+        String areaId, String areaLabel, String locationType) {
 
     public static ListingResponse from(Listing listing, List<ListingMediaResponse> media) {
+        return from(listing, media, null);
+    }
+
+    public static ListingResponse from(Listing listing, List<ListingMediaResponse> media, Long currentPosition) {
         Location location = listing.getLocation();
-        Location province = location.getParent();
+        Location province = location.getProvince();
+        Location area = location.getArea();
         return new ListingResponse(
                 listing.getId(), listing.getOwnerId(), listing.getSiteScope(), listing.getStatus(),
                 listing.getTitle(), listing.getBusinessName(), listing.getDescription(), listing.getPrice(),
@@ -55,6 +62,7 @@ public record ListingResponse(
                 listing.getContactEmail(), listing.getContactPhone(), listing.getLatitude(), listing.getLongitude(),
                 listing.getAttributes(), listing.getVersion(), listing.getViewCount(), listing.getSaveCount(), media,
                 listing.getCreatedAt(), listing.getUpdatedAt(), listing.getSubmittedAt(),
-                listing.getPublishedAt(), listing.getExpiresAt(), listing.isVerified(), listing.isVerificationRequested());
+                listing.getPublishedAt(), listing.getExpiresAt(), listing.isVerified(), listing.isVerificationRequested(), currentPosition,
+                area.getId(), area.getLabel(), location.getType().name());
     }
 }

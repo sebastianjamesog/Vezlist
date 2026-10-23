@@ -43,8 +43,10 @@ public class ApiAccessDeniedHandler implements AccessDeniedHandler {
         if (traceId == null) {
             traceId = request.getHeader(TraceIdFilter.REQUEST_ID_HEADER);
         }
+        boolean csrf = exception instanceof org.springframework.security.web.csrf.CsrfException;
         ApiError body = new ApiError(
-                "FORBIDDEN", "You do not have permission to perform this action.",
+                csrf ? "CSRF_INVALID" : "FORBIDDEN",
+                csrf ? "Your security token has expired. Please try again." : "You do not have permission to perform this action.",
                 List.of(), traceId, Instant.now());
         response.setStatus(HttpStatus.FORBIDDEN.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);

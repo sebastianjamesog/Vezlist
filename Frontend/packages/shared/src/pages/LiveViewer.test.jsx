@@ -1,9 +1,31 @@
 import { beforeEach, expect, test, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { setRoute } from "../../../../testing/stubs/next-navigation.js";
 import { getLiveSession } from "../lib/api/live";
 import LiveViewer from "./LiveViewer";
 vi.mock("../lib/api/live", () => ({ getLiveSession: vi.fn() }));
+const auth = { signedIn: false, user: null };
+const saved = { isSaved: vi.fn(() => false), toggle: vi.fn() };
+vi.mock("../context/AuthContext", () => ({ useAuth: () => auth }));
+vi.mock("../context/SavedContext", () => ({ useSaved: () => saved }));
+vi.mock("../components/ReportDialog", () => ({
+  default: ({ open, targetType, targetId }) =>
+    open ? (
+      <div
+        role="dialog"
+        aria-label="Report linked ad"
+        data-target-type={targetType}
+      >
+        {targetId}
+      </div>
+    ) : null,
+}));
 vi.mock("../components/live/LivePlayer", () => ({
   default: ({ playbackUrl, immersive }) => (
     <div data-testid="live-player" data-immersive={immersive}>
@@ -12,7 +34,12 @@ vi.mock("../components/live/LivePlayer", () => ({
   ),
 }));
 vi.mock("../components/live/LiveChat", () => ({
-  default: ({ overlay }) => <div data-overlay={overlay}>Live chat</div>,
+  default: ({ overlay, composerAction }) => (
+    <div>
+      <div data-overlay={overlay}>Live chat</div>
+      {composerAction}
+    </div>
+  ),
 }));
 const session = {
   id: "session-1",
@@ -29,6 +56,10 @@ const session = {
 beforeEach(() => {
   setRoute({ path: "/live/session-1", params: { id: "session-1" } });
   getLiveSession.mockReset().mockResolvedValue(session);
+  auth.signedIn = false;
+  auth.user = null;
+  saved.isSaved.mockReset().mockReturnValue(false);
+  saved.toggle.mockReset().mockResolvedValue(undefined);
 });
 test("guests can view real playback and only enabled payment details", async () => {
   render(<LiveViewer />);
@@ -42,8 +73,11 @@ test("guests can view real playback and only enabled payment details", async () 
   expect(screen.getByTestId("live-player").getAttribute("data-immersive")).toBe(
     "true",
   );
+  expect(screen.getByText("Free to watch")).toBeTruthy();
+  expect(screen.queryByText("creator@example.com")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Payment details" }));
   expect(
-    screen.getByText("Watching is free. Join the conversation above."),
+    screen.getByRole("dialog", { name: "Pay the creator directly" }),
   ).toBeTruthy();
   expect(screen.getByText("creator@example.com")).toBeTruthy();
   expect(screen.getByRole("link", { name: "Alex" }).getAttribute("href")).toBe(
@@ -96,4 +130,96 @@ test("failed public load keeps an error and retry instead of inventing a stream"
     expect.stringContaining("Session unavailable"),
   );
   expect(screen.queryByTestId("live-player")).toBeNull();
+});
+
+test("immersive header shows actual location and close, without invented follow or live reactions", async () => {
+  getLiveSession.mockResolvedValue({
+    ...session,
+    location: "Toronto, Ontario",
+    startedAt: new Date(Date.now() - 120000).toISOString(),
+  });
+  render(<LiveViewer />);
+  await screen.findByTestId("live-player");
+  expect(screen.getByText("Toronto, Ontario")).toBeTruthy();
+  expect(
+    screen
+      .getByRole("link", { name: "Back to live directory" })
+      .getAttribute("href"),
+  ).toBe("/live");
+  expect(screen.getByText(/Started 2 minutes ago/)).toBeTruthy();
+  expect(
+    screen.queryByRole("button", { name: /Follow|Like live|Report live/ }),
+  ).toBeNull();
+  expect(screen.queryByRole("button", { name: /Save linked ad/ })).toBeNull();
+});
+
+test("linked ad heart and report respect guest sign-in and real signed-in actions", async () => {
+  getLiveSession.mockResolvedValue({ ...session, listingId: "linked-ad" });
+  const view = render(<LiveViewer />);
+  await screen.findByTestId("live-player");
+  expect(
+    screen
+      .getByRole("link", { name: "Sign in to save linked ad" })
+      .getAttribute("href"),
+  ).toContain("/login?next=");
+  expect(
+    screen.getByRole("link", { name: "Sign in to report linked ad" }),
+  ).toBeTruthy();
+  auth.signedIn = true;
+  auth.user = { id: "viewer" };
+  view.rerender(<LiveViewer />);
+  fireEvent.click(screen.getByRole("button", { name: "Save linked ad" }));
+  await waitFor(() => expect(saved.toggle).toHaveBeenCalledWith("linked-ad"));
+  fireEvent.click(screen.getByRole("button", { name: "Report linked ad" }));
+  expect(
+    screen
+      .getByRole("dialog", { name: "Report linked ad" })
+      .getAttribute("data-target-type"),
+  ).toBe("listing");
+  expect(screen.getByText("linked-ad")).toBeTruthy();
+});
+
+test("save failure is visible and the heart cannot issue duplicate writes while pending", async () => {
+  auth.signedIn = true;
+  auth.user = { id: "viewer" };
+  getLiveSession.mockResolvedValue({ ...session, listingId: "linked-ad" });
+  let reject;
+  saved.toggle.mockReturnValue(
+    new Promise((resolve, no) => {
+      reject = no;
+    }),
+  );
+  render(<LiveViewer />);
+  await screen.findByTestId("live-player");
+  const heart = screen.getByRole("button", { name: "Save linked ad" });
+  fireEvent.click(heart);
+  fireEvent.click(heart);
+  expect(saved.toggle).toHaveBeenCalledTimes(1);
+  await act(async () => reject(new Error("Save failed")));
+  expect(screen.getByRole("alert").textContent).toContain("Save failed");
+  expect(heart.disabled).toBe(false);
+});
+
+test("server time protects a live session from client clock skew and nullable viewers stay unknown", async () => {
+  vi.spyOn(Date, "now").mockReturnValue(Date.parse("2030-01-01T00:00:00Z"));
+  getLiveSession.mockResolvedValue({
+    ...session,
+    serverTime: "2026-10-24T12:00:00Z",
+    endsAt: "2026-10-24T12:10:00Z",
+    viewerCount: null,
+  });
+  render(<LiveViewer />);
+  expect(await screen.findByTestId("live-player")).toBeTruthy();
+  expect(screen.queryByText("This live session has ended")).toBeNull();
+  expect(
+    screen.getByLabelText("Viewer count unavailable").textContent,
+  ).toContain("\u2014");
+  getLiveSession.mockResolvedValue({
+    ...session,
+    serverTime: "2026-10-24T12:01:00Z",
+    endsAt: "2026-10-24T12:10:00Z",
+    viewerCount: 7,
+  });
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(screen.getByLabelText("7 viewers")).toBeTruthy();
 });

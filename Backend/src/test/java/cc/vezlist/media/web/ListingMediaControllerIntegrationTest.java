@@ -262,7 +262,16 @@ class ListingMediaControllerIntegrationTest {
                 "acceptedTerms", true), headers(header, token, csrfCookies, null));
         ResponseEntity<Map> registration = rest.postForEntity(url("/api/v1/auth/register"), request, Map.class);
         assertThat(registration.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        return new Session(header, token, mergeCookies(csrfCookies, cookies(registration.getHeaders())));
+        String authenticatedCookies = mergeCookies(csrfCookies, cookies(registration.getHeaders()));
+        HttpHeaders csrfHeaders = new HttpHeaders();
+        csrfHeaders.set(HttpHeaders.COOKIE, authenticatedCookies);
+        ResponseEntity<Map> authenticatedCsrf = rest.exchange(url("/api/v1/auth/csrf"), HttpMethod.GET,
+                new HttpEntity<>(csrfHeaders), Map.class);
+        assertThat(authenticatedCsrf.getStatusCode()).isEqualTo(HttpStatus.OK);
+        header = (String) authenticatedCsrf.getBody().get("headerName");
+        token = (String) authenticatedCsrf.getBody().get("token");
+        authenticatedCookies = mergeCookies(authenticatedCookies, cookies(authenticatedCsrf.getHeaders()));
+        return new Session(header, token, authenticatedCookies);
     }
 
     private <T> ResponseEntity<T> exchange(
@@ -305,8 +314,18 @@ class ListingMediaControllerIntegrationTest {
     }
 
     private String mergeCookies(String... cookieHeaders) {
-        return List.of(cookieHeaders).stream()
-                .filter(value -> value != null && !value.isBlank())
+        Map<String, String> jar = new java.util.LinkedHashMap<>();
+        for (String header : cookieHeaders) {
+            if (header == null || header.isBlank()) continue;
+            for (String pair : header.split("; ")) {
+                int equals = pair.indexOf('=');
+                String name = pair.substring(0, equals);
+                String value = pair.substring(equals + 1);
+                if (value.isBlank()) jar.remove(name);
+                else jar.put(name, value);
+            }
+        }
+        return jar.entrySet().stream().map(entry -> entry.getKey() + "=" + entry.getValue())
                 .collect(Collectors.joining("; "));
     }
 

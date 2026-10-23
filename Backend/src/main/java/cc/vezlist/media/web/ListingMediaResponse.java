@@ -16,7 +16,8 @@ public record ListingMediaResponse(
         boolean cover,
         String url,
         String rejectionReason,
-        Instant readyAt) {
+        Instant readyAt,
+        boolean verified) {
 
     public static ListingMediaResponse from(ListingMedia media, String url) {
         return new ListingMediaResponse(
@@ -29,6 +30,7 @@ public record ListingMediaResponse(
                 media.getPosition() == 0,
                 url,
                 media.getRejectionReason(),
-                media.getReadyAt());
+                media.getReadyAt(),
+                media.isPhotoVerified());
     }
 }

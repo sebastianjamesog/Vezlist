@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { ToastProvider } from "../context/ToastContext.jsx";
 import AdDetail from "../pages/AdDetail.jsx";
+import TrendingAdViewer from "./TrendingAdViewer.jsx";
 import { getListingDetail } from "../lib/api/discovery.js";
 import { SITE_SCOPE } from "../lib/api/client.js";
 
@@ -14,17 +15,21 @@ const CONTROL =
 /** Opt-in only: the originating feed stays mounted behind the popup. */
 export function useAdPopup() {
   const [selection, setSelection] = useState(null);
-  function open(id, ids) {
+  function open(id, ids, { mode = "detail" } = {}) {
     const snapshot = [...new Set(ids.filter(Boolean))];
     const index = snapshot.indexOf(id);
-    if (index >= 0) setSelection({ ids: snapshot, index });
+    if (index >= 0) setSelection({ ids: snapshot, index, mode });
   }
   return {
     open,
     isOpen: selection !== null,
-    popup: selection && (
-      <AdPopup {...selection} onClose={() => setSelection(null)} />
-    ),
+    popup:
+      selection &&
+      (selection.mode === "vertical" ? (
+        <TrendingAdViewer {...selection} onClose={() => setSelection(null)} />
+      ) : (
+        <AdPopup {...selection} onClose={() => setSelection(null)} />
+      )),
   };
 }
 

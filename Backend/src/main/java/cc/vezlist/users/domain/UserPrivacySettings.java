@@ -33,6 +33,11 @@ public class UserPrivacySettings {
     @Column(name = "precise_location", nullable = false)
     private boolean preciseLocation;
 
+    @Column(name = "ad_latitude")
+    private Double adLatitude;
+    @Column(name = "ad_longitude")
+    private Double adLongitude;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -62,6 +67,14 @@ public class UserPrivacySettings {
         this.showPhoneOnAds = showPhoneOnAds;
         this.preciseLocation = preciseLocation;
     }
+
+    public void setAdLocation(Double latitude, Double longitude) {
+        adLatitude = latitude;
+        adLongitude = longitude;
+        preciseLocation = latitude != null;
+    }
+    public Double getAdLatitude() { return adLatitude; }
+    public Double getAdLongitude() { return adLongitude; }
 
     public boolean isShowPhoneOnAds() { return showPhoneOnAds; }
     public boolean isPreciseLocation() { return preciseLocation; }

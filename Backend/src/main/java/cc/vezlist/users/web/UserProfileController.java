@@ -27,16 +27,19 @@ import org.springframework.web.bind.annotation.RestController;
 public class UserProfileController {
 
     private final UserProfileService profileService;
+    private final cc.vezlist.users.application.AdLocationService adLocation;
     private final IdentityService identityService;
     private final AuthenticatedSessionService sessionService;
     private final SecurityEventService securityEvents;
 
     public UserProfileController(
             UserProfileService profileService,
+            cc.vezlist.users.application.AdLocationService adLocation,
             IdentityService identityService,
             AuthenticatedSessionService sessionService,
             SecurityEventService securityEvents) {
         this.profileService = profileService;
+        this.adLocation = adLocation;
         this.identityService = identityService;
         this.sessionService = sessionService;
         this.securityEvents = securityEvents;
@@ -54,7 +57,12 @@ public class UserProfileController {
             HttpServletRequest httpRequest) {
         UserProfileDetails result = profileService.updateProfile(
                 principal.id(), request.name(), request.email(), request.phone(), request.location(), request.bio());
-        sessionService.replacePrincipal(identityService.loadUserById(principal.id()), httpRequest);
+        VezlistUserPrincipal updated = identityService.loadUserById(principal.id());
+        if (!principal.email().equals(updated.email())) {
+            sessionService.revokeOtherSessions(principal.email(), httpRequest.getSession().getId());
+            httpRequest.changeSessionId();
+        }
+        sessionService.replacePrincipal(updated, httpRequest);
         return result;
     }
 
@@ -72,6 +80,13 @@ public class UserProfileController {
                 request.showPhoneOnAds(), request.preciseLocation(), request.availableNow());
     }
 
+    @PatchMapping("/ad-location")
+    UserPreferenceDetails updateAdLocation(@AuthenticationPrincipal VezlistUserPrincipal principal,
+            @Valid @RequestBody AdLocationRequest request) {
+        adLocation.setLocation(principal.id(), request.latitude(), request.longitude());
+        return profileService.getPreferences(principal.id());
+    }
+
     @PatchMapping("/password")
     ResponseEntity<Void> changePassword(
             @AuthenticationPrincipal VezlistUserPrincipal principal,
@@ -86,6 +101,7 @@ public class UserProfileController {
         }
         String currentSessionId = httpRequest.getSession(false).getId();
         sessionService.revokeOtherSessions(principal.email(), currentSessionId);
+        httpRequest.changeSessionId();
         sessionService.replacePrincipal(identityService.loadUserById(principal.id()), httpRequest);
         securityEvents.record(SecurityEventType.PASSWORD_CHANGED, principal.id(), principal.email(), httpRequest, null);
         return ResponseEntity.noContent().build();

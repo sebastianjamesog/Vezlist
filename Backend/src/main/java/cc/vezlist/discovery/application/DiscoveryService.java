@@ -9,6 +9,9 @@ import java.util.Locale;
 import java.util.function.Supplier;
 
 import cc.vezlist.discovery.domain.DiscoverySort;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import cc.vezlist.shared.domain.SiteScope;
 import cc.vezlist.discovery.domain.PostedWithin;
 import cc.vezlist.discovery.persistence.DiscoveryRepository;
 import cc.vezlist.discovery.persistence.DiscoveryRepository.DiscoveryRow;
@@ -34,16 +37,18 @@ public class DiscoveryService {
     private final DiscoveryCursorCodec cursors;
     private final ObjectStorage storage;
     private final MeterRegistry metrics;
+    private final ObjectMapper objectMapper;
 
     public DiscoveryService(
             DiscoveryRepository repository,
             DiscoveryCursorCodec cursors,
             ObjectStorage storage,
-            MeterRegistry metrics) {
+            MeterRegistry metrics, ObjectMapper objectMapper) {
         this.repository = repository;
         this.cursors = cursors;
         this.storage = storage;
         this.metrics = metrics;
+        this.objectMapper = objectMapper;
     }
 
     @Transactional(readOnly = true)
@@ -76,7 +81,7 @@ public class DiscoveryService {
                 request.site(), request.q(), request.category(), request.province(), request.area(),
                 request.minPrice(), request.maxPrice(), request.verifiedOnly(), request.postedWithin(),
                 DiscoverySort.NEAREST, request.latitude(), request.longitude(), request.radiusKm(),
-                null, request.limit(), null);
+                null, request.limit(), null, null);
         PreparedQuery prepared = prepare(searchRequest, true);
         DiscoveryCriteria criteria = prepared.criteria();
         return timed("map", criteria, () -> repository.mapPins(criteria).stream()
@@ -92,6 +97,8 @@ public class DiscoveryService {
         PostedWithin postedWithin = request.postedWithin() == null ? PostedWithin.ANY : request.postedWithin();
         List<String> categoryIds = normalizeIds(request.category(), 10, "categories");
         List<String> areaIds = normalizeIds(request.area(), 20, "areas");
+        List<String> ethnicities = normalizeEthnicities(request.ethnicities());
+        if (request.site() != SiteScope.PERSONALS) ethnicities = List.of();
         String query = normalize(request.q());
         String province = normalizeId(request.province());
         int limit = request.limit() == null
@@ -121,7 +128,7 @@ public class DiscoveryService {
         }
 
         String canonical = String.join("|",
-                request.site().name(),
+                "location-hierarchy-v2", request.site().name(),
                 value(query),
                 String.join(",", categoryIds),
                 value(province),
@@ -134,7 +141,8 @@ public class DiscoveryService {
                 sort.name(),
                 number(request.latitude()),
                 number(request.longitude()),
-                number(request.radiusKm()));
+                number(request.radiusKm()),
+                encodeEthnicities(ethnicities));
         String fingerprint = cursors.fingerprint(canonical);
         Instant asOf = Instant.now();
         DiscoveryCursorCodec.CursorAnchor cursor = null;
@@ -149,7 +157,7 @@ public class DiscoveryService {
                 request.minPrice(), request.maxPrice(), Boolean.TRUE.equals(request.verifiedOnly()),
                 Boolean.TRUE.equals(request.availableOnly()),
                 postedWithin, sort, request.latitude(), request.longitude(), request.radiusKm(),
-                limit, asOf, cursor);
+                limit, asOf, cursor, ethnicities);
         return new PreparedQuery(criteria, fingerprint);
     }
 
@@ -161,7 +169,32 @@ public class DiscoveryService {
                 row.id(), row.site(), row.title(), row.businessName(), row.price(),
                 row.categoryId(), row.categoryLabel(), row.provinceId(), row.provinceLabel(),
                 row.locationId(), row.locationLabel(), row.latitude(), row.longitude(), row.distanceKm(),
-                row.verified(), imageUrl, row.photoCount(), row.publishedAt(), row.viewCount());
+                row.verified(), imageUrl, row.photoCount(), row.publishedAt(), row.viewCount(), row.availableNow(), row.availableUntil());
+    }
+
+    private List<String> normalizeEthnicities(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        try {
+            var values = objectMapper.readTree(raw);
+            if (values == null || !values.isArray() || values.size() > 20) {
+                throw new DiscoveryQueryInvalidException("Ethnicities must be a JSON array of at most 20 labels.");
+            }
+            List<String> result = new ArrayList<>();
+            for (var value : values) {
+                if (!value.isTextual() || value.asText().isBlank() || value.asText().length() > 80) {
+                    throw new DiscoveryQueryInvalidException("Each ethnicity must be a nonblank label of at most 80 characters.");
+                }
+                result.add(value.asText().strip().toLowerCase(Locale.ROOT));
+            }
+            return result.stream().distinct().sorted().toList();
+        } catch (JsonProcessingException exception) {
+            throw new DiscoveryQueryInvalidException("Ethnicities must be a JSON array of labels.");
+        }
+    }
+
+    private String encodeEthnicities(List<String> values) {
+        try { return objectMapper.writeValueAsString(values); }
+        catch (JsonProcessingException exception) { throw new IllegalStateException(exception); }
     }
 
     private List<String> normalizeIds(List<String> raw, int maximum, String label) {

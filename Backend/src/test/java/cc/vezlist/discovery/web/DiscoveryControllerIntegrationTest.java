@@ -297,7 +297,7 @@ class DiscoveryControllerIntegrationTest {
         String endpoint = url("/api/v1/personals/featured?feed=AVAILABLE_NOW");
         assertThat(items(rest.getForEntity(endpoint, Map.class))).isEmpty();
 
-        jdbc.update("UPDATE user_preferences SET available_now = TRUE WHERE user_id = ?", owner);
+        jdbc.update("UPDATE user_preferences SET available_now = TRUE, available_until = now() + interval '20 minutes' WHERE user_id = ?", owner);
         ResponseEntity<Map> enabled = rest.getForEntity(endpoint, Map.class);
         assertThat(enabled.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(enabled.getBody()).containsEntry("total", 1);
@@ -317,9 +317,28 @@ class DiscoveryControllerIntegrationTest {
     }
 
     @Test
+    void expiredAvailabilityDisappearsFromPreviewDirectoryAndDiscoveryWithoutAJob() {
+        UUID owner = user(false);
+        jdbc.update("INSERT INTO user_preferences(user_id, available_now, available_until) VALUES (?, TRUE, now() - interval '1 second')", owner);
+        UUID id = listing(owner, "PERSONALS", "ACTIVE", "Expired availability", "Creator", 50,
+                "personals", "bc", "bc-1", Instant.now().minusSeconds(60), null, null);
+        for (String suffix : List.of("", "&all=true")) {
+            ResponseEntity<Map> page = rest.getForEntity(url("/api/v1/personals/featured?feed=AVAILABLE_NOW" + suffix), Map.class);
+            assertThat(page.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(items(page)).isEmpty();
+        }
+        ResponseEntity<Map> available = rest.getForEntity(url("/api/v1/listings?site=PERSONALS&availableOnly=true"), Map.class);
+        assertThat(available.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(items(available)).isEmpty();
+        ResponseEntity<Map> all = rest.getForEntity(url("/api/v1/listings?site=PERSONALS"), Map.class);
+        assertThat(items(all)).filteredOn(card -> id.toString().equals(card.get("id")))
+                .allSatisfy(card -> assertThat(card).containsEntry("availableNow", false));
+    }
+
+    @Test
     void availablePreviewCountsAllEligibleAdsAndExcludesInactiveOwnersAndListings() {
         UUID owner = user(false);
-        jdbc.update("INSERT INTO user_preferences(user_id, available_now) VALUES (?, TRUE)", owner);
+        jdbc.update("INSERT INTO user_preferences(user_id, available_now, available_until) VALUES (?, TRUE, now() + interval '20 minutes')", owner);
         Instant published = Instant.now().minusSeconds(3600);
         for (int i = 0; i < 7; i++) {
             listing(owner, "PERSONALS", "ACTIVE", "Available " + i, "Creator", 50,
@@ -333,7 +352,7 @@ class DiscoveryControllerIntegrationTest {
                 "personals", "bc", "bc-1", published, null, null);
         jdbc.update("UPDATE listings SET expires_at = now() - interval '1 minute' WHERE id = ?", expired);
         UUID disabledOwner = user(false);
-        jdbc.update("INSERT INTO user_preferences(user_id, available_now) VALUES (?, TRUE)", disabledOwner);
+        jdbc.update("INSERT INTO user_preferences(user_id, available_now, available_until) VALUES (?, TRUE, now() + interval '20 minutes')", disabledOwner);
         listing(disabledOwner, "PERSONALS", "ACTIVE", "Disabled owner", "Creator", 50,
                 "personals", "bc", "bc-1", published, null, null);
         jdbc.update("UPDATE app_users SET enabled = FALSE WHERE id = ?", disabledOwner);

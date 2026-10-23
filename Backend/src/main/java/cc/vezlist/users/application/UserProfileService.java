@@ -28,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserProfileService {
 
     private final UserRepository users;
+    private final AdLocationService adLocation;
     private final UserProfileRepository profiles;
     private final UserPreferencesRepository preferences;
     private final UserPrivacySettingsRepository privacySettings;
@@ -37,6 +38,7 @@ public class UserProfileService {
 
     public UserProfileService(
             UserRepository users,
+            AdLocationService adLocation,
             UserProfileRepository profiles,
             UserPreferencesRepository preferences,
             UserPrivacySettingsRepository privacySettings,
@@ -44,6 +46,7 @@ public class UserProfileService {
             PasswordEncoder passwordEncoder,
             NotificationPublisher notifications) {
         this.users = users;
+        this.adLocation = adLocation;
         this.profiles = profiles;
         this.preferences = preferences;
         this.privacySettings = privacySettings;
@@ -104,12 +107,15 @@ public class UserProfileService {
             boolean showPhoneOnAds,
             boolean preciseLocation,
             Boolean availableNow) {
-        User user = requireUser(userId);
+        User user = users.findByIdForUpdate(userId).orElseThrow(() -> new UsernameNotFoundException("User account was not found."));
         UserPreferences userPreferences = preferences.findById(userId)
                 .orElseGet(() -> new UserPreferences(user));
         UserPrivacySettings privacy = privacySettings.findById(userId)
                 .orElseGet(() -> new UserPrivacySettings(user));
         userPreferences.update(pushNotifications, emailUpdates, availableNow);
+        if (!preciseLocation && privacy.isPreciseLocation()) {
+            adLocation.setLocation(userId, null, null);
+        }
         privacy.update(showPhoneOnAds, preciseLocation);
         preferences.save(userPreferences);
         privacySettings.save(privacy);
@@ -160,6 +166,6 @@ public class UserProfileService {
                 userPreferences.isEmailUpdates(),
                 privacy.isShowPhoneOnAds(),
                 privacy.isPreciseLocation(),
-                userPreferences.isAvailableNow());
+                userPreferences.isAvailableNow(), userPreferences.getAvailableUntil(), privacy.getAdLatitude() != null);
     }
 }

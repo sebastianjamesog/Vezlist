@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { useFeed } from "./FeedContext";
 import { usePersistedObject } from "../lib/persisted";
 import { cookieStore } from "../lib/cookieStore";
-import { ALL_CANADA, LOCATION_KEY, provinceById } from "../data/locations";
+import { ALL_CANADA, LOCATION_KEY } from "../data/locations";
 
 /** Start across Canada; remember only a location the visitor explicitly chose.
  * Legacy cookies may contain a timezone guess, so they are intentionally ignored.
@@ -48,7 +48,7 @@ export default function LocationSync() {
       const storedProvince =
         saved?.source === "manual" &&
         typeof saved.province === "string" &&
-        provinceById(saved.province).id === saved.province
+        /^[A-Za-z0-9_-]{1,40}$/.test(saved.province)
           ? saved.province
           : null;
 

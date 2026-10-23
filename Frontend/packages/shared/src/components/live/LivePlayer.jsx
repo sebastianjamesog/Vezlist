@@ -1,6 +1,13 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { LoaderCircle, Pause, Play, Volume2, VolumeX } from "lucide-react";
+import {
+  LoaderCircle,
+  Pause,
+  Play,
+  SlidersHorizontal,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 
 export default function LivePlayer({
   playbackUrl,
@@ -125,6 +132,7 @@ export default function LivePlayer({
     }
   }
 
+  const Controls = immersive ? "details" : "div";
   return (
     <div
       className={
@@ -153,7 +161,7 @@ export default function LivePlayer({
           setError("Live video is temporarily unavailable. Try reconnecting.");
           setLoading(false);
         }}
-        className="absolute inset-0 size-full object-contain"
+        className={`absolute inset-0 size-full ${immersive ? "object-cover" : "object-contain"}`}
       />
       {!immersive && (
         <span className="absolute left-3 top-3 rounded-full bg-rose-600 px-3 py-1 text-xs font-extrabold text-white">
@@ -192,41 +200,61 @@ export default function LivePlayer({
           </button>
         </div>
       )}
-      <div
+      <Controls
         className={
           immersive
-            ? "absolute inset-x-3 top-24 z-20 flex items-center justify-end gap-2"
-            : "absolute bottom-3 left-3 right-3 flex items-center gap-2"
+            ? "absolute left-4 top-[88px] z-20"
+            : "absolute bottom-3 left-3 right-3"
         }
       >
-        <button
-          onClick={togglePlayback}
-          aria-label={paused ? "Play live video" : "Pause live video"}
-          className="grid size-11 place-items-center rounded-full border border-white/15 bg-black/50 text-white backdrop-blur-sm focus-visible:outline-2 focus-visible:outline-white"
+        {immersive && (
+          <summary
+            aria-label="Video controls"
+            className="grid size-11 cursor-pointer list-none place-items-center rounded-full border border-white/20 bg-black/40 text-white backdrop-blur-md [&::-webkit-details-marker]:hidden"
+          >
+            <SlidersHorizontal className="size-5" />
+          </summary>
+        )}
+        <div
+          className={
+            immersive
+              ? "mt-2 flex items-center gap-2 rounded-full bg-black/70 p-2"
+              : "flex items-center gap-2"
+          }
         >
-          {paused ? <Play className="size-5" /> : <Pause className="size-5" />}
-        </button>
-        <button
-          onClick={() => setMuted((value) => !value)}
-          aria-label={muted ? "Turn sound on" : "Mute live video"}
-          className="grid size-11 place-items-center rounded-full border border-white/15 bg-black/50 text-white backdrop-blur-sm focus-visible:outline-2 focus-visible:outline-white"
-        >
-          {muted ? (
-            <VolumeX className="size-5" />
-          ) : (
-            <Volume2 className="size-5" />
-          )}
-        </button>
-        <button
-          onClick={() => {
-            catchUp();
-            video.current?.play().catch(() => setPaused(true));
-          }}
-          className={`${immersive ? "" : "ml-auto"} min-h-10 rounded-full border border-white/15 bg-black/50 px-3 py-2 text-xs font-semibold text-white backdrop-blur-sm focus-visible:outline-2 focus-visible:outline-white`}
-        >
-          Back to live
-        </button>
-      </div>
+          <button
+            onClick={togglePlayback}
+            aria-label={paused ? "Play live video" : "Pause live video"}
+            className="grid size-11 place-items-center rounded-full border border-white/15 bg-black/50 text-white backdrop-blur-sm focus-visible:outline-2 focus-visible:outline-white"
+          >
+            {paused ? (
+              <Play className="size-5" />
+            ) : (
+              <Pause className="size-5" />
+            )}
+          </button>
+          <button
+            onClick={() => setMuted((value) => !value)}
+            aria-label={muted ? "Turn sound on" : "Mute live video"}
+            className="grid size-11 place-items-center rounded-full border border-white/15 bg-black/50 text-white backdrop-blur-sm focus-visible:outline-2 focus-visible:outline-white"
+          >
+            {muted ? (
+              <VolumeX className="size-5" />
+            ) : (
+              <Volume2 className="size-5" />
+            )}
+          </button>
+          <button
+            onClick={() => {
+              catchUp();
+              video.current?.play().catch(() => setPaused(true));
+            }}
+            className={`${immersive ? "" : "ml-auto"} min-h-10 rounded-full border border-white/15 bg-black/50 px-3 py-2 text-xs font-semibold text-white backdrop-blur-sm focus-visible:outline-2 focus-visible:outline-white`}
+          >
+            Back to live
+          </button>
+        </div>
+      </Controls>
     </div>
   );
 }

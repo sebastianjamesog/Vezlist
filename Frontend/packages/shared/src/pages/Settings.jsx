@@ -23,15 +23,7 @@ import { settingsGroups } from "../data/mock";
 import * as usersApi from "../lib/api/users";
 import { ApiError } from "../lib/api/client";
 
-/**
- * The only four toggles in `settingsGroups` the backend actually has a field
- * for (UserPreferenceDetails: pushNotifications, emailUpdates,
- * showPhoneOnAds, preciseLocation). `contactEmail` (whether an email shows on
- * an ad) and `available` (personals "available now") have no server-side
- * counterpart yet, so those two stay exactly what they were — a per-device
- * preference in `usePersistedObject` — while these four are read from and
- * written to `GET`/`PATCH /api/v1/me/preferences`.
- */
+/** Account-backed settings are read and written through the preferences API. */
 const BACKEND_TOGGLE_KEYS = {
   push: "pushNotifications",
   email: "emailUpdates",
@@ -118,6 +110,13 @@ export default function Settings() {
   const [serverPrefs, setServerPrefs] = useState(null);
   const [prefsError, setPrefsError] = useState(null);
   const [prefsPending, setPrefsPending] = useState(null);
+  const [clock, setClock] = useState(Date.now());
+  const [locationConfirm, setLocationConfirm] = useState(false);
+  const available = !!serverPrefs?.availableNow && (!serverPrefs.availableUntil || Date.parse(serverPrefs.availableUntil) > clock);
+  useEffect(() => {
+    const timer = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
   const toggles = {
     ...DEFAULT_TOGGLES,
     ...stored,
@@ -126,7 +125,7 @@ export default function Settings() {
       email: serverPrefs.emailUpdates,
       phone: serverPrefs.showPhoneOnAds,
       location: serverPrefs.preciseLocation,
-      available: serverPrefs.availableNow,
+      available,
     }),
   };
   const [confirm, setConfirm] = useState(null);
@@ -146,25 +145,49 @@ export default function Settings() {
   }, []);
 
   async function toggleBacked(id) {
-    if (!serverPrefs) return;
+    if (!serverPrefs || prefsPending) return;
+    if (id === "location" && !serverPrefs.preciseLocation) {
+      setLocationConfirm(true);
+      return;
+    }
     const next = {
       pushNotifications: serverPrefs.pushNotifications,
       emailUpdates: serverPrefs.emailUpdates,
       showPhoneOnAds: serverPrefs.showPhoneOnAds,
       preciseLocation: serverPrefs.preciseLocation,
-      availableNow: serverPrefs.availableNow,
+      ...(id === "available" ? { availableNow: available } : {}),
     };
     const key = BACKEND_TOGGLE_KEYS[id];
     next[key] = !next[key];
     setPrefsPending(id);
     try {
       const saved = await usersApi.updatePreferences(next);
+      setClock(Date.now());
       setServerPrefs(saved);
       toast(
         `${settingsGroups.flatMap((g) => g.items).find((i) => i.id === id)?.label ?? "Preference"} ${next[key] ? "on" : "off"}`,
       );
     } catch (error) {
       toast(messageFor(error));
+    } finally {
+      setPrefsPending(null);
+    }
+  }
+
+  async function shareAdLocation() {
+    if (prefsPending) return;
+    setLocationConfirm(false);
+    setPrefsPending("location");
+    try {
+      if (!navigator.geolocation) throw new Error("Your browser cannot share location.");
+      const position = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true, maximumAge: 0, timeout: 15000,
+      }));
+      const saved = await usersApi.updateAdLocation({ latitude: position.coords.latitude, longitude: position.coords.longitude });
+      setServerPrefs(saved);
+      toast("Map location saved for your ads.");
+    } catch (error) {
+      toast(error.code === 1 ? "Allow location access in your browser, then try again." : "Could not save your location. Please try again.");
     } finally {
       setPrefsPending(null);
     }
@@ -200,6 +223,9 @@ export default function Settings() {
   return (
     <>
       <SubPageBar title="Account Settings" fallback="/profile" />
+      <ConfirmDialog open={locationConfirm} title="Share your ad location?"
+        body="Your current location will be visible on the map for all your existing and future ads on both boards. Only continue if this is where you want customers to find your ads. You can turn this off anytime."
+        confirmLabel="Use my location" onConfirm={shareAdLocation} onClose={() => setLocationConfirm(false)} />
 
       <PageBody className="px-4 pb-6 pt-3 lg:px-8 lg:py-6">
         <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-6">
@@ -314,7 +340,17 @@ export default function Settings() {
                           {item.label}
                         </span>
                         <span className="mt-0.5 block text-[13px] text-muted">
-                          {item.sub}
+                          {item.id === "available"
+                            ? (available && serverPrefs?.availableUntil
+                              ? `Available for ${Math.max(1, Math.ceil((Date.parse(serverPrefs.availableUntil) - clock) / 60000))} more minutes`
+                              : "Appear in Available Now for 20 minutes, then automatically turn off")
+                            : item.id === "location" ? "Share your current map location on all your ads" : item.sub}
+                          {item.id === "location" && serverPrefs?.preciseLocation && (
+                            <button type="button" className="mt-1 block font-semibold text-brand underline" disabled={!!prefsPending}
+                              onClick={() => setLocationConfirm(true)}>
+                              {serverPrefs.adLocationSet ? "Update ad location" : "Set ad location"}
+                            </button>
+                          )}
                         </span>
                       </span>
                     </>
@@ -345,7 +381,7 @@ export default function Settings() {
                         label={item.label}
                         checked={toggles[item.id]}
                         disabled={
-                          isBacked && (!serverPrefs || prefsPending === item.id)
+                          isBacked && (!serverPrefs || !!prefsPending)
                         }
                         onChange={() => {
                           if (isBacked) {
@@ -552,11 +588,15 @@ export default function Settings() {
         body="You'll need to sign in again to manage your ads."
         confirmLabel="Log out"
         destructive
-        onConfirm={() => {
-          setConfirm(null);
-          signOut();
-          toast("Logged out");
-          navigate("/login", { replace: true });
+        onConfirm={async () => {
+          try {
+            await signOut();
+            setConfirm(null);
+            toast("Logged out");
+            navigate("/login", { replace: true });
+          } catch {
+            toast("Couldn't log out. Please try again.");
+          }
         }}
         onClose={() => setConfirm(null)}
       />

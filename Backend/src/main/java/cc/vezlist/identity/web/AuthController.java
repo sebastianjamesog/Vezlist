@@ -4,6 +4,10 @@ import cc.vezlist.admin.application.SecurityEventService;
 import cc.vezlist.admin.domain.SecurityEventType;
 import cc.vezlist.identity.application.IdentityService;
 import cc.vezlist.identity.application.VezlistUserPrincipal;
+import cc.vezlist.identity.domain.Role;
+import cc.vezlist.shared.security.AudienceCsrfTokenRepository;
+import cc.vezlist.shared.security.SessionAudience;
+import cc.vezlist.shared.security.LoginAttemptLimiter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
@@ -33,14 +37,18 @@ public class AuthController {
     private final IdentityService identityService;
     private final AuthenticationManager authenticationManager;
     private final SecurityEventService securityEvents;
+    private final AudienceCsrfTokenRepository csrfTokens;
+    private final LoginAttemptLimiter loginAttempts;
 
     public AuthController(
             IdentityService identityService,
             AuthenticationManager authenticationManager,
-            SecurityEventService securityEvents) {
+            SecurityEventService securityEvents, AudienceCsrfTokenRepository csrfTokens, LoginAttemptLimiter loginAttempts) {
         this.identityService = identityService;
         this.authenticationManager = authenticationManager;
         this.securityEvents = securityEvents;
+        this.csrfTokens = csrfTokens;
+        this.loginAttempts = loginAttempts;
     }
 
     @GetMapping("/csrf")
@@ -64,10 +72,15 @@ public class AuthController {
             @Valid @RequestBody LoginRequest request,
             HttpServletRequest httpRequest,
             HttpServletResponse httpResponse) {
+        loginAttempts.check(request.email());
         try {
             Authentication authentication = authenticationManager.authenticate(
                     UsernamePasswordAuthenticationToken.unauthenticated(request.email(), request.password()));
             VezlistUserPrincipal principal = (VezlistUserPrincipal) authentication.getPrincipal();
+            if (SessionAudience.isAdmin(httpRequest)
+                    && !principal.roles().contains(Role.ADMIN) && !principal.roles().contains(Role.MODERATOR)) {
+                throw new ConsoleAccessException();
+            }
             authenticateSession(principal, httpRequest, httpResponse);
             securityEvents.record(SecurityEventType.LOGIN_SUCCESS, principal.id(), request.email(), httpRequest, null);
             return identityService.toResponse(principal);
@@ -83,7 +96,9 @@ public class AuthController {
             // password is even verified, so there's no principal here to
             // attribute this to beyond the email that was typed.
             securityEvents.record(SecurityEventType.LOGIN_BLOCKED_SUSPENDED, null, request.email(), httpRequest, null);
-            throw new AccountSuspendedException();
+            // A disabled-account pre-check runs before password validation. Keep the
+            // public error identical to bad credentials to avoid disclosing membership.
+            throw new InvalidCredentialsException();
         }
     }
 
@@ -108,6 +123,7 @@ public class AuthController {
             request.getSession(false).invalidate();
         }
         SecurityContextHolder.clearContext();
+        csrfTokens.saveToken(null, request, response);
         return ResponseEntity.noContent().build();
     }
 
@@ -127,5 +143,8 @@ public class AuthController {
             request.changeSessionId();
         }
         session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, context);
+        session.setAttribute(SessionAudience.ATTRIBUTE, SessionAudience.of(request));
+        if (SessionAudience.isAdmin(request)) session.setMaxInactiveInterval(8 * 60 * 60);
+        csrfTokens.saveToken(null, request, response);
     }
 }

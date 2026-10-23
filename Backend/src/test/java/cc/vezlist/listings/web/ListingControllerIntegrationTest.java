@@ -495,11 +495,202 @@ class ListingControllerIntegrationTest {
         }
     }
 
+    @Test
+    void explicitlySharedAdLocationMakesAdsDiscoverableAndCanBeRevoked() {
+        Session owner = register("geo-owner-" + UUID.randomUUID() + "@example.test");
+        Session other = register("geo-other-" + UUID.randomUUID() + "@example.test");
+        String existing = createDraft(owner, "MARKETPLACE");
+        String unrelated = createDraft(other, "MARKETPLACE");
+        var saved = exchange("/api/v1/me/ad-location", HttpMethod.PATCH,
+                Map.of("latitude", 48.4284, "longitude", -123.3656), owner, null, Map.class);
+        assertThat(saved.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(saved.getBody()).containsEntry("preciseLocation", true).containsEntry("adLocationSet", true);
+        String future = createDraft(owner, "MARKETPLACE");
+        for (String id : List.of(existing, future)) {
+            assertThat(jdbc.queryForObject("SELECT latitude FROM listings WHERE id=?::uuid", Double.class, id)).isEqualTo(48.4284);
+            jdbc.update("UPDATE listings SET status='ACTIVE', published_at=now() WHERE id=?::uuid", id);
+        }
+        assertThat(jdbc.queryForObject("SELECT latitude FROM listings WHERE id=?::uuid", Double.class, unrelated)).isNull();
+        var nearby = rest.getForEntity(url("/api/v1/listings?site=MARKETPLACE&sort=NEAREST&latitude=48.4284&longitude=-123.3656&radiusKm=5"), Map.class);
+        assertThat(nearby.getStatusCode()).isEqualTo(HttpStatus.OK);
+        List<Map> cards = (List<Map>) nearby.getBody().get("items");
+        assertThat(cards).extracting(card -> card.get("id")).contains(existing, future);
+        var disabled = exchange("/api/v1/me/preferences", HttpMethod.PATCH,
+                Map.of("pushNotifications", true, "emailUpdates", false, "showPhoneOnAds", true, "preciseLocation", false), owner, null, Map.class);
+        assertThat(disabled.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(disabled.getBody()).containsEntry("adLocationSet", false);
+        for (String id : List.of(existing, future)) {
+            assertThat(jdbc.queryForObject("SELECT latitude FROM listings WHERE id=?::uuid", Double.class, id)).isNull();
+            assertThat(jdbc.queryForObject("SELECT coordinates IS NULL FROM listings WHERE id=?::uuid", Boolean.class, id)).isTrue();
+        }
+        Map<String, Object> staleEdit = new java.util.HashMap<>(validListing());
+        staleEdit.put("latitude", 48.4284);
+        staleEdit.put("longitude", -123.3656);
+        assertThat(exchange("/api/v1/listings/" + existing, HttpMethod.PATCH, staleEdit, owner, null, Map.class)
+                .getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(jdbc.queryForObject("SELECT coordinates IS NULL FROM listings WHERE id=?::uuid", Boolean.class, existing)).isTrue();
+        assertThat(exchange("/api/v1/me/ad-location", HttpMethod.PATCH,
+                Map.of("latitude", 100, "longitude", -123), owner, null, Map.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
     private void assertActiveCount(Session owner, String site, int expected) {
         ResponseEntity<Map> summary = exchange(
                 "/api/v1/me/listings/summary?site=" + site, HttpMethod.GET, null, owner, null, Map.class);
         assertThat(summary.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(summary.getBody()).containsExactlyEntriesOf(Map.of("activeAds", expected));
+    }
+
+    @Test
+    void activeDetailEditsKeepPublicationAndExpiryAndRankWhileModeratedAdsRemainLocked() {
+        Session owner = register("edit-position-" + UUID.randomUUID() + "@example.test");
+        Session other = register("edit-other-" + UUID.randomUUID() + "@example.test");
+        String older = createDraft(owner, "MARKETPLACE");
+        String newer = createDraft(other, "MARKETPLACE");
+        jdbc.update("UPDATE listings SET status='ACTIVE', published_at=now() - interval '1 minute', expires_at=now() + interval '2 days' WHERE id=?::uuid", older);
+        jdbc.update("UPDATE listings SET status='ACTIVE', published_at=now(), expires_at=now() + interval '2 days' WHERE id=?::uuid", newer);
+        var before = jdbc.queryForMap("SELECT published_at, expires_at FROM listings WHERE id=?::uuid", older);
+        Map<String, Object> changes = new java.util.HashMap<>(validListing());
+        changes.put("title", "Updated without bumping this ad");
+        assertThat(exchange("/api/v1/listings/" + older, HttpMethod.PATCH, changes, other, null, Map.class)
+                .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        var updated = exchange("/api/v1/listings/" + older, HttpMethod.PATCH, changes, owner, null, Map.class);
+        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(updated.getBody()).containsEntry("status", "ACTIVE");
+        assertThat(jdbc.queryForMap("SELECT published_at, expires_at FROM listings WHERE id=?::uuid", older)).isEqualTo(before);
+        var owned = exchange("/api/v1/me/listings?site=MARKETPLACE", HttpMethod.GET, null, owner, null, List.class);
+        Map row = (Map) owned.getBody().stream().filter(item -> ((Map)item).get("id").equals(older)).findFirst().orElseThrow();
+        long expected = jdbc.queryForObject("SELECT count(*) FROM listings l JOIN app_users u ON u.id=l.owner_id AND u.enabled=true WHERE l.site_scope='MARKETPLACE' AND l.category_id='vehicles' AND l.location_id='bc-1' AND l.status='ACTIVE' AND (l.expires_at IS NULL OR l.expires_at>now()) AND (coalesce(l.published_at,l.created_at),l.id)>=(SELECT coalesce(published_at,created_at),id FROM listings WHERE id=?::uuid)", Long.class, older);
+        assertThat(((Number)row.get("currentPosition")).longValue()).isEqualTo(expected);
+        for (String status : List.of("PENDING_REVIEW", "REMOVED")) {
+            jdbc.update("UPDATE listings SET status=? WHERE id=?::uuid", status, older);
+            assertThat(exchange("/api/v1/listings/" + older, HttpMethod.PATCH, changes, owner, null, Map.class)
+                    .getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"MARKETPLACE", "PERSONALS"})
+    void postingRankUsesTheWholePersonalsBoardButScopesMarketplaceByCategoryAndArea(String site) {
+        Session owner = register("rank-owner-" + UUID.randomUUID() + "@example.test");
+        Session other = register("rank-other-" + UUID.randomUUID() + "@example.test");
+        Session disabled = register("rank-disabled-" + UUID.randomUUID() + "@example.test");
+        String category = rankCategory(site);
+        String area = rankArea();
+        Instant firstPosted = nextRankPublication(site);
+        Instant laterPosted = firstPosted.plusSeconds(60);
+        String first = rankListing(owner, site, category, area, firstPosted, "ACTIVE");
+        assertPostingRank(owner, site, first, 1);
+
+        // Only Marketplace excludes another category or area from the posting rank.
+        if (site.equals("MARKETPLACE")) {
+            rankListing(other, site, rankCategory(site), area, laterPosted, "ACTIVE");
+            rankListing(other, site, category, rankArea(), laterPosted, "ACTIVE");
+        }
+        String otherSite = site.equals("MARKETPLACE") ? "PERSONALS" : "MARKETPLACE";
+        rankListing(other, otherSite, rankCategory(otherSite), area, laterPosted, "ACTIVE");
+        for (String status : List.of("DRAFT", "PENDING_REVIEW", "REJECTED", "EXPIRED", "REMOVED", "DELETED")) {
+            rankListing(other, site, category, area, laterPosted, status);
+        }
+        String expiredActive = rankListing(other, site, category, area, laterPosted, "ACTIVE");
+        jdbc.update("UPDATE listings SET expires_at=? WHERE id=?::uuid",
+                java.sql.Timestamp.from(Instant.now().minusSeconds(60)), expiredActive);
+        String disabledOwnerAd = rankListing(disabled, site, category, area, laterPosted, "ACTIVE");
+        jdbc.update("UPDATE app_users SET enabled=false WHERE id=(SELECT owner_id FROM listings WHERE id=?::uuid)",
+                disabledOwnerAd);
+        assertPostingRank(owner, site, first, 1);
+
+        // A Personals post competes even when both its category and location differ.
+        String nextCategory = site.equals("PERSONALS") ? rankCategory(site) : category;
+        String nextArea = site.equals("PERSONALS") ? rankArea() : area;
+        String next = rankListing(other, site, nextCategory, nextArea, laterPosted, "ACTIVE");
+        assertPostingRank(owner, site, first, 2);
+        assertPostingRank(other, site, next, 1);
+        jdbc.update("UPDATE listings SET view_count=1000000 WHERE id=?::uuid", first);
+        assertPostingRank(owner, site, first, 2);
+        assertPostingRank(other, site, next, 1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"MARKETPLACE", "PERSONALS"})
+    void myAdsStayInPostingOrderAfterAnOlderAdIsEditedOrGetsMoreViews(String site) {
+        Session owner = register("my-ad-order-" + UUID.randomUUID() + "@example.test");
+        String category = rankCategory(site);
+        String area = rankArea();
+        Instant firstPosted = nextRankPublication(site);
+        String older = rankListing(owner, site, category, area, firstPosted, "ACTIVE");
+        String newer = rankListing(owner, site, category, area, firstPosted.plusSeconds(60), "ACTIVE");
+        assertThat(ownedRows(owner, site)).extracting(row -> row.get("id")).containsExactly(newer, older);
+        Map<String, Object> datesBefore = jdbc.queryForMap(
+                "SELECT published_at, expires_at FROM listings WHERE id=?::uuid", older);
+
+        Map<String, Object> edit = rankRequest(site, category, area);
+        edit.put("title", "An older ad edited without changing its posting order");
+        ResponseEntity<Map> edited = exchange("/api/v1/listings/" + older, HttpMethod.PATCH,
+                edit, owner, null, Map.class);
+        assertThat(edited.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(jdbc.queryForObject("SELECT a.updated_at > b.updated_at FROM listings a, listings b "
+                + "WHERE a.id=?::uuid AND b.id=?::uuid", Boolean.class, older, newer)).isTrue();
+        assertThat(jdbc.queryForMap("SELECT published_at, expires_at FROM listings WHERE id=?::uuid", older))
+                .isEqualTo(datesBefore);
+        jdbc.update("UPDATE listings SET view_count=1000000 WHERE id=?::uuid", older);
+        assertThat(ownedRows(owner, site)).extracting(row -> row.get("id")).containsExactly(newer, older);
+        assertPostingRank(owner, site, newer, 1);
+        assertPostingRank(owner, site, older, 2);
+    }
+
+    private Instant nextRankPublication(String site) {
+        // Personals now ranks the entire board. Choose explicit test publication times
+        // above earlier fixtures instead of depending on test order or clearing others' rows.
+        return jdbc.queryForObject("SELECT greatest(now(), coalesce(max(coalesce(published_at, created_at)), now())) "
+                        + "FROM listings WHERE site_scope=?", java.sql.Timestamp.class, site)
+                .toInstant().plusSeconds(60);
+    }
+
+    private String rankCategory(String site) {
+        String id = "rank-" + UUID.randomUUID();
+        jdbc.update("INSERT INTO categories(id,label,icon,site_scope,display_order) VALUES (?, 'Rank test', 'Tag', ?, 999)", id, site);
+        return id;
+    }
+
+    private String rankArea() {
+        String id = "rank-" + UUID.randomUUID().toString().replace("-", "");
+        jdbc.update("INSERT INTO locations(id,parent_id,label,location_type,display_order) VALUES (?, 'bc', 'Rank test area', 'AREA', 999)", id);
+        return id;
+    }
+
+    private Map<String, Object> rankRequest(String site, String category, String area) {
+        Map<String, Object> request = new java.util.HashMap<>(validListing());
+        request.put("site", site);
+        request.put("categoryId", category);
+        request.put("locationId", area);
+        return request;
+    }
+
+    private String rankListing(Session owner, String site, String category, String area,
+            Instant published, String status) {
+        ResponseEntity<Map> response = exchange("/api/v1/listings", HttpMethod.POST,
+                rankRequest(site, category, area), owner, "rank-" + UUID.randomUUID(), Map.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String id = response.getBody().get("id").toString();
+        jdbc.update("UPDATE listings SET status=?, created_at=?, published_at=?, updated_at=?, "
+                        + "expires_at=now()+interval '2 days' WHERE id=?::uuid",
+                status, java.sql.Timestamp.from(published.minusSeconds(60)), java.sql.Timestamp.from(published),
+                java.sql.Timestamp.from(Instant.now().minusSeconds(120)), id);
+        return id;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> ownedRows(Session owner, String site) {
+        ResponseEntity<List> response = exchange("/api/v1/me/listings?site=" + site,
+                HttpMethod.GET, null, owner, null, List.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return (List<Map<String, Object>>) response.getBody();
+    }
+
+    private void assertPostingRank(Session owner, String site, String listingId, int expected) {
+        Map<String, Object> row = ownedRows(owner, site).stream()
+                .filter(item -> listingId.equals(item.get("id"))).findFirst().orElseThrow();
+        assertThat(row.get("currentPosition")).isEqualTo(expected);
     }
 
     private Map<String, Object> validListing() {
@@ -508,7 +699,7 @@ class ListingControllerIntegrationTest {
                 Map.entry("title", "2012 Honda Accord EX-L"),
                 Map.entry("businessName", "Test Seller"),
                 Map.entry("description", "A complete, carefully maintained vehicle listing."),
-                Map.entry("price", 10250),
+                Map.entry("price", 9250),
                 Map.entry("categoryId", "vehicles"),
                 Map.entry("provinceId", "bc"),
                 Map.entry("locationId", "bc-1"),
@@ -560,7 +751,16 @@ class ListingControllerIntegrationTest {
                 "acceptedTerms", true), headers(header, token, csrfCookies, null));
         ResponseEntity<Map> registration = rest.postForEntity(url("/api/v1/auth/register"), request, Map.class);
         assertThat(registration.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        return new Session(header, token, mergeCookies(csrfCookies, cookies(registration.getHeaders())));
+        String authenticatedCookies = mergeCookies(csrfCookies, cookies(registration.getHeaders()));
+        HttpHeaders csrfHeaders = new HttpHeaders();
+        csrfHeaders.set(HttpHeaders.COOKIE, authenticatedCookies);
+        ResponseEntity<Map> authenticatedCsrf = rest.exchange(url("/api/v1/auth/csrf"), HttpMethod.GET,
+                new HttpEntity<>(csrfHeaders), Map.class);
+        assertThat(authenticatedCsrf.getStatusCode()).isEqualTo(HttpStatus.OK);
+        header = (String) authenticatedCsrf.getBody().get("headerName");
+        token = (String) authenticatedCsrf.getBody().get("token");
+        authenticatedCookies = mergeCookies(authenticatedCookies, cookies(authenticatedCsrf.getHeaders()));
+        return new Session(header, token, authenticatedCookies);
     }
 
     private <T> ResponseEntity<T> exchange(
@@ -590,8 +790,18 @@ class ListingControllerIntegrationTest {
     }
 
     private String mergeCookies(String... cookieHeaders) {
-        return List.of(cookieHeaders).stream()
-                .filter(value -> value != null && !value.isBlank())
+        Map<String, String> jar = new java.util.LinkedHashMap<>();
+        for (String header : cookieHeaders) {
+            if (header == null || header.isBlank()) continue;
+            for (String pair : header.split("; ")) {
+                int equals = pair.indexOf('=');
+                String name = pair.substring(0, equals);
+                String value = pair.substring(equals + 1);
+                if (value.isBlank()) jar.remove(name);
+                else jar.put(name, value);
+            }
+        }
+        return jar.entrySet().stream().map(entry -> entry.getKey() + "=" + entry.getValue())
                 .collect(Collectors.joining("; "));
     }
 

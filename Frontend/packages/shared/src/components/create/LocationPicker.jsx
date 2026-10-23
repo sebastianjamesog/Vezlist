@@ -2,6 +2,8 @@
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { searchLocations } from "../../lib/api/catalog.js";
+import LocationHierarchyPicker from "./LocationHierarchyPicker.jsx";
+import { locationAncestry } from "../../lib/locationCatalog.js";
 import { FIELD, border } from "./Field";
 
 function useLocationResults(query, enabled = true, debounce = false) {
@@ -110,7 +112,7 @@ function LocationChips({ locations, selectedId, onSelect }) {
             key={location.id}
             type="button"
             aria-pressed={selectedId === location.id}
-            title={`${location.label}, ${location.provinceLabel}`}
+            title={`${location.label}, ${locationAncestry(location)}`}
             onClick={() => onSelect(location)}
             className={`${CHIP} transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
               selectedId === location.id
@@ -180,6 +182,10 @@ export default function LocationPicker({ draft, error, onPatch }) {
       location: location.label,
       locationId: location.id,
       provinceId: location.provinceId,
+      provinceLabel: location.provinceLabel ?? "",
+      areaId: location.areaId ?? location.id,
+      areaLabel: location.areaLabel ?? location.label,
+      locationType: location.type ?? "AREA",
     });
     setOpen(false);
     setActiveIndex(-1);
@@ -240,6 +246,10 @@ export default function LocationPicker({ draft, error, onPatch }) {
             location: event.target.value,
             locationId: "",
             provinceId: "",
+            provinceLabel: "",
+            areaId: "",
+            areaLabel: "",
+            locationType: "",
           });
           setOpen(true);
           setActiveIndex(-1);
@@ -291,7 +301,7 @@ export default function LocationPicker({ draft, error, onPatch }) {
                       {location.label}
                     </span>{" "}
                     <span className="block text-[12px] text-muted">
-                      {location.provinceLabel}
+                      {locationAncestry(location)}
                     </span>
                   </li>
                 ))}
@@ -310,6 +320,22 @@ export default function LocationPicker({ draft, error, onPatch }) {
             />
           )}
         </>
+      )}
+      <LocationHierarchyPicker
+        draft={draft}
+        onPatch={onPatch}
+        onSelect={select}
+      />
+      {draft.locationId && draft.provinceLabel && (
+        <p className="mt-2 text-[12px] text-muted">
+          {[
+            draft.provinceLabel,
+            draft.areaLabel,
+            draft.locationType === "NEIGHBOURHOOD" ? draft.location : null,
+          ]
+            .filter(Boolean)
+            .join(" \u00b7 ")}
+        </p>
       )}
       <p id={`${id}-hint`} className="mt-2 text-[12px] text-muted">
         Choose a suggested location or search for another city, area or

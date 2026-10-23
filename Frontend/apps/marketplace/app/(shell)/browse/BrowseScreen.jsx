@@ -8,7 +8,6 @@ import {
   MapPin,
   SlidersHorizontal,
   Sparkles,
-  Tag,
   X,
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "@vezlist/shared/lib/nav.jsx";
@@ -23,16 +22,16 @@ import Field, {
 } from "@vezlist/shared/components/create/Field.jsx";
 import LocationBar from "@vezlist/shared/components/LocationBar.jsx";
 import FilterSheet from "@vezlist/shared/components/FilterSheet.jsx";
-import { provinceById } from "@vezlist/shared/data/locations.js";
+import { provinceLabel, resolveLocationIds } from "@vezlist/shared/lib/locationCatalog.js";
 import { useAdPopup } from "@vezlist/shared/components/AdPopup.jsx";
 import FilterChips from "@vezlist/shared/components/FilterChips.jsx";
 import FilterButton from "@vezlist/shared/components/FilterButton.jsx";
 import ListingCard from "@vezlist/shared/components/cards/ListingCard.jsx";
 import { ListingCardSkeleton } from "@vezlist/shared/components/ui/Skeleton.jsx";
-import { Promos, Shortcuts } from "@vezlist/shared/components/FeedRails.jsx";
-import { useShell } from "@vezlist/shared/components/layout/AppLayout.jsx";
+import { Shortcuts } from "@vezlist/shared/components/FeedRails.jsx";
 import { useFeed } from "@vezlist/shared/context/FeedContext.jsx";
 import { useSearch } from "@vezlist/shared/context/SearchContext.jsx";
+import useNearbyPreview from "@vezlist/shared/hooks/useNearbyPreview.js";
 import useBrowseResults from "@vezlist/shared/hooks/useBrowseResults.js";
 import { SITE_SCOPE } from "@vezlist/shared/lib/api/client.js";
 import {
@@ -62,22 +61,15 @@ const SORT_TO_API = {
   "price-desc": "PRICE_DESC",
   nearest: "NEAREST",
 };
-const POSTED_WITHIN_TO_API = { "24h": "HOURS_24", "7d": "DAYS_7", "30d": "DAYS_30" };
-
-/** A selected area's label (the only shape `data/locations.js` carries) to the
- * real area id `DiscoverySearchRequest.area()` expects, via the location tree
- * `FeedContext` fetched from GET /api/v1/locations. */
-function areaIdForLabel(locations, label) {
-  if (!locations) return null;
-  for (const province of locations.provinces ?? []) {
-    const hit = (province.areas ?? []).find((a) => a.label === label);
-    if (hit) return hit.id;
-  }
-  return null;
-}
+const POSTED_WITHIN_TO_API = {
+  "24h": "HOURS_24",
+  "7d": "DAYS_7",
+  "30d": "DAYS_30",
+};
 
 const PAGE_SIZE = 20;
 
+/** Build discovery parameters with IDs for region or neighbourhood filters. */
 function buildDiscoveryParams(filters, query, locations, cursor) {
   const params = {
     site: SITE_SCOPE,
@@ -97,16 +89,7 @@ function buildDiscoveryParams(filters, query, locations, cursor) {
       .filter(Boolean);
     if (ids.length) params.category = ids;
   }
-  if (filters.cities.length) {
-    const ids = filters.cities
-      .map((label) => areaIdForLabel(locations, label))
-      .filter(Boolean);
-    if (ids.length) params.area = ids;
-  }
-  // Not sent, because the backend has nothing to match them against:
-  // `filters.subcategory` (real categories carry no sub-category at all —
-  // see `lib/taxonomy.js`) and personals-only facets, which this screen
-  // never sets in the first place.
+  if (filters.cities.length) params.area = resolveLocationIds(locations, filters);
   return params;
 }
 
@@ -124,6 +107,9 @@ function toCardListing(row) {
     views: row.viewCount,
     site: row.site,
     verified: row.verified,
+    publishedAt: row.publishedAt,
+    availableNow: row.availableNow,
+    availableUntil: row.availableUntil,
     postedMsAgo: row.publishedAt
       ? Date.now() - new Date(row.publishedAt).getTime()
       : null,
@@ -179,9 +165,17 @@ const SHORTCUTS = [
 ];
 
 export default function BrowseScreen() {
+  const nearbyPreview = useNearbyPreview();
   const viewer = useAdPopup();
-  const { filters, setFilters, query, setQuery, locations, browseCache, categories } = useFeed();
-  const { openPost } = useShell();
+  const {
+    filters,
+    setFilters,
+    query,
+    setQuery,
+    locations,
+    browseCache,
+    categories,
+  } = useFeed();
   const navigate = useNavigate();
   const { recent, saved, recordSearch, clearRecent, saveSearch, deleteSaved } =
     useSearch();
@@ -227,8 +221,19 @@ export default function BrowseScreen() {
   }
 
   /* --------------------------------------------------------- the feed --- */
-  const { items, hasMore, loading, loadingMore, error, loadMore, retry, scroll } =
-    useBrowseResults(buildDiscoveryParams(filters, query, locations), browseCache);
+  const {
+    items,
+    hasMore,
+    loading,
+    loadingMore,
+    error,
+    loadMore,
+    retry,
+    scroll,
+  } = useBrowseResults(
+    buildDiscoveryParams(filters, query, locations),
+    browseCache,
+  );
 
   const cards = useMemo(() => items.map(toCardListing), [items]);
   const filterCount = activeFilterCount(filters);
@@ -273,7 +278,11 @@ export default function BrowseScreen() {
         recordSearch(item.label);
         return;
       case "category":
-        setFilters((f) => ({ ...f, categories: [item.label], subcategory: null }));
+        setFilters((f) => ({
+          ...f,
+          categories: [item.label],
+          subcategory: null,
+        }));
         setQuery("");
         recordSearch(item.label);
         return;
@@ -383,7 +392,7 @@ export default function BrowseScreen() {
           </div>
 
           <Shortcuts
-            items={SHORTCUTS}
+            items={SHORTCUTS.map(item => item.id === "nearby" ? { ...item, ...nearbyPreview } : item)}
             filters={filters}
             onPatch={patch}
             className="mt-3"
@@ -405,11 +414,19 @@ export default function BrowseScreen() {
           </div>
 
           <p className="mb-3 text-[13px] text-muted">
-            {filters.categories.length || filters.personalsCategories.length ? "Selected categories" : "All categories"}
-            {" \u00b7 "}{provinceById(filters.province).label}
+            {filters.categories.length || filters.personalsCategories.length
+              ? "Selected categories"
+              : "All categories"}
+            {" \u00b7 "}
+            {provinceLabel(filters.province, locations)}
           </p>
-          <FilterChips filters={filters} onPatch={patch} onClearAll={resetAll}
-            query={query} onClearQuery={() => setQuery("")} />
+          <FilterChips
+            filters={filters}
+            onPatch={patch}
+            onClearAll={resetAll}
+            query={query}
+            onClearQuery={() => setQuery("")}
+          />
 
           {loading ? (
             <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2 lg:gap-4 xl:grid-cols-3">
@@ -422,19 +439,33 @@ export default function BrowseScreen() {
               icon="TriangleAlert"
               title="Couldn't load ads"
               body={error.message || "Something went wrong. Please try again."}
-              action={
-                <Button onClick={retry}>
-                  Retry
-                </Button>
-              }
+              action={<Button onClick={retry}>Retry</Button>}
             />
           ) : cards.length ? (
             <>
               <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2 lg:gap-4 xl:grid-cols-3">
                 {cards.map((l) => (
-                  <ListingCard key={l.id} listing={l} chevron
-                    onOpen={!filters.verifiedOnly && ["24h", "7d"].includes(filters.postedWithin)
-                      ? (id) => viewer.open(id, cards.map((card) => card.id)) : undefined} />
+                  <ListingCard
+                    key={l.id}
+                    listing={l}
+                    chevron
+                    onOpen={
+                      !filters.verifiedOnly &&
+                      ["24h", "7d"].includes(filters.postedWithin)
+                        ? (id) =>
+                            viewer.open(
+                              id,
+                              cards.map((card) => card.id),
+                              {
+                                mode:
+                                  filters.postedWithin === "7d"
+                                    ? "vertical"
+                                    : "detail",
+                              },
+                            )
+                        : undefined
+                    }
+                  />
                 ))}
               </div>
               {hasMore && (
@@ -457,23 +488,6 @@ export default function BrowseScreen() {
               action={<Button onClick={resetAll}>Clear filters</Button>}
             />
           )}
-
-          <Promos
-            className="mt-3"
-            cards={[
-              {
-                id: "sell",
-                Icon: Tag,
-                iconClass: "text-brand-2",
-                title: "Sell Yours",
-                sub: "Post an ad in a minute",
-                cta: "Post Ad",
-                ctaClass: "bg-brand-strong text-white",
-                onClick: openPost,
-                thumbs: cards.slice(0, 3).map((l) => l.image).filter(Boolean),
-              },
-            ]}
-          />
         </div>
       </PageBody>
 

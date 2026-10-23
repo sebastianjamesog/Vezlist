@@ -91,7 +91,8 @@ class StoryIntegrationTest {
                 .andExpect(jsonPath("$.paymentAvailable").value(false)));
         assertThat(publicPlans.get("items").findValuesAsText("id")).doesNotContain(id.toString());
         jdbc.update("UPDATE app_users SET enabled=false WHERE id=?", admin.id());
-        mvc.perform(get("/api/v1/admin/story-plans").with(user(admin))).andExpect(status().isForbidden());
+        // Suspension invalidates the cached principal before staff authorization.
+        mvc.perform(get("/api/v1/admin/story-plans").with(user(admin))).andExpect(status().isUnauthorized());
     }
 
     @Test void databaseAccountTypeRestrictsUploadsAndCannotBeBypassedBySession() throws Exception {
@@ -104,7 +105,8 @@ class StoryIntegrationTest {
         upload(creator, PNG, "image/png").andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("STORY_CREATOR_REQUIRED"));
         jdbc.update("UPDATE app_users SET account_type='CREATOR',enabled=false WHERE id=?", creator.id());
-        upload(creator, PNG, "image/png").andExpect(status().isForbidden());
+        // A disabled account is no longer authenticated; BROWSING remains a 403 above.
+        upload(creator, PNG, "image/png").andExpect(status().isUnauthorized());
     }
 
     @Test void paidPlanCannotPublishWithoutGatewayAndPriceChangesRequireReview() throws Exception {
@@ -292,7 +294,8 @@ class StoryIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT status FROM stories WHERE id=?", String.class, draft)).isEqualTo("READY");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM admin_audit_log WHERE target_id=? AND action='STORY_REMOVED'", Integer.class, first.toString())).isEqualTo(1);
         jdbc.update("UPDATE app_users SET enabled=false WHERE id=?", moderator.id());
-        mvc.perform(get("/api/v1/admin/stories").with(user(moderator))).andExpect(status().isForbidden());
+        // Suspension invalidates the cached principal before staff authorization.
+        mvc.perform(get("/api/v1/admin/stories").with(user(moderator))).andExpect(status().isUnauthorized());
     }
 
     private int credits(VezlistUserPrincipal owner) { return jdbc.queryForObject("SELECT credits FROM story_credits WHERE owner_id=?", Integer.class, owner.id()); }

@@ -82,6 +82,7 @@ public class DiscoveryRepository {
                 .append("l.id, l.site_scope, l.title, l.business_name, l.price, ")
                 .append("l.category_id, l.province_id, l.location_id, l.latitude, l.longitude, ")
                 .append("l.verified AS verified, l.view_count, ")
+                .append("COALESCE(up.available_now AND up.available_until > now(), FALSE) AS available_now, up.available_until, ")
                 .append("COALESCE(l.published_at, l.created_at) AS published_at, ")
                 .append("COALESCE(l.price, 0) AS sort_price, ")
                 .append(distance).append(" AS distance_km");
@@ -97,6 +98,7 @@ public class DiscoveryRepository {
 
         sql.append(" FROM listings l ")
                 .append("JOIN app_users u ON u.id = l.owner_id AND u.enabled = TRUE ")
+                .append("LEFT JOIN user_preferences up ON up.user_id = l.owner_id ")
                 .append("JOIN categories c ON c.id = l.category_id ")
                 .append("JOIN locations a ON a.id = l.location_id ")
                 .append("JOIN locations p ON p.id = l.province_id ")
@@ -117,8 +119,14 @@ public class DiscoveryRepository {
             parameters.addValue("provinceId", criteria.provinceId());
         }
         if (!criteria.areaIds().isEmpty()) {
-            sql.append("AND l.location_id IN (:areaIds) ");
+            sql.append("AND (l.location_id IN (:areaIds) "
+                    + "OR (a.location_type='NEIGHBOURHOOD' AND a.parent_id IN (:areaIds))) ");
             parameters.addValue("areaIds", criteria.areaIds());
+        }
+        if (!criteria.ethnicities().isEmpty()) {
+            sql.append("AND EXISTS (SELECT 1 FROM listing_attributes ethnicity WHERE ethnicity.listing_id=l.id "
+                    + "AND ethnicity.attribute_key='ethnicity' AND lower(btrim(ethnicity.attribute_value)) IN (:ethnicities)) ");
+            parameters.addValue("ethnicities", criteria.ethnicities());
         }
         if (criteria.minPrice() != null) {
             sql.append("AND COALESCE(l.price, 0) >= :minPrice ");
@@ -133,7 +141,7 @@ public class DiscoveryRepository {
         }
         if (criteria.availableOnly()) {
             sql.append("AND EXISTS (SELECT 1 FROM user_preferences up WHERE up.user_id = l.owner_id "
-                    + "AND up.available_now = TRUE) ");
+                    + "AND up.available_now = TRUE AND up.available_until > now()) ");
         }
         if (criteria.postedAfter() != null) {
             sql.append("AND COALESCE(l.published_at, l.created_at) >= :postedAfter ");
@@ -238,7 +246,7 @@ public class DiscoveryRepository {
             int photoCount,
             Instant publishedAt,
             long viewCount,
-            BigDecimal sortPrice) {
+            BigDecimal sortPrice, boolean availableNow, Instant availableUntil) {
 
         public CursorAnchor cursorAnchor() {
             return new CursorAnchor(publishedAt, sortPrice, distanceKm, id, verified);
@@ -279,7 +287,8 @@ public class DiscoveryRepository {
                     rs.getInt("photo_count"),
                     rs.getTimestamp("published_at").toInstant(),
                     rs.getLong("view_count"),
-                    rs.getBigDecimal("sort_price"));
+                    rs.getBigDecimal("sort_price"), rs.getBoolean("available_now"),
+                    rs.getTimestamp("available_until") == null ? null : rs.getTimestamp("available_until").toInstant());
         }
 
         private static Double nullableDouble(ResultSet rs, String column) throws SQLException {

@@ -8,6 +8,8 @@ import {
 } from "../../../../testing/render.jsx";
 import { router, setRoute } from "../../../../testing/stubs/next-navigation.js";
 import Listings from "./Listings";
+import ListingDetail from "./ListingDetail";
+import { adminRoutes } from "../components/admin/adminNav.js";
 import * as adminListingsApi from "../lib/api/adminListings.js";
 import * as authApi from "../lib/api/auth.js";
 
@@ -127,10 +129,10 @@ describe("admin Listings", () => {
     expect(router.push).toHaveBeenCalledWith("/listings/listing-1");
   });
 
-  test("removing an active ad asks for a reason, then calls the API", async () => {
+  test.each(["ACTIVE", "PENDING_REVIEW"])("removing a %s ad asks for a reason, then calls the API", async (status) => {
     const user = userEvent.setup();
     asAdmin();
-    adminListingsApi.browseListings.mockResolvedValue(page([row()]));
+    adminListingsApi.browseListings.mockResolvedValue(page([row({ status })]));
     adminListingsApi.removeListing.mockResolvedValue({});
     renderAdmin(<Listings />);
 
@@ -162,7 +164,7 @@ describe("admin Listings", () => {
     adminListingsApi.browseListings.mockResolvedValue(page([row()]));
     const { ApiError } = await import("../lib/api/client.js");
     adminListingsApi.removeListing.mockRejectedValue(
-      new ApiError({ status: 409, code: "LISTING_CONFLICT", message: "Only active listings can be force-removed." }),
+      new ApiError({ status: 409, code: "LISTING_CONFLICT", message: "This listing can no longer be removed." }),
     );
     renderAdmin(<Listings />);
 
@@ -173,18 +175,89 @@ describe("admin Listings", () => {
     await user.click(within(dialog).getByRole("button", { name: "Remove" }));
 
     expect(
-      await screen.findByText("Only active listings can be force-removed."),
+      await screen.findByText("This listing can no longer be removed."),
     ).toBeTruthy();
     // The dialog stayed open rather than crashing or silently closing.
     expect(screen.getByRole("dialog", { name: "Remove this ad" })).toBeTruthy();
   });
 
-  test("no listing offers Remove once it isn't active", async () => {
+  test.each(["DRAFT", "REJECTED", "REMOVED", "EXPIRED"])("a %s listing does not offer Remove", async (status) => {
     asAdmin();
-    adminListingsApi.browseListings.mockResolvedValue(page([row({ status: "REJECTED" })]));
+    adminListingsApi.browseListings.mockResolvedValue(page([row({ status })]));
     renderAdmin(<Listings />);
 
     await screen.findByText("2 Bedroom Apartment");
     expect(screen.queryByRole("button", { name: "Remove" })).toBe(null);
+  });
+
+  test("batch removal includes pending and active ads, excluding drafts", async () => {
+    const user = userEvent.setup();
+    asAdmin();
+    adminListingsApi.browseListings.mockResolvedValue(page([
+      row({ id: "active" }),
+      row({ id: "pending", title: "Pending ad", status: "PENDING_REVIEW" }),
+      row({ id: "draft", title: "Draft ad", status: "DRAFT" }),
+    ]));
+    adminListingsApi.removeListing.mockResolvedValue({});
+    renderAdmin(<Listings />);
+    await screen.findByText("Pending ad");
+    await user.click(screen.getByRole("checkbox", { name: "Select every row on this page" }));
+    await user.click(screen.getByRole("button", { name: "Remove (2)" }));
+    const dialog = screen.getByRole("dialog", { name: "Remove 2 ads" });
+    await user.type(within(dialog).getByRole("textbox"), "Duplicate submissions");
+    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+    expect(await screen.findByText("Removed 2 ads")).toBeTruthy();
+    expect(adminListingsApi.removeListing.mock.calls).toEqual([
+      ["active", "Duplicate submissions"], ["pending", "Duplicate submissions"],
+    ]);
+  });
+
+  test("removal refreshes the in-review list and Review Queue is absent", async () => {
+    const user = userEvent.setup();
+    asAdmin();
+    setRoute({ path: "/listings", query: "status=PENDING_REVIEW" });
+    adminListingsApi.browseListings.mockResolvedValueOnce(page([row({ status: "PENDING_REVIEW" })]))
+      .mockResolvedValue(page([]));
+    adminListingsApi.removeListing.mockResolvedValue({});
+    renderAdmin(<Listings />);
+    await screen.findByText("2 Bedroom Apartment");
+    expect(screen.queryByRole("link", { name: /review queue/i })).toBeNull();
+    expect(adminRoutes.some((route) => route.to === "/reviews")).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    const dialog = screen.getByRole("dialog", { name: "Remove this ad" });
+    await user.type(within(dialog).getByRole("textbox"), "Duplicate submission");
+    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+    expect(await screen.findByText("No ads match")).toBeTruthy();
+    expect(adminListingsApi.browseListings).toHaveBeenLastCalledWith(expect.objectContaining({ status: "PENDING_REVIEW" }));
+  });
+
+  test("moderators cannot remove pending ads", async () => {
+    asAdmin(["USER", "MODERATOR"]);
+    adminListingsApi.browseListings.mockResolvedValue(page([row({ status: "PENDING_REVIEW" })]));
+    renderAdmin(<Listings />);
+    await screen.findByText("2 Bedroom Apartment");
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+  });
+
+  test("pending detail supports removal and retains verification review", async () => {
+    const user = userEvent.setup();
+    asAdmin();
+    setRoute({ path: "/listings/listing-1", params: { id: "listing-1" } });
+    const listing = row({ status: "PENDING_REVIEW", verificationRequested: true, viewCount: 0, saveCount: 0 });
+    adminListingsApi.adminListingDetail.mockResolvedValue({ listing });
+    adminListingsApi.removeListing.mockResolvedValue({ listing: { ...listing, status: "REMOVED" } });
+    renderAdmin(<ListingDetail />);
+    await screen.findByText("2 Bedroom Apartment");
+    expect(screen.getByRole("link", { name: "Review verification" }).getAttribute("href"))
+      .toBe("/verifications?site=marketplace");
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    const dialog = screen.getByRole("dialog", { name: "Remove this ad" });
+    expect(within(dialog).getByRole("button", { name: "Remove" }).disabled).toBe(true);
+    await user.type(within(dialog).getByRole("textbox"), "Duplicate submission");
+    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+    expect(await screen.findByText("Ad removed")).toBeTruthy();
+    expect(adminListingsApi.removeListing).toHaveBeenCalledWith("listing-1", "Duplicate submission");
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Review verification" })).toBeNull();
   });
 });

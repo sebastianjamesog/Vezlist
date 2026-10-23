@@ -1,6 +1,7 @@
 package cc.vezlist.shared.web;
 
 import java.time.Instant;
+import java.io.IOException;
 import java.util.List;
 
 import cc.vezlist.identity.application.EmailAlreadyRegisteredException;
@@ -28,6 +29,9 @@ import cc.vezlist.verification.application.VerificationNotFoundException;
 import cc.vezlist.verification.application.VerificationStateException;
 import cc.vezlist.verification.application.VerificationValidationException;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import cc.vezlist.support.application.SupportTicketEvents;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.security.access.AccessDeniedException;
 import org.slf4j.MDC;
@@ -48,6 +52,21 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 @RestControllerAdvice
 public class ApiExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
+    @ExceptionHandler(cc.vezlist.shared.security.LoginAttemptLimitException.class)
+    ResponseEntity<ApiError> handleLoginLimit(cc.vezlist.shared.security.LoginAttemptLimitException exception,
+            HttpServletRequest request) {
+        ResponseEntity<ApiError> result = error(HttpStatus.TOO_MANY_REQUESTS, "LOGIN_RATE_LIMITED",
+                "Too many sign-in attempts. Please wait a few minutes and try again.", List.of(), request);
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", Long.toString(exception.retryAfterSeconds())).body(result.getBody());
+    }
+
+    @ExceptionHandler(cc.vezlist.identity.web.ConsoleAccessException.class)
+    ResponseEntity<ApiError> handleConsoleAccess(cc.vezlist.identity.web.ConsoleAccessException exception,
+            HttpServletRequest request) {
+        return error(HttpStatus.FORBIDDEN, "CONSOLE_ACCESS_DENIED", exception.getMessage(), List.of(), request);
+    }
 
     @ExceptionHandler(cc.vezlist.live.application.LiveException.class)
     ResponseEntity<ApiError> handleLive(cc.vezlist.live.application.LiveException exception, HttpServletRequest request) {
@@ -347,14 +366,35 @@ public class ApiExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    ResponseEntity<ApiError> handleUnexpected(Exception exception, HttpServletRequest request) {
+    ResponseEntity<ApiError> handleUnexpected(Exception exception, HttpServletRequest request,
+                                             HttpServletResponse response) {
+        boolean supportStream = Boolean.TRUE.equals(request.getAttribute(SupportTicketEvents.STREAM_REQUEST_ATTRIBUTE));
+        if (supportStream && isStreamTransportEnd(exception)) {
+            // A disconnected/expired SSE response cannot accept a JSON error body.
+            // The server-only marker is set after successful stream subscription,
+            // so ordinary API I/O failures retain the normal error response below.
+            return null;
+        }
         log.error("Unhandled API exception for {} {}", request.getMethod(), request.getRequestURI(), exception);
+        if (supportStream) {
+            // Preserve real stream failures in logs, but never append JSON to an
+            // established event stream or attempt to rewrite a committed response.
+            if (!response.isCommitted()) response.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
+            return null;
+        }
         return error(
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 "INTERNAL_ERROR",
                 "An unexpected error occurred.",
                 List.of(),
                 request);
+    }
+
+    private boolean isStreamTransportEnd(Throwable exception) {
+        for (int depth = 0; exception != null && depth < 20; depth++, exception = exception.getCause()) {
+            if (exception instanceof IOException || exception instanceof AsyncRequestTimeoutException) return true;
+        }
+        return false;
     }
 
     private boolean isSavedListingRequest(HttpServletRequest request) {

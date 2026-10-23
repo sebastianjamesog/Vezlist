@@ -28,40 +28,54 @@ export class ApiError extends Error {
 }
 
 /**
- * The backend's default Spring Security CSRF handler
- * (XorCsrfTokenRequestAttributeHandler) BREACH-masks the token it exposes to
- * request attributes/controllers, which is a *different* string from the
- * unmasked value CookieCsrfTokenRepository writes into the XSRF-TOKEN
- * cookie. Only the masked value — GET /api/v1/auth/csrf's JSON body — can be
- * unmasked back to the real token by the header check; the raw cookie value
- * fails validation. So this reads the CSRF endpoint's body, not the cookie.
- *
- * The masked value stays valid for the life of the underlying token (the
- * server re-derives the same raw token from any masked string it ever
- * handed out), so caching it in memory for the tab's lifetime is safe; a
- * 403 from a stale cache (e.g. session changed) clears it and retries once.
+ * Read the BREACH-masked token returned by the API, never the raw cookie.
+ * Admin and public requests have independent cookies and token caches, even
+ * when both kinds of request originate in the same frontend bundle.
  */
-let csrfTokenPromise = null;
+const csrfTokenPromises = new Map();
 
-function fetchCsrfToken() {
-  return fetch(`${API_BASE_URL}/api/v1/auth/csrf`, { credentials: "include" })
-    .then((res) => (res.ok ? res.json() : null))
-    .then((body) => body?.token ?? null);
+function csrfPathFor(path) {
+  return /^\/api\/v1\/(admin|moderation)(?:\/|\?|$)/.test(path) ||
+    /^\/api\/v1\/support\/articles\/admin(?:\/|\?|$)/.test(path)
+    ? "/api/v1/admin/auth/csrf"
+    : "/api/v1/auth/csrf";
 }
 
-/**
- * Spring rotates the CSRF cookie on session-authentication changes (login,
- * register, logout), so a cached masked token from before the call is
- * stale afterward. Callers around auth mutations should invalidate the
- * cache proactively rather than rely solely on the 403-retry.
- */
-export function resetCsrfToken() {
-  csrfTokenPromise = null;
+async function fetchCsrfToken(path) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    credentials: "include",
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body?.token) {
+    throw new ApiError({
+      status: response.status,
+      code: body?.code,
+      message:
+        body?.message ||
+        "Could not prepare a secure request. Please try again.",
+    });
+  }
+  return body.token;
 }
 
-async function ensureCsrfToken() {
-  if (!csrfTokenPromise) csrfTokenPromise = fetchCsrfToken();
-  return csrfTokenPromise;
+/** Invalidate only the affected session's token, or both when no path is given. */
+export function resetCsrfToken(path) {
+  if (path) csrfTokenPromises.delete(csrfPathFor(path));
+  else csrfTokenPromises.clear();
+}
+
+function ensureCsrfToken(path) {
+  const csrfPath = csrfPathFor(path);
+  if (!csrfTokenPromises.has(csrfPath)) {
+    const pending = fetchCsrfToken(csrfPath).catch((error) => {
+      // A failed token fetch must not permanently poison this tab's cache.
+      if (csrfTokenPromises.get(csrfPath) === pending)
+        csrfTokenPromises.delete(csrfPath);
+      throw error;
+    });
+    csrfTokenPromises.set(csrfPath, pending);
+  }
+  return csrfTokenPromises.get(csrfPath);
 }
 
 /**
@@ -69,14 +83,19 @@ async function ensureCsrfToken() {
  * JSON in/out, and errors normalized to ApiError so callers can branch on
  * `.status`/`.code` instead of re-parsing response bodies.
  */
-export async function apiFetch(path, { method = "GET", body, headers, signal } = {}, retrying = false) {
+export async function apiFetch(
+  path,
+  { method = "GET", body, headers, signal, cache } = {},
+  retrying = false,
+) {
+  method = method.toUpperCase();
   const finalHeaders = new Headers(headers);
   if (body !== undefined && !finalHeaders.has("Content-Type")) {
     finalHeaders.set("Content-Type", "application/json");
   }
 
   if (MUTATING_METHODS.has(method)) {
-    const token = await ensureCsrfToken();
+    const token = await ensureCsrfToken(path);
     if (token) finalHeaders.set("X-XSRF-TOKEN", token);
   }
 
@@ -86,17 +105,27 @@ export async function apiFetch(path, { method = "GET", body, headers, signal } =
     credentials: "include",
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
+    ...(cache ? { cache } : {}),
   });
-
-  if (response.status === 403 && MUTATING_METHODS.has(method) && !retrying) {
-    resetCsrfToken();
-    return apiFetch(path, { method, body, headers, signal }, true);
-  }
 
   if (response.status === 204) return null;
 
-  const isJson = (response.headers.get("Content-Type") || "").includes("application/json");
+  const isJson = (response.headers.get("Content-Type") || "").includes(
+    "application/json",
+  );
   const payload = isJson ? await response.json().catch(() => null) : null;
+
+  // Authorization failures must never repeat a mutation. Only the CSRF
+  // filter's explicit rejection guarantees it did not reach the controller.
+  if (
+    response.status === 403 &&
+    payload?.code === "CSRF_INVALID" &&
+    MUTATING_METHODS.has(method) &&
+    !retrying
+  ) {
+    resetCsrfToken(path);
+    return apiFetch(path, { method, body, headers, signal, cache }, true);
+  }
 
   if (!response.ok) {
     throw new ApiError({
@@ -125,6 +154,8 @@ export const api = {
   get: (path, query, opts) => apiFetch(withQuery(path, query), opts),
   post: (path, body, opts) => apiFetch(path, { ...opts, method: "POST", body }),
   put: (path, body, opts) => apiFetch(path, { ...opts, method: "PUT", body }),
-  patch: (path, body, opts) => apiFetch(path, { ...opts, method: "PATCH", body }),
-  delete: (path, query) => apiFetch(withQuery(path, query), { method: "DELETE" }),
+  patch: (path, body, opts) =>
+    apiFetch(path, { ...opts, method: "PATCH", body }),
+  delete: (path, query) =>
+    apiFetch(withQuery(path, query), { method: "DELETE" }),
 };

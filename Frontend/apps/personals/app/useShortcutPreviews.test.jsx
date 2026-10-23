@@ -4,7 +4,7 @@ import useShortcutPreviews from "./useShortcutPreviews.js";
 import { listLiveCreators } from "@vezlist/shared/lib/api/live.js";
 import { featuredListings } from "@vezlist/shared/lib/api/featured.js";
 import { getTrendingSellers } from "@vezlist/shared/lib/api/sellers.js";
-import { mapPins } from "@vezlist/shared/lib/api/discovery.js";
+import { searchListings } from "@vezlist/shared/lib/api/discovery.js";
 
 vi.mock("@vezlist/shared/lib/api/live.js", () => ({
   listLiveCreators: vi.fn(),
@@ -15,7 +15,7 @@ vi.mock("@vezlist/shared/lib/api/featured.js", () => ({
 vi.mock("@vezlist/shared/lib/api/sellers.js", () => ({
   getTrendingSellers: vi.fn(),
 }));
-vi.mock("@vezlist/shared/lib/api/discovery.js", () => ({ mapPins: vi.fn() }));
+vi.mock("@vezlist/shared/lib/api/discovery.js", () => ({ searchListings: vi.fn() }));
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -48,7 +48,7 @@ test("availability uses the backend total rather than just the preview photo cou
   featuredListings.mockResolvedValue({ total: 12, items: [{ imageUrl: "available.jpg" }] });
   const { result } = renderHook(useShortcutPreviews);
   await flush();
-  expect(result.current.available).toEqual({ stat: "12 available", count: 12, thumbs: ["available.jpg"] });
+  expect(result.current.available).toEqual({ stat: "12 available", count: 12, thumbs: ["available.jpg"], availableUntil: undefined });
 });
 
 test("uses real destination data, caps unique circles at four, and represents empty feeds honestly", async () => {
@@ -159,7 +159,7 @@ test("never prompts for geolocation; shows nearby count only after permission is
     permissions: { query },
     geolocation: { getCurrentPosition },
   });
-  mapPins.mockResolvedValue([{ id: "nearby" }]);
+  searchListings.mockResolvedValue({ items: [{ id: "nearby", imageUrl: "nearby.jpg" }], hasMore: false });
   const { result } = renderHook(useShortcutPreviews);
   await flush();
   expect(getCurrentPosition).not.toHaveBeenCalled();
@@ -168,17 +168,18 @@ test("never prompts for geolocation; shows nearby count only after permission is
   await act(async () => {
     await vi.advanceTimersByTimeAsync(30_000);
   });
-  expect(mapPins).toHaveBeenCalledWith(
+  expect(searchListings).toHaveBeenCalledWith(
     {
       site: "PERSONALS",
       latitude: 43.65,
       longitude: -79.38,
       radiusKm: 5,
-      limit: 500,
+      limit: 24,
+      sort: "NEAREST",
     },
     { signal: expect.any(AbortSignal) },
   );
-  expect(result.current.nearby).toEqual({ stat: "Within 5 km", count: 1 });
+  expect(result.current.nearby).toEqual({ stat: "Within 5 km", count: 1, thumbs: ["nearby.jpg"] });
 });
 
 test("aborts stalled requests, retries, and ignores late responses from the old request", async () => {
@@ -209,3 +210,12 @@ test("aborts stalled requests, retries, and ignores late responses from the old 
   unmount();
   expect(listLiveCreators.mock.calls[1][1].signal.aborted).toBe(true);
 });
+
+ test("drops expired availability previews before the next poll", async () => {
+  featuredListings.mockImplementation(async feed => ({items: feed === "AVAILABLE_NOW" ? [{ imageUrl: "available.jpg", availableUntil: "2026-10-20T09:00:05Z" }] : []}));
+  const { result } = renderHook(useShortcutPreviews);
+  await flush();
+  expect(result.current.available.count).toBe(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(5020); });
+  expect(result.current.available).toBeNull();
+ });

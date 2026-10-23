@@ -172,8 +172,9 @@ public class Listing {
             Double latitude,
             Double longitude,
             Map<String, String> attributes) {
-        if (status != ListingStatus.DRAFT && status != ListingStatus.REJECTED) {
-            throw new IllegalStateException("Only draft or rejected listings can be edited.");
+        if (status != ListingStatus.DRAFT && status != ListingStatus.REJECTED
+                && status != ListingStatus.ACTIVE && status != ListingStatus.EXPIRED) {
+            throw new IllegalStateException("Ads awaiting review or removed by moderation cannot be edited.");
         }
         this.title = title.strip();
         this.businessName = businessName.strip();
@@ -242,16 +243,13 @@ public class Listing {
     }
 
     /**
-     * Admin force-takedown: a straightforward, direct status transition
-     * distinct from the multi-step moderation-decision workflow in
-     * {@code cc.vezlist.moderation}. Only an ACTIVE listing may be removed
-     * this way, the same precondition {@code ModerationService.decide}
-     * enforces for its own REMOVE decision, so this cannot be used to bypass
-     * or short-circuit any other part of the state machine.
+     * Administrators may remove published ads or stop a pending submission.
+     * Publication and expiry dates are preserved, so removing an unpublished
+     * submission never publishes it. Draft and terminal states remain guarded.
      */
     public void adminRemove(String reason) {
-        if (status != ListingStatus.ACTIVE) {
-            throw new IllegalStateException("Only active listings can be force-removed.");
+        if (status != ListingStatus.ACTIVE && status != ListingStatus.PENDING_REVIEW) {
+            throw new IllegalStateException("Only active or pending-review listings can be force-removed.");
         }
         status = ListingStatus.REMOVED;
         moderationReason = reason;

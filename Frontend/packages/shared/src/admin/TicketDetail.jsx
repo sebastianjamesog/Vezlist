@@ -1,80 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import AdminHeader, { CARD } from "../components/admin/AdminHeader";
 import Button from "../components/ui/Button";
 import { useToast } from "../context/ToastContext";
-import {
-  getAdminTicket,
-  replyAsStaff,
-  setAdminTicketStatus,
-} from "../lib/api/tickets.js";
+import { useAdminAuth } from "../context/AdminAuthContext";
+import { useTicketConversation } from "../hooks/useTicketConversation.js";
 
 export default function TicketDetail() {
   const { id } = useParams();
-  const generation = useRef(0);
+  const { admin } = useAdminAuth();
   const toast = useToast();
-  const [ticket, setTicket] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [draft, setDraft] = useState("");
-  const [pending, setPending] = useState(false);
-
-  const load = useCallback(async () => {
-    const version = ++generation.current;
-    setTicket(null);
-    setDraft("");
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await getAdminTicket(id);
-      if (version === generation.current) setTicket(result);
-    } catch (caught) {
-      if (version === generation.current) setError(caught);
-    } finally {
-      if (version === generation.current) setLoading(false);
-    }
-  }, [id]);
-
-  useEffect(() => {
-    load();
-    return () => {
-      generation.current++;
-    };
-  }, [load]);
+  const { ticket, loading, error, draft, setDraft, pending, refresh: load, send: sendReply, changeStatus, logRef } =
+    useTicketConversation({ id, accountId: admin?.id, staff: true });
 
   async function send(event) {
     event.preventDefault();
-    if (!draft.trim() || pending) return;
-    setPending(true);
-    setError(null);
-    try {
-      setTicket(await replyAsStaff(id, draft.trim()));
-      setDraft("");
-      toast("Reply sent");
-    } catch (caught) {
-      setError(caught);
-    } finally {
-      setPending(false);
-    }
-  }
-
-  async function changeStatus() {
-    setPending(true);
-    setError(null);
-    try {
-      setTicket(
-        await setAdminTicketStatus(
-          id,
-          ticket.status === "RESOLVED" ? "OPEN" : "RESOLVED",
-        ),
-      );
-    } catch (caught) {
-      setError(caught);
-    } finally {
-      setPending(false);
-    }
+    if (await sendReply()) toast("Reply sent");
   }
 
   if (loading)
@@ -120,7 +62,7 @@ export default function TicketDetail() {
       )}
       <section className={CARD}>
         <p className="mb-4 text-sm font-semibold text-muted">{ticket.status}</p>
-        <ol className="space-y-3">
+        <ol ref={logRef} className="space-y-3" role="log" aria-label="Ticket conversation" aria-live="polite" aria-relevant="additions">
           {ticket.messages.map((message) => (
             <li
               key={message.id}

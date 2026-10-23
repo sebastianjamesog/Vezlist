@@ -25,6 +25,7 @@ import StepContact from "../components/create/StepContact";
 import VerificationRequestModal from "../components/create/VerificationRequestModal";
 import { useToast } from "../context/ToastContext";
 import { useAccount } from "../context/AccountContext";
+import { useAuth } from "../context/AuthContext";
 import {
   MAX_IMAGES,
   STEPS,
@@ -86,8 +87,9 @@ const statusLabel = {
   EXPIRED: "Expired",
 };
 
-/** Only a draft or a rejected listing can be edited or resubmitted — the backend refuses anything else. */
-const EDITABLE_STATUSES = new Set(["DRAFT", "REJECTED"]);
+/** Only a draft or a rejected listing can change photos or be resubmitted — the backend refuses anything else. */
+const RESUBMIT_STATUSES = new Set(["DRAFT", "REJECTED"]);
+const EDITABLE_STATUSES = new Set(["DRAFT", "REJECTED", "ACTIVE", "EXPIRED"]);
 
 const EDIT_STEPS = ["photos", "details", "contact"];
 
@@ -116,6 +118,11 @@ function AdLink({ listing, className, children }) {
 }
 
 export default function MyAds() {
+  const { user } = useAuth();
+  return <MyAdsContent key={`${SITE_SCOPE}:${user?.id ?? "signed-out"}`} authenticated={Boolean(user?.id)} />;
+}
+
+function MyAdsContent({ authenticated }) {
   const toast = useToast();
   const { can } = useAccount();
   const [listings, setListings] = useState(null); // null while loading, [] once loaded
@@ -126,6 +133,13 @@ export default function MyAds() {
   const [appealing, setAppealing] = useState(null);
   const [appealMessage, setAppealMessage] = useState("");
   const [appealSubmitting, setAppealSubmitting] = useState(false);
+  const [appealError, setAppealError] = useState(null);
+  const appealLock = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   const [editing, setEditing] = useState(null);
   const [draft, setDraft] = useState(null);
@@ -135,33 +149,48 @@ export default function MyAds() {
   const [addingPhotos, setAddingPhotos] = useState(false);
   const [verification, setVerification] = useState(null);
   const [requestingVerification, setRequestingVerification] = useState(null);
+  const loadVersion = useRef(0);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (!mounted.current || appealLock.current) return;
+    const version = ++loadVersion.current;
     setError(null);
     try {
       const rows = await ownedListings(SITE_SCOPE);
+      if (version !== loadVersion.current) return;
       setListings(rows);
       const needsAttention = rows.filter((r) =>
-        ["REJECTED", "REMOVED"].includes(r.status),
+        ["ACTIVE", "EXPIRED", "REJECTED", "REMOVED"].includes(r.status),
       );
       const statuses = await Promise.all(
         needsAttention.map((r) =>
-          ownerStatus(r.id, SITE_SCOPE).catch(() => null),
+          ownerStatus(r.id, SITE_SCOPE).catch(() => ({ loadError: true })),
         ),
       );
       const byId = {};
       needsAttention.forEach((r, i) => {
         if (statuses[i]) byId[r.id] = statuses[i];
       });
-      setModeration(byId);
+      if (version === loadVersion.current) setModeration(byId);
     } catch (err) {
-      setError(err);
+      if (version === loadVersion.current && !silent) setError(err);
     }
   }, []);
 
-  const canManage = can("ad.manage");
+  const canManage = authenticated && can("ad.manage");
   useEffect(() => {
-    if (canManage) load();
+    if (!canManage) return undefined;
+    load();
+    const refresh = () => { if (document.visibilityState !== "hidden") load({ silent: true }); };
+    const timer = window.setInterval(refresh, 30_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      loadVersion.current++;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
   }, [canManage, load]);
 
   function releasePreviews() {
@@ -222,30 +251,50 @@ export default function MyAds() {
   }
 
   function openAppeal(listing) {
+    if (appealLock.current || !moderation[listing.id]?.appealAllowed) return;
     setAppealMessage("");
+    setAppealError(null);
     setAppealing(listing);
   }
 
   async function submitAppeal() {
-    if (!appealing || !appealMessage.trim()) return;
+    if (!appealing || !appealMessage.trim() || appealLock.current) return;
+    const target = appealing;
+    appealLock.current = true;
+    loadVersion.current++;
     setAppealSubmitting(true);
+    setAppealError(null);
     try {
-      await appealListing(appealing.id, {
+      await appealListing(target.id, {
         site: SITE_SCOPE,
         message: appealMessage.trim(),
       });
-      setModeration((m) => ({
-        ...m,
-        [appealing.id]: { ...m[appealing.id], appealAllowed: false },
+      if (!mounted.current) return;
+      // The receipt can refer to an appeal another tab has already submitted
+      // or decided. Read its current owner-visible outcome before announcing it.
+      const latest = await ownerStatus(target.id, SITE_SCOPE).catch(() => null);
+      if (!mounted.current) return;
+      setModeration((current) => ({
+        ...current,
+        [target.id]: latest ?? { ...current[target.id], appealAllowed: false, appealStatus: "PENDING" },
       }));
-      toast("Appeal submitted for review");
+      if (latest?.status && latest.status !== target.status) {
+        setListings((current) => current?.map((row) => row.id === target.id ? { ...row, status: latest.status } : row));
+        setTab(tabFor(latest.status) ?? "attention");
+      }
+      toast(latest?.appealStatus === "APPROVED" ? "Your appeal was approved."
+        : latest?.appealStatus === "REJECTED" ? "Your appeal was rejected."
+          : latest?.appealStatus === "STALE" ? "This appeal has been superseded. Check your ad's current status."
+            : "Appeal submitted for review");
       setAppealing(null);
     } catch (err) {
-      toast(
-        err instanceof ApiError ? err.message : "Couldn't submit the appeal",
-      );
+      if (!mounted.current) return;
+      setAppealError(err instanceof ApiError ? err.message : "Couldn't submit the appeal. Please try again.");
     } finally {
-      setAppealSubmitting(false);
+      if (mounted.current) {
+        appealLock.current = false;
+        setAppealSubmitting(false);
+      }
     }
   }
 
@@ -321,7 +370,8 @@ export default function MyAds() {
   }
 
   async function saveEdit() {
-    const found = EDIT_STEPS.reduce(
+    if (saving || addingPhotos) return;
+    const found = EDIT_STEPS.filter((id) => id !== "photos" || RESUBMIT_STATUSES.has(editing.status)).reduce(
       (all, id) => ({ ...all, ...validateStep(id, draft) }),
       {},
     );
@@ -338,29 +388,30 @@ export default function MyAds() {
       // Photos only ever change here for a draft/rejected listing — the
       // backend refuses image edits on anything else, so `draft.images`
       // for an active/pending/expired ad is exactly what it opened on.
-      const originalIds = new Set((editing.media ?? []).map((m) => m.id));
+      const originalIds = new Set(RESUBMIT_STATUSES.has(editing.status)
+        ? (editing.media ?? []).map((m) => m.id) : []);
       const keptOrNew = draft.images;
       const removed = [...originalIds].filter(
         (id) => !keptOrNew.some((i) => i.id === id),
       );
-      const added = keptOrNew.filter((i) => i.pending);
+      const added = RESUBMIT_STATUSES.has(editing.status) ? keptOrNew.filter((i) => i.pending) : [];
 
       for (const mediaId of removed) {
-        await deleteMedia(editing.id, mediaId).catch(() => {});
+        await deleteMedia(editing.id, mediaId);
       }
       for (const image of added) {
         const blob = dataUriToBlob(image.url);
         await uploadListingImage(editing.id, blob, image.name || "photo.jpg");
       }
 
-      if (EDITABLE_STATUSES.has(editing.status)) {
+      if (RESUBMIT_STATUSES.has(editing.status)) {
         listing = await submitListing(editing.id, crypto.randomUUID(), {
           requestVerification: editing.verificationRequested === true,
         });
       }
 
       setListings((rows) =>
-        rows.map((r) => (r.id === listing.id ? listing : r)),
+        rows.map((r) => (r.id === listing.id ? { ...listing, currentPosition: r.currentPosition } : r)),
       );
       setSaving(false);
       closeEdit();
@@ -455,6 +506,14 @@ export default function MyAds() {
             ))}
           </div>
 
+          {rows.some((row) => row.currentPosition != null) && (
+            <p className="mb-3 text-xs text-muted">
+              {SITE_SCOPE === "PERSONALS"
+                ? "Ad rank is across all Personals ads, in every location and subcategory. "
+                : "Ad rank follows posting time in the same board, category and location. "}
+              Newer ads rank first; views do not affect it. Updates every 30 seconds and when you return.
+            </p>
+          )}
           {rows.length ? (
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
               {rows.map((row) => {
@@ -470,9 +529,9 @@ export default function MyAds() {
                         <MediaImage
                           src={row.media?.[0]?.url}
                           alt=""
-                          width={72}
-                          height={72}
-                          className="size-[72px] rounded-xl object-cover"
+                          width={64}
+                          height={64}
+                          className="size-16 rounded-xl object-cover"
                         />
                       </AdLink>
 
@@ -480,7 +539,7 @@ export default function MyAds() {
                         <div className="flex items-start justify-between gap-2">
                           <AdLink
                             listing={row}
-                            className="text-[16px] font-bold leading-tight text-ink"
+                            className="line-clamp-2 text-[14px] font-bold leading-tight text-ink"
                           >
                             {row.title}
                           </AdLink>
@@ -494,7 +553,14 @@ export default function MyAds() {
                           </span>
                         </div>
 
-                        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-muted">
+                        {row.currentPosition != null && (
+                          <p className="mt-1 text-xs text-muted">
+                            Ad rank{" "}
+                            <span className="font-bold text-brand">#{row.currentPosition}</span>{" "}
+                            {SITE_SCOPE === "PERSONALS" ? "across Personals" : <>in {row.categoryLabel} / {row.locationLabel}</>}
+                          </p>
+                        )}
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
                           <span className="flex items-center gap-1">
                             <Eye className="size-4" />
                             {row.viewCount.toLocaleString()}
@@ -518,6 +584,23 @@ export default function MyAds() {
                               verification again.
                             </p>
                           )}
+                        {mod?.loadError && (
+                          <p role="alert" className="mt-2 text-sm text-danger">
+                            Could not load moderation status.{" "}
+                            <button type="button" className="font-semibold underline" onClick={() => load({ silent: true })}>Retry status</button>
+                          </p>
+                        )}
+                        {mod?.appealStatus && mod.appealStatus !== "NONE" && (
+                          <p className="mt-2 rounded-xl bg-brand-soft px-2.5 py-2 text-sm text-ink">
+                            {mod.appealStatus === "PENDING"
+                              ? "Appeal pending review. Your ad remains private until approved."
+                              : mod.appealStatus === "APPROVED"
+                                ? "Your appeal was approved."
+                                : mod.appealStatus === "REJECTED"
+                                  ? "Your appeal was rejected. See the moderation reason below."
+                                  : "This appeal was superseded by changes to your ad. Check its current status above."}
+                          </p>
+                        )}
                         {mod?.publicReason && (
                           <p className="mt-2 flex items-start gap-1.5 rounded-xl bg-red-50 px-2.5 py-1.5 text-[12.5px] leading-snug text-red-700">
                             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
@@ -527,7 +610,13 @@ export default function MyAds() {
                       </div>
                     </div>
 
-                    <div className="mt-3 flex gap-2 border-t border-line pt-3">
+                    <div className="mt-2 flex gap-2 border-t border-line pt-2">
+                      {row.status === "ACTIVE" && (
+                        <Link href={`/ad/${row.id}`} aria-label={`View ${row.title}`}
+                          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-brand-soft py-2 text-sm font-semibold text-brand">
+                          <Eye className="size-4" /> View
+                        </Link>
+                      )}
                       {row.status === "PENDING_REVIEW" &&
                         row.verificationRequested && (
                           <button
@@ -554,8 +643,7 @@ export default function MyAds() {
                         </button>
                       )}
 
-                      {mod?.appealAllowed &&
-                        (!row.verificationRequested || row.verified) && (
+                      {mod?.appealAllowed && (
                           <button
                             onClick={() => openAppeal(row)}
                             aria-label={`Appeal the decision on ${row.title}`}
@@ -591,19 +679,21 @@ export default function MyAds() {
           open={Boolean(editing)}
           title="Edit this ad"
           subtitle={editing?.title}
-          onClose={closeEdit}
+          onClose={() => { if (!saving) closeEdit(); }}
           size="max-w-2xl"
           footer={
             editing && (
               <div className="flex items-center gap-3">
                 <p className="min-w-0 flex-1 text-[13px] leading-snug text-muted">
-                  {editing.verificationRequested
+                  {!RESUBMIT_STATUSES.has(editing.status)
+                    ? "Updates keep the original posting position and expiry. Published photos remain unchanged."
+                    : editing.verificationRequested
                     ? "Saving keeps this ad private until verification is approved."
                     : "Saving publishes this regular ad after its photos finish processing."}
                 </p>
                 <Button
                   onClick={saveEdit}
-                  disabled={saving}
+                  disabled={saving || addingPhotos}
                   className="shrink-0"
                 >
                   {saving ? "Saving…" : "Save changes"}
@@ -616,7 +706,7 @@ export default function MyAds() {
             <div className="space-y-6">
               {EDIT_STEPS.map((id) => {
                 const step = STEPS.find((s) => s.id === id);
-                if (id === "photos" && !EDITABLE_STATUSES.has(editing.status)) {
+                if (id === "photos" && !RESUBMIT_STATUSES.has(editing.status)) {
                   return null;
                 }
                 return (
@@ -665,7 +755,7 @@ export default function MyAds() {
           open={Boolean(appealing)}
           title="Appeal this decision"
           subtitle={appealing?.title}
-          onClose={() => setAppealing(null)}
+          onClose={() => { if (!appealLock.current) setAppealing(null); }}
           size="max-w-lg"
           footer={
             appealing && (
@@ -679,10 +769,13 @@ export default function MyAds() {
             )
           }
         >
+          {appealError && <p id="appeal-error" role="alert" className="mb-3 text-sm text-danger">{appealError}</p>}
           <label className="block text-[14px] font-semibold text-ink">
             Tell a moderator why this should be reconsidered
             <textarea
               value={appealMessage}
+              disabled={appealSubmitting}
+              aria-describedby={appealError ? "appeal-error" : undefined}
               onChange={(e) => setAppealMessage(e.target.value)}
               rows={5}
               maxLength={2000}

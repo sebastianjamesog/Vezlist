@@ -31,7 +31,16 @@ public class AdminAnalyticsRepository {
             "pending", count("SELECT count(*) FROM listings l WHERE l.status='PENDING_REVIEW'" + scope, args),
             "openReports", count("SELECT count(*) FROM moderation_cases c JOIN listings l ON l.id=c.listing_id WHERE c.status='OPEN' AND c.kind='REPORT'" + scope, args),
             "openAppeals", count("SELECT count(*) FROM moderation_cases c JOIN listings l ON l.id=c.listing_id WHERE c.status='OPEN' AND c.kind='APPEAL'" + scope, args),
-            "openVerifications", count("SELECT count(*) FROM listing_verification_requests v JOIN listings l ON l.id=v.listing_id WHERE v.status='PENDING_REVIEW'" + scope, args),
+            // Count actionable requests using the same eligibility rules as the verification queue.
+            "openVerifications", count("""
+                SELECT count(*) FROM listing_verification_requests v
+                JOIN listings l ON l.id=v.listing_id
+                JOIN app_users u ON u.id=v.owner_id
+                WHERE v.status='PENDING_REVIEW' AND u.enabled=true
+                  AND l.status IN ('PENDING_REVIEW', 'ACTIVE')
+                  AND (l.status <> 'ACTIVE' OR l.expires_at IS NULL OR l.expires_at > now())
+                  AND (l.submitted_at IS NULL OR v.created_at >= l.submitted_at)
+                """ + scope, args),
             "openTickets", count("SELECT count(*) FROM support_tickets l WHERE l.status='OPEN'" + scope, args));
     }
 

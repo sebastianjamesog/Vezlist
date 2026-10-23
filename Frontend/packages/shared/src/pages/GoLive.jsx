@@ -8,17 +8,14 @@ import {
   ChevronRight,
   Clock3,
   Crown,
-  Eye,
   ImageIcon,
   LoaderCircle,
   Mic,
-  MicOff,
   Radio,
   ShieldCheck,
   SwitchCamera,
   Users,
   Video,
-  VideoOff,
 } from "lucide-react";
 import { useNavigate } from "../lib/nav";
 import { useAccount } from "../context/AccountContext";
@@ -36,7 +33,7 @@ import {
   broadcastMimeType,
   openBrowserBroadcast,
 } from "../components/live/browserBroadcast";
-import LiveChat from "../components/live/LiveChat";
+import CreatorLiveBroadcast from "../components/live/CreatorLiveBroadcast.jsx";
 import StoryComposer from "../components/create/StoryComposer";
 
 const METHODS = [
@@ -71,11 +68,6 @@ const money = (plan) =>
     style: "currency",
     currency: plan.currency || "CAD",
   }).format(plan.price);
-function sessionClock(milliseconds) {
-  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
-  if (!Number.isFinite(seconds)) return "00:00";
-  return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
-}
 function Notice({ children }) {
   return (
     <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm leading-relaxed text-[#355282]">
@@ -137,13 +129,21 @@ export default function GoLive() {
   const [cameraOff, setCameraOff] = useState(false);
   const [broadcastState, setBroadcastState] = useState("idle");
   const [now, setNow] = useState(null);
-  const [viewers, setViewers] = useState(0);
+  const [viewers, setViewers] = useState(null);
   const [storyOpen, setStoryOpen] = useState(false);
   const streamRef = useRef(null);
   const broadcast = useRef(null);
   const mounted = useRef(true);
   const requestKey = useRef({ key: null, fingerprint: null });
   const busyRef = useRef(false);
+  const serverOffset = useRef(0);
+  const acceptSession = useCallback((next) => {
+    const serverTime = Date.parse(next?.serverTime);
+    if (Number.isFinite(serverTime))
+      serverOffset.current = serverTime - Date.now();
+    setNow(Date.now() + serverOffset.current);
+    setSession(next);
+  }, []);
   const selectedPlan = catalog?.items?.find(
     (plan) => plan.id === planId && plan.enabled,
   );
@@ -214,7 +214,7 @@ export default function GoLive() {
           ownSession.session &&
           !["ENDED", "FAILED"].includes(ownSession.session.status)
         ) {
-          setSession(ownSession.session);
+          acceptSession(ownSession.session);
           setStep("active");
         }
       }
@@ -224,7 +224,7 @@ export default function GoLive() {
     } finally {
       if (mounted.current) setLoading(false);
     }
-  }, [allowed]);
+  }, [allowed, acceptSession]);
   useEffect(() => {
     load();
   }, [load]);
@@ -285,17 +285,22 @@ export default function GoLive() {
   useEffect(() => {
     if (!session?.id || terminal) return;
     let active = true;
+    let requestVersion = 0;
     const refresh = async () => {
+      const request = ++requestVersion;
       try {
         const next = await getLiveSession(session.id);
-        if (active) setSession(next);
+        if (active && request === requestVersion) acceptSession(next);
       } catch (err) {
-        if (active)
+        if (active && request === requestVersion)
           setError(err.message || "Could not refresh your live session.");
       }
     };
     const timer = setInterval(refresh, 3000);
-    const clock = setInterval(() => setNow(Date.now()), 1000);
+    const clock = setInterval(
+      () => setNow(Date.now() + serverOffset.current),
+      1000,
+    );
     window.addEventListener("focus", refresh);
     return () => {
       active = false;
@@ -303,7 +308,7 @@ export default function GoLive() {
       clearInterval(clock);
       window.removeEventListener("focus", refresh);
     };
-  }, [session?.id, terminal]);
+  }, [session?.id, terminal, acceptSession]);
 
   useEffect(() => {
     if (terminal) stopMedia();
@@ -446,8 +451,7 @@ export default function GoLive() {
     try {
       const created = await createLiveSession(payload, requestKey.current.key);
       if (!mounted.current) return;
-      setSession(created);
-      setNow(Date.now());
+      acceptSession(created);
       setStep("active");
       try {
         await connectBroadcast(created, streamRef.current);
@@ -500,12 +504,14 @@ export default function GoLive() {
     setError("");
     try {
       const ended = await endLiveSession(session.id);
-      setSession(ended || { ...session, status: "ENDED" });
+      acceptSession(ended || { ...session, status: "ENDED" });
+      return true;
     } catch (err) {
       setError(
         err.message ||
           "Your camera has stopped. Could not confirm the session ended; please retry.",
       );
+      return false;
     } finally {
       setPending(false);
     }
@@ -520,6 +526,37 @@ export default function GoLive() {
     };
     if (previous[step]) setStep(previous[step]);
     else navigate("/live");
+  }
+
+  if (step === "active" && session && allowed && !loading) {
+    return (
+      <CreatorLiveBroadcast
+        session={session}
+        now={now}
+        media={
+          stream ? (
+            <CameraPreview
+              stream={stream}
+              className="absolute inset-0 size-full object-cover"
+            />
+          ) : null
+        }
+        terminal={terminal}
+        broadcastState={broadcastState}
+        viewers={viewers ?? session.viewerCount}
+        onViewerCount={setViewers}
+        muted={muted}
+        cameraOff={cameraOff}
+        pending={pending}
+        error={error}
+        streamingAvailable={catalog?.streamingAvailable}
+        onReconnect={reconnect}
+        onEnd={end}
+        onLeave={() => navigate("/live", { replace: true })}
+        onToggleMicrophone={toggleMicrophone}
+        onToggleCamera={toggleCamera}
+      />
+    );
   }
 
   return (
@@ -1101,191 +1138,6 @@ export default function GoLive() {
                           : "Start live session"}
                     </button>
                   </div>
-                </>
-              )}
-              {step === "active" && session && (
-                <>
-                  <section
-                    aria-label="Your live broadcast"
-                    className="relative isolate h-[calc(100dvh-112px)] max-h-[800px] min-h-[480px] overflow-hidden rounded-[28px] bg-slate-950 text-white shadow-xl shadow-slate-900/15"
-                  >
-                    {stream && !terminal ? (
-                      <CameraPreview
-                        stream={stream}
-                        className="absolute inset-0 size-full object-cover"
-                      />
-                    ) : (
-                      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,#334155,#020617_75%)]">
-                        <div className="absolute inset-x-6 top-1/3 flex flex-col items-center gap-5 text-center">
-                          <Radio className="size-12 text-rose-400" />
-                          <h2 className="text-xl font-bold">
-                            {terminal
-                              ? "Your session has ended"
-                              : "Connect your camera to broadcast"}
-                          </h2>
-                        </div>
-                      </div>
-                    )}
-                    <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start gap-3 bg-gradient-to-b from-black/80 to-transparent p-4 pb-14">
-                      <span
-                        aria-hidden="true"
-                        className="grid size-10 shrink-0 place-items-center rounded-full border border-white/30 bg-white/15 text-sm font-bold backdrop-blur-sm"
-                      >
-                        {(session.creatorName || "You")
-                          .trim()
-                          .slice(0, 1)
-                          .toUpperCase()}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-bold">
-                          {session.creatorName || "You"}
-                        </p>
-                        <p className="mt-1 text-xs text-white/75">
-                          <span className="tabular-nums">
-                            {session.startedAt && now
-                              ? sessionClock(
-                                  now - Date.parse(session.startedAt),
-                                )
-                              : "00:00"}
-                          </span>{" "}
-                          &middot; Your broadcast
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 flex-col items-end gap-2">
-                        <span
-                          className={`rounded-md px-2 py-1 text-[10px] font-extrabold tracking-wider ${session.status === "LIVE" && !terminal ? "bg-rose-600" : "bg-black/60"}`}
-                        >
-                          {terminal
-                            ? "ENDED"
-                            : session.status === "LIVE"
-                              ? "LIVE"
-                              : session.status === "RECONNECTING"
-                                ? "RECONNECTING"
-                                : "PREPARING"}
-                        </span>
-                        <span
-                          aria-label={`${viewers} viewers`}
-                          className="flex items-center gap-1.5 rounded-full bg-black/40 px-2 py-1 text-xs"
-                        >
-                          <Eye className="size-3.5" />
-                          {viewers}
-                        </span>
-                      </div>
-                    </div>
-                    {!terminal && (
-                      <>
-                        {broadcastState === "transmitting" && (
-                          <div className="absolute right-3 top-24 flex gap-2">
-                            <button
-                              onClick={toggleMicrophone}
-                              aria-label={
-                                muted ? "Unmute microphone" : "Mute microphone"
-                              }
-                              aria-pressed={muted}
-                              className="grid size-11 place-items-center rounded-full border border-white/20 bg-black/40 text-white backdrop-blur-sm focus-visible:outline-2 focus-visible:outline-white"
-                            >
-                              {muted ? (
-                                <MicOff className="size-5" />
-                              ) : (
-                                <Mic className="size-5" />
-                              )}
-                            </button>
-                            <button
-                              onClick={toggleCamera}
-                              aria-label={
-                                cameraOff ? "Turn camera on" : "Turn camera off"
-                              }
-                              aria-pressed={cameraOff}
-                              className="grid size-11 place-items-center rounded-full border border-white/20 bg-black/40 text-white backdrop-blur-sm focus-visible:outline-2 focus-visible:outline-white"
-                            >
-                              {cameraOff ? (
-                                <VideoOff className="size-5" />
-                              ) : (
-                                <Video className="size-5" />
-                              )}
-                            </button>
-                          </div>
-                        )}
-                        {broadcastState !== "transmitting" && (
-                          <div className="absolute inset-x-5 top-[46%] flex justify-center">
-                            <button
-                              disabled={
-                                pending ||
-                                broadcastState === "connecting" ||
-                                !catalog?.streamingAvailable
-                              }
-                              onClick={reconnect}
-                              className="min-h-11 rounded-full border border-white/30 bg-white/15 px-5 py-3 text-sm font-semibold backdrop-blur-sm focus-visible:outline-2 focus-visible:outline-white disabled:opacity-50"
-                            >
-                              {pending || broadcastState === "connecting"
-                                ? "Connecting camera..."
-                                : "Reconnect camera & microphone"}
-                            </button>
-                          </div>
-                        )}
-                        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/65 to-transparent px-4 pb-4 pt-16 [&>*]:pointer-events-auto">
-                          <p className="mb-3 truncate text-sm font-semibold">
-                            {session.title || "Live session"}
-                          </p>
-                          {["LIVE", "RECONNECTING"].includes(session.status) ? (
-                            <LiveChat
-                              overlay
-                              sessionId={session.id}
-                              host
-                              onViewerCount={setViewers}
-                            />
-                          ) : (
-                            <div className="rounded-2xl border border-white/15 bg-white/10 p-3 text-sm text-white/80">
-                              <p>
-                                Waiting for the video provider to confirm the
-                                broadcast.
-                              </p>
-                              <p role="status" className="mt-2 text-xs">
-                                Chat will connect when your broadcast is live.
-                              </p>
-                            </div>
-                          )}
-                          <div className="mt-4 flex items-center gap-3 border-t border-white/15 pt-3">
-                            <p className="min-w-0 flex-1 text-xs text-white/75">
-                              {session.endsAt && now ? (
-                                <>
-                                  Ends in{" "}
-                                  <span className="font-semibold tabular-nums text-white">
-                                    {sessionClock(
-                                      Date.parse(session.endsAt) - now,
-                                    )}
-                                  </span>
-                                </>
-                              ) : (
-                                "Viewers watch for free"
-                              )}
-                            </p>
-                            <button
-                              onClick={end}
-                              disabled={pending}
-                              className="min-h-10 rounded-full bg-rose-600 px-5 py-2 text-xs font-bold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:opacity-50"
-                            >
-                              {pending ? "Ending..." : "End Live"}
-                            </button>
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </section>
-                  {terminal && (
-                    <>
-                      <Notice>
-                        Your camera and microphone are off. Live sessions have
-                        no replay.
-                      </Notice>
-                      <button
-                        onClick={() => navigate("/live", { replace: true })}
-                        className={`${PRIMARY} w-full`}
-                      >
-                        Back to Live Now
-                      </button>
-                    </>
-                  )}
                 </>
               )}
             </>

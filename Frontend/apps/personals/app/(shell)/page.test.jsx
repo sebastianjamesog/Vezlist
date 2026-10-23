@@ -1,19 +1,21 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import Personals from "./page";
+import { searchListings } from "@vezlist/shared/lib/api/discovery.js";
 import { DEFAULT_FILTERS } from "@vezlist/shared/lib/filters.js";
 
 let status;
+let filters;
 vi.mock("@vezlist/shared/context/StatusContext.jsx", () => ({
   useStatus: () => status,
 }));
 vi.mock("@vezlist/shared/context/FeedContext.jsx", () => ({
   useFeed: () => ({
-    filters: DEFAULT_FILTERS,
+    filters,
     setFilters: vi.fn(),
     query: "",
     setQuery: vi.fn(),
-    locations: null,
+    locations: {provinces:[{id:"on",label:"Ontario",areas:[{id:"gta",label:"Greater Toronto",neighbourhoods:[{id:"scar",label:"Scarborough"}]}]}]},
   }),
 }));
 vi.mock("../useDiscreet", () => ({ useDiscreet: () => [false, vi.fn()] }));
@@ -67,6 +69,8 @@ const viewed = { ...unseen, id: "other-2", name: "Viewed Creator" };
 describe("home published story rail", () => {
   beforeEach(() => {
     status = { stories: [mine], seen: [] };
+    filters = DEFAULT_FILTERS;
+    vi.clearAllMocks();
   });
 
   test("an own-only published story appears on home and opens My Stories", async () => {
@@ -112,4 +116,19 @@ describe("home published story rail", () => {
       screen.getByRole("link", { name: /Other Creator/ }).getAttribute("href"),
     ).toBe("/status/other-1");
   });
+  test("selected ethnicities reach the paginated server search", async () => {
+    filters = {...DEFAULT_FILTERS, ethnicities:["Regional, mixed"]};
+    render(<Personals />);
+    await screen.findByText("No posts match your filters");
+    expect(searchListings).toHaveBeenCalledWith(expect.objectContaining({ethnicities:["Regional, mixed"]}));
+  });
+
+});
+
+
+test("Personals sends the neighbourhood ID and province with the existing pagination limit", async () => {
+ status={stories:[],seen:[]};
+ filters={...DEFAULT_FILTERS,province:"on",cities:["Scarborough"]};
+ render(<Personals/>);
+ await waitFor(()=>expect(searchListings).toHaveBeenLastCalledWith(expect.objectContaining({province:"on",area:["scar"],limit:20})));
 });

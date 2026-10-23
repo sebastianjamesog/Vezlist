@@ -1,6 +1,5 @@
 package cc.vezlist.catalog.web;
 
-import java.time.Duration;
 import java.util.List;
 
 import cc.vezlist.catalog.application.CatalogService;
@@ -18,7 +17,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1")
 public class CatalogController {
-    private static final CacheControl PUBLIC_CACHE = CacheControl.maxAge(Duration.ofHours(1)).cachePublic();
     private final CatalogService catalogService;
 
     public CatalogController(CatalogService catalogService) {
@@ -33,7 +31,7 @@ public class CatalogController {
 
     @GetMapping("/locations")
     ResponseEntity<LocationsResponse> locations() {
-        return ResponseEntity.ok().cacheControl(PUBLIC_CACHE).body(catalogService.locations());
+        return ResponseEntity.ok().cacheControl(CacheControl.noCache()).body(catalogService.locations());
     }
 
     @GetMapping("/locations/search")

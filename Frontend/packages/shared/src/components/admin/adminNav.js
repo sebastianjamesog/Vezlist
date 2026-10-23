@@ -36,7 +36,6 @@ export const adminNav = [
         icon: "Megaphone",
 
       },
-      { to: "/reviews", label: "Review queue", icon: "ClipboardCheck", badge: "pending", permission: "listing.moderate" },
       {
         to: "/reports",
         label: "Reports",
